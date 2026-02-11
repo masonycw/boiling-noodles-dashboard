@@ -32,7 +32,7 @@ tw_holidays = [
     # 2026
     "2026-01-01", "2026-02-13", "2026-02-14", "2026-02-15", "2026-02-16", "2026-02-17", "2026-02-18",
     "2026-02-28", "2026-04-03", "2026-04-04", "2026-04-05", "2026-04-06", "2026-05-01", "2026-06-19", 
-    "2026-09-27", "2026-10-10", "2026-12-25"
+    "2026-09-25", "2026-09-26", "2026-09-27", "2026-09-28", "2026-10-09", "2026-10-10", "2026-10-11", "2026-10-24", "2026-10-25", "2026-10-26", "2026-12-25"
 ]
 TW_HOLIDAYS_SET = set(tw_holidays)
 
@@ -96,7 +96,7 @@ def preprocess_data(df_report, df_details):
         mask_combo = df_details['Item Name'].astype(str).str.contains('超值組合', na=False)
         df_details.loc[mask_combo, 'Item Name'] = '超值組合'
     
-    # --- Categorization P13 Swap ---
+    # --- Categorization P13.5 Correction ---
     clean_cols = {c: c.strip() for c in df_details.columns}
     df_details.rename(columns=clean_cols, inplace=True)
     
@@ -115,9 +115,9 @@ def preprocess_data(df_report, df_details):
             if prefix == 'B': return 'B 乾麵/飯 (Dry/Rice)'
             if prefix == 'E': return 'E 湯品 (Soup)' 
             
-            # P13 Logic: C=Sides, D=Veg (Reversed from P11)
-            if prefix == 'C': return 'C 小菜 (Sides)' 
-            if prefix == 'D': return 'D 青菜 (Vegetables)' 
+            # P13.5 Fix: C=Veg, D=Sides (User Request 1527)
+            if prefix == 'C': return 'C 青菜 (Vegetables)' 
+            if prefix == 'D': return 'D 小菜 (Sides)' 
             if prefix == 'F': return 'F 飲料 (Drinks)'
             
             if prefix == 'S': return 'S 套餐 (Set)'
@@ -132,9 +132,9 @@ def preprocess_data(df_report, df_details):
         
         if any(x in name for x in ['湯', '羹']): return 'E 湯品 (Soup)'
         
-        # Consistent with SKU P13
-        if any(x in name for x in ['豆干', '皮蛋', '豆腐', '海帶', '花生', '毛豆', '黃瓜', '蛋']): return 'C 小菜 (Sides)'
-        if any(x in name for x in ['菜', '水蓮']): return 'D 青菜 (Vegetables)'
+        # Consistent with SKU P13.5
+        if any(x in name for x in ['菜', '水蓮']): return 'C 青菜 (Vegetables)'
+        if any(x in name for x in ['豆干', '皮蛋', '豆腐', '海帶', '花生', '毛豆', '黃瓜', '蛋']): return 'D 小菜 (Sides)'
         
         if any(x in name for x in ['茶', '飲', '可樂', '雪碧']): return 'F 飲料 (Drinks)'
         
