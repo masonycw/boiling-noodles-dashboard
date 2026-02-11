@@ -516,7 +516,7 @@ try:
                     st.plotly_chart(fig_trend, use_container_width=True)
                 
                 # P16: Restore Pie Chart
-                st.write("**商品佔比 (Pie Chart)**")
+                st.write(f"**{sel_cat} 商品銷售佔比**")
                 pie_data = cat_df.groupby('Item Name')['Item Quantity'].sum().reset_index()
                 fig_pie = px.pie(pie_data, values='Item Quantity', names='Item Name', title=f"{sel_cat} 銷售佔比")
                 st.plotly_chart(fig_pie, use_container_width=True)
