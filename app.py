@@ -119,9 +119,9 @@ def preprocess_data(df_report, df_details):
             if prefix == 'B': return 'B 乾麵/飯 (Dry/Rice)'
             if prefix == 'E': return 'E 湯品 (Soup)' 
             
-            # P15 Fix: Cross-Map SKU C->Sides, D->Veg (User Request 1578)
-            if prefix == 'C': return 'D 小菜 (Sides)' 
-            if prefix == 'D': return 'C 青菜 (Vegetables)' 
+            # P17.5 Fix: C=Veg/青菜, D=Sides/小菜 (User Request 1527)
+            if prefix == 'C': return 'C 青菜 (Vegetables)' 
+            if prefix == 'D': return 'D 小菜 (Sides)' 
             if prefix == 'F': return 'F 飲料 (Drinks)'
             
             if prefix == 'S': return 'S 套餐 (Set)'
@@ -658,8 +658,10 @@ try:
     elif view_mode == "🔮 智慧預測":
         st.title("🔮 AI 營收預測")
         
-        days_basis = st.radio("預測基礎", ["過去 2 週 (14 Days)", "過去 4 週 (28 Days)"], index=0, horizontal=True)
+        days_basis = st.radio("預測基礎", ["過去 2 週 (14 Days)", "過去 4 週 (28 Days)"], index=0, horizontal=True, key='pred_basis_radio')
         days_back = 28 if "4" in days_basis else 14
+        
+        st.write(f"🔧 Debug: Selected Mode='{days_basis}', DaysBack={days_back}")
         
         avg_wd, avg_hd, cnt_wd, cnt_hd, p_start, p_end = predict_revenue_summary(df_report, days_back=days_back)
         
