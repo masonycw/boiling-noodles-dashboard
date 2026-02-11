@@ -234,6 +234,8 @@ def predict_monthly_table_hybrid(avg_wd, avg_hd, df_report, months=12):
         future_stats.append({
             'Month_Period': m,
             'Date_Label': str(m),
+            'Weekday Days': n_wd,
+            'Holiday Days': n_hd,
             'Forecast Revenue': rev,
             'Status': 'Forecast'
         })
@@ -512,6 +514,12 @@ try:
                     chart_data = chart_data.set_index('Date_Parsed').groupby('Item Name').resample(freq_alias)['Item Quantity'].sum().reset_index()
                     fig_trend = px.line(chart_data, x='Date_Parsed', y='Item Quantity', color='Item Name', markers=True, title=f"{sel_cat} {interval} 走勢")
                     st.plotly_chart(fig_trend, use_container_width=True)
+                
+                # P16: Restore Pie Chart
+                st.write("**商品佔比 (Pie Chart)**")
+                pie_data = cat_df.groupby('Item Name')['Item Quantity'].sum().reset_index()
+                fig_pie = px.pie(pie_data, values='Item Quantity', names='Item Name', title=f"{sel_cat} 銷售佔比")
+                st.plotly_chart(fig_pie, use_container_width=True)
 
     # --- VIEW 3: 會員查詢 ---
     elif view_mode == "👥 會員查詢":
@@ -662,8 +670,12 @@ try:
         
         forecast_df = predict_monthly_table_hybrid(avg_wd, avg_hd, df_report, months=12)
         
-        st.dataframe(forecast_df[['Date_Label', 'Forecast Revenue', 'Status']].style.format({
-            'Forecast Revenue': '${:,.0f}'
+        # P16: Show Weekday/Holiday counts in table
+        cols_show = ['Date_Label', 'Weekday Days', 'Holiday Days', 'Forecast Revenue', 'Status']
+        st.dataframe(forecast_df[cols_show].style.format({
+            'Forecast Revenue': '${:,.0f}',
+            'Weekday Days': '{:.0f}',
+            'Holiday Days': '{:.0f}'
         }), use_container_width=True)
         
         fig_rev = px.bar(forecast_df, x='Date_Label', y='Forecast Revenue', title="未來 12 個月預估營收", color='Status')
