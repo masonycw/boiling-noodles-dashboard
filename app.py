@@ -474,7 +474,7 @@ try:
             if col_name in df_report.columns:
                  name_series = df_report[col_name].astype(str).fillna('')
             else: name_series = pd.Series([])
-            mask = pd.Series([False]*len(df_report))
+            mask = pd.Series(False, index=df_report.index)
             if not phone_series.empty: mask |= phone_series.str.contains(s_clean, na=False)
             if not name_series.empty: mask |= name_series.str.contains(s_clean, na=False)
             results = df_report[mask].copy()
