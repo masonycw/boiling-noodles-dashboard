@@ -93,12 +93,13 @@ def preprocess_data(df_report, df_details):
     if 'Modifier Name' in df_details.columns:
         df_details = df_details[df_details['Modifier Name'].isna() | (df_details['Modifier Name'] == '')]
 
-    # --- Feature 2: Aggregate "Super Value Combos" ---
+    # --- Feature: Aggregate "Super Value Combos" ---
     if 'Item Name' in df_details.columns:
+        # P8/P9: Aggregate all '超值組合' into one display name
         mask_combo = df_details['Item Name'].astype(str).str.contains('超值組合', na=False)
         df_details.loc[mask_combo, 'Item Name'] = '超值組合'
     
-    # --- Categorization (Phase 9 Fix) ---
+    # --- Categorization (Phase 9 Logic Check) ---
     clean_cols = {c: c.strip() for c in df_details.columns}
     df_details.rename(columns=clean_cols, inplace=True)
     
@@ -116,14 +117,10 @@ def preprocess_data(df_report, df_details):
             if prefix == 'A': return 'A 湯麵 (Soup Noodle)'
             if prefix == 'B': return 'B 乾麵/飯 (Dry/Rice)'
             if prefix == 'E': return 'E 湯品 (Soup)' 
-            if prefix == 'F': return 'F 小菜 (Small Sides)' 
-            
-            # User Req #2 (P9): Reverse C and D from P8
-            # P8 was C=Veg, D=Sides.
-            # User says "Reversed", so C=Sides, D=Veg. (Or maybe just names?)
-            # Let's map consistent with User Feedback.
-            if prefix == 'C': return 'C 小菜 (Sides)' # P9 Update
-            if prefix == 'D': return 'D 青菜 (Vegetables)' # P9 Update
+            if prefix == 'F': return 'F 小菜 (Small Sides)' # User might have meant D? But F is usually Small Sides.
+            # User P9: "C is Sides, D is Veg" (Reversed from P8)
+            if prefix == 'C': return 'C 小菜 (Sides)' 
+            if prefix == 'D': return 'D 青菜 (Vegetables)' 
             
             if prefix == 'S': return 'S 套餐 (Set)'
 
@@ -136,7 +133,7 @@ def preprocess_data(df_report, df_details):
         if '拌麵' in name or '乾麵' in name or '飯' in name: return 'B 乾麵/飯 (Dry/Rice)'
         
         if any(x in name for x in ['湯', '羹']): return 'E 湯品 (Soup)'
-        # Swap logic here too
+        # Swap logic consistent with SKU
         if any(x in name for x in ['豆干', '皮蛋', '豆腐', '海帶', '花生', '毛豆', '黃瓜', '蛋']): return 'C 小菜 (Sides)'
         if any(x in name for x in ['菜', '水蓮']): return 'D 青菜 (Vegetables)'
         
@@ -349,7 +346,11 @@ try:
             base_agg = df_rep.groupby('Date_Parsed')['總計'].sum().reset_index().rename(columns={'總計': '總營業額'})
             base_agg['Date'] = base_agg['Date_Parsed'].dt.date
             period_rev = df_rep.groupby(['Date_Parsed', 'Period'])['總計'].sum().unstack(fill_value=0).reset_index()
+            # Handle potential missing columns
+            for p in ['中午 (Lunch)', '晚上 (Dinner)']: 
+                if p not in period_rev.columns: period_rev[p] = 0
             period_rev.rename(columns={'中午 (Lunch)': '午餐營收', '晚上 (Dinner)': '晚餐營收'}, inplace=True)
+            
             vis_agg = df_det[df_det['Is_Main_Dish']].groupby('Date_Parsed')['Item Quantity'].sum().reset_index().rename(columns={'Item Quantity': '來客數'})
             
             if col_type in df_rep.columns:
@@ -358,7 +359,7 @@ try:
                 for c in channel_rev.columns:
                     if 'Delivery' in str(c) or '外送' in str(c): rename_map[c] = '外送營收'
                     if 'Takeout' in str(c) or '外帶' in str(c): rename_map[c] = '外帶營收'
-                    if 'Dine-in' in str(c) or '內用' in str(c): rename_map[c] = '堂食營收 (內用)' # User explicitly asked for "堂食"
+                    if 'Dine-in' in str(c) or '內用' in str(c): rename_map[c] = '堂食營收 (內用)' 
                 channel_rev.rename(columns=rename_map, inplace=True)
             else:
                 channel_rev = pd.DataFrame(columns=['Date_Parsed'])
@@ -369,6 +370,7 @@ try:
             final_df['客單價'] = (final_df['總營業額'] / final_df['來客數']).replace([np.inf, -np.inf], 0).fillna(0).round(0)
             
             cols_show = ['Date', '午餐營收', '晚餐營收', '總營業額', '來客數', '客單價']
+            # P9: Explicit check to include Dine-in if present
             for c in ['外送營收', '外帶營收', '堂食營收 (內用)']:
                 if c in final_df.columns: cols_show.append(c)
                 
@@ -391,10 +393,9 @@ try:
             
             st.subheader("📈 類別與商品走勢")
             
-            # Categories (Sorted + Comparison Option)
             cats = sorted(list(df_items['Category'].unique()))
-            # User Req #3: Add "(Dry+Rice)/Soup Trend"
-            comp_opt = "📋 [特殊] 乾麵+飯 vs 湯麵 (Dry/Rice vs Soup)"
+            # P9: Add Comparison Chart in Dropdown
+            comp_opt = "📋 [特殊] 乾麵/飯 vs 湯麵 (Dry/Rice vs Soup)"
             cats.insert(0, comp_opt)
             
             sel_cat = st.selectbox("請選擇類別 或 特殊比較", cats, index=0)
@@ -405,30 +406,26 @@ try:
             elif interval == "4週 (Monthly)": freq_alias = 'M' 
 
             if sel_cat == comp_opt:
-                # SPECIAL COMPARISON LOGIC
-                # Filter A (Soup) and B (Dry/Rice)
+                # SPECIAL CHART: Sum of Cat A vs Sum of Cat B
                 mask_a = df_items['Category'].str.contains('A 湯麵', na=False)
                 mask_b = df_items['Category'].str.contains('B 乾麵', na=False)
                 
                 comp_df = df_items[mask_a | mask_b].copy()
-                # Create a simplified Group Column
                 comp_df['Group'] = comp_df['Category'].apply(lambda x: '湯麵 (Soup)' if 'A 湯麵' in x else '乾麵/飯 (Dry/Rice)')
                 
-                # Group by Date + Group -> Sum Qty
                 chart_data = comp_df.set_index('Date_Parsed').groupby('Group').resample(freq_alias)['Item Quantity'].sum().reset_index()
                 
                 fig_trend = px.line(chart_data, x='Date_Parsed', y='Item Quantity', color='Group', markers=True, title=f"乾麵/飯 vs 湯麵 - {interval} 走勢比較")
                 st.plotly_chart(fig_trend, use_container_width=True)
                 
-                # Show Stats
                 total_a = comp_df[comp_df['Group']=='湯麵 (Soup)']['Item Quantity'].sum()
                 total_b = comp_df[comp_df['Group']=='乾麵/飯 (Dry/Rice)']['Item Quantity'].sum()
+                
                 c1, c2 = st.columns(2)
                 c1.metric("湯麵總銷量", f"{total_a:,.0f}")
                 c2.metric("乾麵/飯總銷量", f"{total_b:,.0f}")
-                
+
             else:
-                # NORMAL LOGIC
                 cat_df = df_items[df_items['Category'] == sel_cat].copy()
                 top_items = cat_df.groupby('Item Name')['Item Quantity'].sum().nlargest(5).index.tolist()
                 sel_items = st.multiselect("選擇商品繪圖", cat_df['Item Name'].unique(), default=top_items)
@@ -455,7 +452,6 @@ try:
                     st.write(f"**{sel_cat} 銷售排行**")
                     st.dataframe(summary[['Item Name', 'Item Quantity', 'Item Amount(TWD)', 'Qty %', 'Rev %']], use_container_width=True)
                 
-                # Raw (Show cat filtered)
                 raw_pivot_cat = cat_df.groupby(['Date_Parsed', 'Item Name'])['Item Quantity'].sum().reset_index()
                 raw_pivot_cat['Date'] = raw_pivot_cat['Date_Parsed'].dt.strftime('%Y-%m-%d')
                 raw_wide_cat = raw_pivot_cat.pivot(index='Date', columns='Item Name', values='Item Quantity').fillna(0)
@@ -523,7 +519,7 @@ try:
         if df_rep.empty: st.warning("無資料")
         else:
             st.subheader("📈 未來 12 個月營收預測")
-            st.caption("預測基礎：過去 2 週的週平/假日平均日營收")
+            st.caption("預測基礎：過去 2 週的週平/假日平均日營收 (Weekday/Holiday Avg)")
             rev_fc_df = predict_revenue(df_report, days=365)
             if not rev_fc_df.empty:
                 rev_fc_df['Month'] = rev_fc_df['Date'].dt.to_period('M').astype(str)
