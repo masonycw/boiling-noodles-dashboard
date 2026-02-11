@@ -20,7 +20,7 @@ GID_REPORT = "0"
 GID_DETAILS = "1988676024"
 LOCAL_DATA_DIR = "/home/eats365/data"
 
-# Taiwan Holidays (2024-2026) - Comprehensive List
+# Taiwan Holidays (2024-2026)
 tw_holidays = [
     # 2024
     "2024-01-01", "2024-02-08", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-02-13", "2024-02-14",
@@ -29,11 +29,11 @@ tw_holidays = [
     "2025-01-01", "2025-01-25", "2025-01-26", "2025-01-27", "2025-01-28", "2025-01-29", "2025-01-30", "2025-01-31", 
     "2025-02-01", "2025-02-02", "2025-02-28", "2025-04-03", "2025-04-04", "2025-04-05", "2025-04-06", 
     "2025-05-01", "2025-05-31", "2025-06-01", "2025-06-02", "2025-10-04", "2025-10-05", "2025-10-06", 
-    "2025-10-10", "2025-10-11", "2025-10-12",
+    "2025-10-10", "2025-10-11", "2025-10-12", "2025-12-25", # Added 12/25
     # 2026
     "2026-01-01", "2026-02-13", "2026-02-14", "2026-02-15", "2026-02-16", "2026-02-17", "2026-02-18",
     "2026-02-28", "2026-04-03", "2026-04-04", "2026-04-05", "2026-04-06", "2026-05-01", "2026-06-19", 
-    "2026-09-27", "2026-10-10"
+    "2026-09-27", "2026-10-10", "2026-12-25" # Added 12/25
 ]
 TW_HOLIDAYS_SET = set(tw_holidays)
 
@@ -60,7 +60,6 @@ def preprocess_data(df_report, df_details):
 
     # --- A. Common Cleaning ---
     if '狀態' in df_report.columns:
-        # Exclude Cancelled AND Closed
         df_report = df_report[~df_report['狀態'].astype(str).str.contains('取消|Cancelled|已關閉|Closed', case=False, na=False)]
     if 'Status' in df_details.columns:
         df_details = df_details[~df_details['Status'].astype(str).str.contains('取消|Cancelled|已關閉|Closed', case=False, na=False)]
@@ -70,13 +69,10 @@ def preprocess_data(df_report, df_details):
     if 'date' in df_details.columns:
         df_details['Date_Parsed'] = pd.to_datetime(df_details['date'], errors='coerce')
 
-    # Combine DateTime (Robust Fix)
+    # Combine DateTime
     if '時間' in df_report.columns and 'Date_Parsed' in df_report.columns:
-        # 1. Parse '時間' column flexibly
         temp_time = pd.to_datetime(df_report['時間'], errors='coerce')
-        # 2. Extract HH:MM:SS string
         time_str = temp_time.dt.strftime('%H:%M:%S').fillna('00:00:00')
-        # 3. Combine with trusted 'Date_Parsed'
         df_report['Datetime'] = pd.to_datetime(
             df_report['Date_Parsed'].dt.strftime('%Y-%m-%d') + ' ' + time_str,
             errors='coerce'
@@ -96,19 +92,48 @@ def preprocess_data(df_report, df_details):
     if 'Modifier Name' in df_details.columns:
         df_details = df_details[df_details['Modifier Name'].isna() | (df_details['Modifier Name'] == '')]
 
-    # --- Categorization (SKU -> Name) ---
+    # --- Categorization (Advanced) ---
     clean_cols = {c: c.strip() for c in df_details.columns}
     df_details.rename(columns=clean_cols, inplace=True)
     
     def infer_category(row):
-        sku = str(row.get('Product SKU', ''))
         name = str(row.get('Item Name', ''))
-        if '麵' in name: return '麵類 (Noodle)'
-        if '飯' in name: return '飯類 (Rice)'
-        if any(x in name for x in ['湯', '羹']): return '湯品 (Soup)'
-        if any(x in name for x in ['茶', '飲', '拿鐵', '咖啡', '可樂', '雪碧']): return '飲料 (Drink)'
-        if any(x in name for x in ['菜', '豆干', '皮蛋', '肉', '蛋', '豆腐']): return '小菜 (Side Dish)'
-        return '其他 (Others)'
+        item_type = str(row.get('Item Type', ''))
+        
+        # S: Set Meal (Wrapper)
+        # Note: User wants to analyze 'Set Meal' performance, so we might need to count Wrappers in Category Analysis 
+        # BUT exclude them from "Visitor Count". Current logic separates 'Visitor Count' (Is_Main_Dish) from 'Category'.
+        if 'Set Meal' in item_type or 'Combo Item' in item_type:
+             if 'Single Item' not in item_type: # Strict Wrapper
+                 return 'S 套餐 (Set)'
+        
+        # A: Soup Noodle
+        if '湯麵' in name or ('麵' in name and '湯' in name): 
+            return 'A 湯麵 (Soup Noodle)'
+            
+        # B: Dry Noodle / Rice
+        if ('麵' in name and '湯' not in name) or '飯' in name or '拌麵' in name or '乾麵' in name:
+            return 'B 乾麵/飯 (Dry Noodle/Rice)'
+            
+        # C: Alacarte / Main Sides
+        # Keywords: 蔥油雞, 五花, 口水雞, etc.
+        if any(x in name for x in ['蔥油雞', '五花', '口水雞', '燒肉', '豬頭皮', '生腸', '鴨肉']):
+            return 'C 單點 (Alacarte)'
+            
+        # D: Veg
+        if any(x in name for x in ['燙青菜', '高麗菜', '大陸妹', '青江菜', '空心菜', '地瓜葉', '水蓮']):
+            return 'D 青菜 (Vegetables)'
+            
+        # E: Drink
+        if any(x in name for x in ['茶', '飲', '拿鐵', '咖啡', '可樂', '雪碧', '汽水']):
+            return 'E 飲料 (Drink)'
+            
+        # F: Side Dish (Small)
+        if any(x in name for x in ['豆干', '皮蛋', '蛋', '豆腐', '海帶', '花生', '毛豆', '黃瓜']):
+            return 'F 小菜 (Small Sides)'
+            
+        # Default
+        return 'G 其他 (Others)'
         
     df_details['Category'] = df_details.apply(infer_category, axis=1)
 
@@ -128,13 +153,23 @@ def preprocess_data(df_report, df_details):
         return '中午 (Lunch)' if dt.hour < 16 else '晚上 (Dinner)'
     df_report['Period'] = df_report['Datetime'].apply(get_period) if 'Datetime' in df_report.columns else 'Unknown'
 
-    # --- Main Dish Logic ---
+    # --- Main Dish Logic (Visitor Count) ---
+    # Strict: Only A (Soup Noodle) and B (Dry/Rice) and C (Alacarte)? No, usually just Noodle/Rice.
+    # Refined based on Phase 4 data audit:
+    # 1. Must contain 麵/飯
+    # 2. Must NOT be 'Combo Item' wrapper
+    # 3. Must NOT be Side Dish keywords if they contain 麵/飯 (rare, but possible)
+    
     df_details['Is_Main_Dish'] = False
     mask_name = df_details['Item Name'].astype(str).str.contains('麵|飯', regex=True, na=False)
+    
+    # Exclude Wrapper
     mask_exclude_wrapper = pd.Series([True] * len(df_details))
     if 'Item Type' in df_details.columns:
+        # Exclude 'Combo Item' (Wrapper)
         mask_is_wrapper = df_details['Item Type'].astype(str).str.fullmatch('Combo Item', case=False, na=False)
         mask_exclude_wrapper = ~mask_is_wrapper
+        
     df_details.loc[mask_name & mask_exclude_wrapper, 'Is_Main_Dish'] = True
 
     return df_report, df_details
@@ -237,7 +272,29 @@ try:
         c4.metric("👤平均客單價", f"${curr_avg:,.0f}", f"{calculate_delta(curr_avg, prev_avg):.1%}" if prev_avg else None)
         st.divider()
 
-        # Row 1: Graph (Time) + Stats
+        # Row 1: Graphs (Visitor & ATV)
+        c_vis, c_atv = st.columns(2)
+        with c_vis:
+            st.subheader("👥 來客數趨勢")
+            if not df_rep.empty:
+                # Need to join report dates with details to get daily visitors
+                # Aggregating details by Order Number -> Date is better
+                daily_vis = df_det[df_det['Is_Main_Dish']].groupby('Date_Parsed')['Item Quantity'].sum().reset_index()
+                fig_v = px.line(daily_vis, x='Date_Parsed', y='Item Quantity', markers=True, title=None)
+                st.plotly_chart(fig_v, use_container_width=True)
+        
+        with c_atv:
+            st.subheader("💰 客單價趨勢")
+            if not df_rep.empty and not daily_vis.empty:
+                daily_rev_chart = df_rep.groupby('Date_Parsed')['總計'].sum().reset_index()
+                daily_atv = pd.merge(daily_rev_chart, daily_vis, on='Date_Parsed', how='inner')
+                daily_atv['ATV'] = daily_atv['總計'] / daily_atv['Item Quantity']
+                fig_a = px.line(daily_atv, x='Date_Parsed', y='ATV', markers=True, title=None)
+                st.plotly_chart(fig_a, use_container_width=True)
+
+        st.divider()
+
+        # Row 2: Revenue Trend (Time of Day)
         col_L, col_R = st.columns([2, 1])
         with col_L:
             st.subheader("📈 營業額趨勢 (時段)")
@@ -245,7 +302,6 @@ try:
                 daily_period = df_rep.groupby(['Date_Parsed', 'Period'])['總計'].sum().reset_index()
                 daily_total = df_rep.groupby('Date_Parsed')['總計'].sum().reset_index().rename(columns={'總計': 'Daily_Total'})
                 daily_period = pd.merge(daily_period, daily_total, on='Date_Parsed', how='left')
-                daily_period['Date_Str'] = daily_period['Date_Parsed'].dt.strftime('%Y-%m-%d')
                 
                 fig = px.bar(
                     daily_period, x='Date_Parsed', y='總計', color='Period', 
@@ -253,58 +309,42 @@ try:
                     color_discrete_map={'中午 (Lunch)': '#FFC107', '晚上 (Dinner)': '#3F51B5'},
                     custom_data=['Daily_Total']
                 )
-                fig.update_traces(hovertemplate="<br>".join([
-                    "Date: %{x|%Y-%m-%d}", "Period: %{data.name}", 
-                    "Revenue: $%{y:,.0f}", "<b>Daily Total: $%{customdata[0]:,.0f}</b>"
-                ]))
+                fig.update_traces(hovertemplate="Date: %{x}<br>Rev: $%{y:,.0f}<br>Total: $%{customdata[0]:,.0f}")
                 st.plotly_chart(fig, use_container_width=True)
-                
-                with st.expander("詳細數字 (每日營收表)", expanded=False):
-                    pivot_table = daily_period.pivot(index='Date_Str', columns='Period', values='總計').fillna(0)
-                    pivot_table['Total'] = pivot_table.sum(axis=1)
-                    st.dataframe(pivot_table.style.format("{:,.0f}"), use_container_width=True)
         
         with col_R:
-            st.subheader("📅 平假日平均")
+            st.subheader("📅 平假日平均比較")
             if not df_rep.empty:
+                # Current Period
                 daily_rev = df_rep.groupby(['Date_Parsed', 'Day_Type'])['總計'].sum().reset_index()
-                type_avg = daily_rev.groupby('Day_Type')['總計'].mean()
+                curr_type_avg = daily_rev.groupby('Day_Type')['總計'].mean()
+                
+                # Prev Period
+                daily_rev_prev = df_rep_prev.groupby(['Date_Parsed', 'Day_Type'])['總計'].sum().reset_index() if not df_rep_prev.empty else pd.DataFrame()
+                prev_type_avg = daily_rev_prev.groupby('Day_Type')['總計'].mean() if not daily_rev_prev.empty else pd.Series()
+                
                 for dtype in ['平日 (Weekday)', '週末 (Weekend)', '特別假日 (Holiday)']:
-                    val = type_avg.get(dtype, 0)
-                    st.metric(f"平均 {dtype}", f"${val:,.0f}")
+                    val = curr_type_avg.get(dtype, 0)
+                    pval = prev_type_avg.get(dtype, 0)
+                    st.metric(f"平均 {dtype}", f"${val:,.0f}", f"{calculate_delta(val, pval):.1%}" if pval else None)
 
             st.write("---")
             st.subheader("📌 特別假日")
             special = df_rep[df_rep['Day_Type'] == '特別假日 (Holiday)']['Date_Parsed'].dt.date.unique()
             if len(special) > 0:
-                for d in sorted(special):
-                    st.write(f"- {d}")
+                for d in sorted(special): st.write(f"- {d}")
             else:
                 st.info("無")
 
-        # Row 2: Graph (Order Type) - REVENUE Chart (Users request #3)
+        # Row 3: Revenue Order Type
         st.divider()
-        st.subheader("🛵 營業額趨勢 (內用/外帶/外送)")
+        st.subheader("🛵 每日營收結構")
         col_type = '單類型' if '單類型' in df_rep.columns else 'Order Type'
-        
         if col_type in df_rep.columns:
             daily_type = df_rep.groupby(['Date_Parsed', col_type])['總計'].sum().reset_index()
-            daily_total_type = df_rep.groupby('Date_Parsed')['總計'].sum().reset_index().rename(columns={'總計': 'Daily_Total'})
-            daily_type = pd.merge(daily_type, daily_total_type, on='Date_Parsed', how='left')
-            
-            fig_type = px.bar(
-                daily_type, x='Date_Parsed', y='總計', color=col_type, 
-                barmode='stack', title=None,
-                custom_data=['Daily_Total']
-            )
-            fig_type.update_traces(hovertemplate="<br>".join([
-                "Date: %{x|%Y-%m-%d}", "Type: %{data.name}", 
-                "Revenue: $%{y:,.0f}", "<b>Daily Total: $%{customdata[0]:,.0f}</b>"
-            ]))
+            fig_type = px.bar(daily_type, x='Date_Parsed', y='總計', color=col_type, barmode='stack')
             st.plotly_chart(fig_type, use_container_width=True)
-        else:
-            st.info(f"無 '{col_type}' 資料")
-
+            
     # --- VIEW 2: 商品分析 ---
     elif view_mode == "🍟 商品分析":
         st.title("🍟 商品銷售分析")
@@ -312,38 +352,89 @@ try:
         if 'Item Name' in df_det.columns:
             df_items = df_det.dropna(subset=['Item Name'])
             
+            # --- Auto Comparison ---
             curr_qty = df_items['Item Quantity'].sum()
             prev_qty = df_det_prev['Item Quantity'].sum() if not df_det_prev.empty else 0
             
-            c1, c2 = st.columns(2)
-            c1.metric("總銷售數量", f"{curr_qty:,.0f}", f"{calculate_delta(curr_qty, prev_qty):.1%}" if prev_qty else None)
+            # --- Category Metrics (Comparison) ---
+            st.subheader("📊 類別銷售表現 (vs 上一期)")
             
-            st.subheader("📊 類別銷售佔比")
-            item_stats = df_items.groupby(['Category', 'Item Name']).agg({
+            # Group Current
+            cat_stats_curr = df_items.groupby('Category').agg({
                 'Item Quantity': 'sum',
                 'Item Amount(TWD)': 'sum'
             }).reset_index()
             
-            cat_sum = item_stats.groupby('Category')['Item Amount(TWD)'].sum().reset_index()
-            fig_pie = px.pie(cat_sum, values='Item Amount(TWD)', names='Category')
-            st.plotly_chart(fig_pie, use_container_width=True)
+            # Group Previous
+            cat_stats_prev = df_det_prev.groupby('Category').agg({
+                'Item Quantity': 'sum',
+                'Item Amount(TWD)': 'sum'
+            }).reset_index() if not df_det_prev.empty else pd.DataFrame(columns=['Category', 'Item Quantity'])
             
+            # Merge
+            cat_comp = pd.merge(cat_stats_curr, cat_stats_prev, on='Category', how='left', suffixes=('', '_prev'))
+            
+            # Display Cards for Categories
+            cols = st.columns(min(len(cat_stats_curr), 4))
+            for i, row in cat_comp.iterrows():
+                with cols[i % 4]:
+                    cat_name = row['Category'].split(' ')[0] # Short name
+                    val = row['Item Quantity']
+                    pval = row['Item Quantity_prev']
+                    st.metric(f"{row['Category']}", f"{val:,.0f}", f"{calculate_delta(val, pval):.1%}" if pd.notnull(pval) else None)
+            
+            st.divider()
+            
+            # --- Item Trend (6 Intervals) ---
+            st.subheader("📈 商品銷售走勢 (近 6 個月)")
+            
+            # Generate 6 month buckets
+            end_m = date.today().replace(day=1) + relativedelta(months=1) - timedelta(days=1)
+            start_m = (end_m - relativedelta(months=5)).replace(day=1)
+            
+            mask_6m = (df_details['Date_Parsed'] >= pd.Timestamp(start_m)) & (df_details['Date_Parsed'] <= pd.Timestamp(end_m))
+            df_6m = df_details[mask_6m].copy()
+            df_6m['Month'] = df_6m['Date_Parsed'].dt.strftime('%Y-%m')
+            
+            # Select Top Items
+            top_items = df_6m.groupby('Item Name')['Item Quantity'].sum().nlargest(5).index.tolist()
+            sel_items = st.multiselect("選擇商品查看走勢", df_6m['Item Name'].unique(), default=top_items)
+            
+            if sel_items:
+                trend_data = df_6m[df_6m['Item Name'].isin(sel_items)].groupby(['Month', 'Item Name'])['Item Quantity'].sum().reset_index()
+                fig_trend = px.line(trend_data, x='Month', y='Item Quantity', color='Item Name', markers=True)
+                st.plotly_chart(fig_trend, use_container_width=True)
+
+            st.divider()
+
+            # --- Detail List ---
             st.subheader("📋 詳細清單")
-            cats = ['全部'] + list(item_stats['Category'].unique())
+            cats = ['全部'] + sorted(list(df_items['Category'].unique()))
             sel_cat = st.selectbox("篩選類別", cats)
             
             if sel_cat != '全部':
-                show_df = item_stats[item_stats['Category'] == sel_cat].copy()
-                cat_total = show_df['Item Amount(TWD)'].sum()
-                show_df['Category Share %'] = (show_df['Item Amount(TWD)'] / cat_total * 100).round(1)
-            else:
-                show_df = item_stats.copy()
-                total = show_df['Item Amount(TWD)'].sum()
-                show_df['Share %'] = (show_df['Item Amount(TWD)'] / total * 100).round(1)
+                show_df = df_items[df_items['Category'] == sel_cat].copy()
+                cat_rev = show_df['Item Amount(TWD)'].sum()
+                cat_qty = show_df['Item Quantity'].sum()
                 
-            st.dataframe(show_df.sort_values('Item Quantity', ascending=False), use_container_width=True)
-        else:
-            st.error("找不到商品資料")
+                # Show Category Total Base
+                st.caption(f"類別總營收: ${cat_rev:,.0f} | 類別總銷量: {cat_qty:,.0f}")
+                
+                show_df['Rev % (in Cat)'] = (show_df['Item Amount(TWD)'] / cat_rev * 100).round(1)
+                show_df['Qty % (in Cat)'] = (show_df['Item Quantity'] / cat_qty * 100).round(1)
+                
+                st.dataframe(show_df.groupby('Item Name').agg({
+                    'Item Quantity': 'sum',
+                    'Item Amount(TWD)': 'sum',
+                    'Rev % (in Cat)': 'first', # Approximation
+                    'Qty % (in Cat)': 'first'
+                }).reset_index().sort_values('Item Quantity', ascending=False), use_container_width=True)
+            else:
+                show_df = df_items.copy()
+                st.dataframe(show_df.groupby(['Category', 'Item Name']).agg({
+                    'Item Quantity': 'sum',
+                    'Item Amount(TWD)': 'sum'
+                }).reset_index().sort_values(['Category', 'Item Quantity'], ascending=[True, False]), use_container_width=True)
 
     # --- VIEW 3: 會員查詢 ---
     elif view_mode == "👥 會員查詢":
@@ -367,14 +458,11 @@ try:
             if c in df_report.columns: col_name = c; break
 
         if (col_phone or col_name) and phone_query:
-            query_clean = re.sub(r'\D', '', phone_query) # Remove non-digits
+            query_clean = re.sub(r'\D', '', phone_query)
             mask = pd.Series([False]*len(df_report))
-            
             if col_phone and query_clean: 
-                # Strict phone matching
                 phone_col_clean = df_report[col_phone].astype(str).str.replace(r'\D', '', regex=True)
                 mask |= phone_col_clean.str.contains(query_clean, na=False)
-            
             if col_name: 
                 mask |= df_report[col_name].astype(str).str.contains(phone_query, na=False)
             
@@ -393,21 +481,14 @@ try:
                 
                 st.subheader("🍔 歷史購買品項統計")
                 if 'Order Number' in member_data.columns and 'Order Number' in df_details.columns:
-                    # Get orders from report -> filter details
-                    # Use 'Order Number' from report
                     target_orders = member_data['Order Number'].unique()
-                    
-                    # Watch out for column names in Details. Earlier we renamed cleaned cols.
-                    # Usually 'Order Number' matches 'Order Number'
                     m_details = df_details[df_details['Order Number'].isin(target_orders)]
-                    
                     if not m_details.empty:
                         item_hist = m_details.groupby('Item Name')['Item Quantity'].sum().reset_index()
                         item_hist = item_hist.sort_values('Item Quantity', ascending=False)
                         st.dataframe(item_hist, use_container_width=True)
                     else:
-                        st.info("無商品明細資料 (可能細項資料未涵蓋此區間)")
-                
+                        st.info("無商品明細資料")
                 st.subheader("📜 交易紀錄")
                 st.dataframe(member_data[['date', '時間', '總計', '單類型']].sort_values('date', ascending=False), use_container_width=True)
             else:
