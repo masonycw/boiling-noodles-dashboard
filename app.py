@@ -94,20 +94,34 @@ def preprocess_data(df_report, df_details):
     else:
         df_report['Period'] = 'Unknown'
 
-    # Logic 2: Main Dish Identification (Include Set Meals)
+    # Logic 2: Main Dish Identification (Include Set Meals content, Exclude Wrapper)
     df_details['Is_Main_Dish'] = False
     
     # Ensure column names are clean
     clean_cols = {c: c.strip() for c in df_details.columns}
     df_details.rename(columns=clean_cols, inplace=True)
     
+    # 1. Identify "Rice/Noodle" items
     mask_name = df_details['Item Name'].astype(str).str.contains('麵|飯', regex=True, na=False)
-    mask_type = pd.Series([False] * len(df_details))
     
+    # 2. Identify "Set Meal Wrappers" to EXCLUDE
+    # We want to count the inner items (Single Item in Combo Item), but NOT the wrapper (Combo Item)
+    mask_exclude_wrapper = pd.Series([True] * len(df_details))
     if 'Item Type' in df_details.columns:
-        mask_type = df_details['Item Type'].astype(str).str.contains('Set Meal|套餐', case=False, na=False)
+        # If it is 'Combo Item' (the set wrapper), we DO NOT count it as a dish
+        # We only count 'Single Item' or 'Single Item in Combo Item' that are noodles/rice
+        mask_exclude_wrapper = ~df_details['Item Type'].astype(str).str.contains('Combo Item$', case=False, na=False) 
+        # Note: 'Single Item in Combo Item' contains 'Combo Item', so we use endswith '$' or strict equality?
+        # Let's use strict equality to be safe, or check for "Single Item in Combo Item"
+        
+        # Better logic:
+        # Exclude if Item Type == 'Combo Item'
+        # Keep if Item Type == 'Single Item' or 'Single Item in Combo Item'
+        mask_is_wrapper = df_details['Item Type'].astype(str).str.fullmatch('Combo Item', case=False, na=False)
+        mask_exclude_wrapper = ~mask_is_wrapper
     
-    df_details.loc[mask_name | mask_type, 'Is_Main_Dish'] = True
+    # Final Logic: Is Noodle/Rice AND Is Not Wrapper
+    df_details.loc[mask_name & mask_exclude_wrapper, 'Is_Main_Dish'] = True
 
     return df_report, df_details
 
