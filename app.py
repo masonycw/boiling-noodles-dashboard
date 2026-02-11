@@ -280,7 +280,7 @@ try:
         st.stop()
 
     st.sidebar.title("🍜 滾麵 Dashboard")
-    view_mode = st.sidebar.radio("功能切換", ["📊 營運總覽", "🍟 商品分析", "👥 會員查詢", "🆕 新舊客分析", "🔮 智慧預測"])
+    view_mode = st.sidebar.radio("功能切換", ["📊 營運總覽", "🍟 商品分析", "👥 會員查詢", "🆕 新舊客分析", "🔮 智慧預測", "📁 檔案檢查"])
     st.sidebar.divider()
 
     st.sidebar.header("📅 日期篩選")
@@ -688,5 +688,44 @@ try:
         
         fig_rev = px.bar(forecast_df, x='Date_Label', y='Forecast Revenue', title="未來 12 個月預估營收", color='Status')
         st.plotly_chart(fig_rev, use_container_width=True)
+
+    # --- VIEW 6: 檔案檢查 (File Inspector) ---
+    elif view_mode == "📁 檔案檢查":
+        st.title("📁 系統檔案檢查 (SFTP)")
+        
+        # Target Directories to check
+        dirs_to_check = {
+            "🏠 SFTP Root (/home/eats365)": "/home/eats365",
+            "📂 Data Dir (/home/eats365/data)": "/home/eats365/data",
+            "⬆️ Upload Dir (/home/eats365/upload)": "/home/eats365/upload"
+        }
+        
+        sel_dir_name = st.selectbox("選擇資料夾", list(dirs_to_check.keys()))
+        target_path = dirs_to_check[sel_dir_name]
+        
+        st.write(f"正在檢查路徑: `{target_path}`")
+        
+        if os.path.exists(target_path):
+            files = []
+            try:
+                for f in os.listdir(target_path):
+                    full_path = os.path.join(target_path, f)
+                    stat = os.stat(full_path)
+                    files.append({
+                        "Filename": f,
+                        "Size (KB)": round(stat.st_size / 1024, 2),
+                        "Modified Time": datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                        "Type": "Dir" if os.path.isdir(full_path) else "File"
+                    })
+                
+                if files:
+                    df_files = pd.DataFrame(files)
+                    st.dataframe(df_files.sort_values('Modified Time', ascending=False), use_container_width=True)
+                else:
+                    st.info("此資料夾為空 (Empty)")
+            except Exception as e:
+                st.error(f"讀取權限不足或錯誤: {e}")
+        else:
+            st.warning("找不到此資料夾 (可能是路徑錯誤或尚未建立)")
 
 except Exception as e: st.error(f"系統錯誤: {e}")
