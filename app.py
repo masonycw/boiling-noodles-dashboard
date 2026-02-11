@@ -661,7 +661,7 @@ try:
         st.title("🔮 AI 營收預測")
         
         days_basis = st.radio("預測基礎", ["過去 2 週 (14 Days)", "過去 4 週 (28 Days)"], index=0, horizontal=True, key='pred_basis_radio')
-        days_back = 28 if "4" in str(days_basis) else 14
+        days_back = 28 if "28" in str(days_basis) else 14
         
         max_dt = df_report['Date_Parsed'].max()
         st.write(f"🔧 Debug: Mode='{days_basis}', Back={days_back}, MaxDate={max_dt}")
