@@ -116,7 +116,7 @@ try:
         df_report_raw, df_details_raw = load_data()
         df_report, df_details = preprocess_data(df_report_raw, df_details_raw)
 
-    st.title("🍜 滾麵 (Gun Mian) 智慧營運報表")
+    st.title("🍜 滾麵智慧營運報表")
     
     # --- 1. Sidebar: Date & Filter Controls ---
     st.sidebar.header("📅 日期與篩選")
