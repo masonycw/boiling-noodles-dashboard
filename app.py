@@ -205,6 +205,15 @@ try:
                                  title="平均日營業額比較", text_auto='.0f',
                                  color_discrete_map={'平日 (Weekday)': '#9E9E9E', '週末 (Weekend)': '#FF9800', '特別假日 (Holiday)': '#F44336'})
             st.plotly_chart(fig_daytype, use_container_width=True)
+            
+            # List Special Holidays
+            with st.expander("📅 查看期間內的「詳細與特別假日」清單"):
+                # Filter rows where Day_Type is Special Holiday or Weekend
+                special_days = daily_rev[daily_rev['Day_Type'].isin(['特別假日 (Holiday)', '週末 (Weekend)'])]
+                if not special_days.empty:
+                    st.dataframe(special_days.sort_values('Date_Parsed'), use_container_width=True)
+                else:
+                    st.info("此區間無特別假日或週末")
         
         st.divider()
 
