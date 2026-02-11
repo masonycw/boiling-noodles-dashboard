@@ -61,9 +61,11 @@ def preprocess_data(df_report, df_details):
 
     # --- A. Common Cleaning ---
     if '狀態' in df_report.columns:
-        df_report = df_report[~df_report['狀態'].astype(str).str.contains('取消|Cancelled', case=False, na=False)]
+        # Exclude Cancelled AND Closed (per user feedback, Closed seems to be non-revenue)
+        # Target: 50563 (Completed only) vs 51581 (Completed + Closed)
+        df_report = df_report[~df_report['狀態'].astype(str).str.contains('取消|Cancelled|已關閉|Closed', case=False, na=False)]
     if 'Status' in df_details.columns:
-        df_details = df_details[~df_details['Status'].astype(str).str.contains('取消|Cancelled', case=False, na=False)]
+        df_details = df_details[~df_details['Status'].astype(str).str.contains('取消|Cancelled|已關閉|Closed', case=False, na=False)]
 
     if 'date' in df_report.columns:
         df_report['Date_Parsed'] = pd.to_datetime(df_report['date'], errors='coerce')
