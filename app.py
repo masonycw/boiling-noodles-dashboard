@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 # --- Content Configuration ---
 st.set_page_config(
-    page_title="滾麵 (Gun Mian) 營運儀表板 v2",
+
     page_icon="🍜",
     layout="wide"
 )
