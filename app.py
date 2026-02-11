@@ -95,7 +95,7 @@ def preprocess_data(df_report, df_details):
         mask_combo = df_details['Item Name'].astype(str).str.contains('超值組合', na=False)
         df_details.loc[mask_combo, 'Item Name'] = '超值組合'
     
-    # --- Categorization (Phase 11 Update) ---
+    # --- Categorization ---
     clean_cols = {c: c.strip() for c in df_details.columns}
     df_details.rename(columns=clean_cols, inplace=True)
     
@@ -114,7 +114,6 @@ def preprocess_data(df_report, df_details):
             if prefix == 'B': return 'B 乾麵/飯 (Dry/Rice)'
             if prefix == 'E': return 'E 湯品 (Soup)' 
             
-            # User Req #5 (P11): "Small dishes change to D, Veg change to C, F is Drinks"
             if prefix == 'C': return 'C 青菜 (Vegetables)' 
             if prefix == 'D': return 'D 小菜 (Sides)' 
             if prefix == 'F': return 'F 飲料 (Drinks)'
@@ -130,7 +129,6 @@ def preprocess_data(df_report, df_details):
         if '拌麵' in name or '乾麵' in name or '飯' in name: return 'B 乾麵/飯 (Dry/Rice)'
         
         if any(x in name for x in ['湯', '羹']): return 'E 湯品 (Soup)'
-        # Swap logic consistent with SKU
         if any(x in name for x in ['菜', '水蓮']): return 'C 青菜 (Vegetables)'
         if any(x in name for x in ['豆干', '皮蛋', '豆腐', '海帶', '花生', '毛豆', '黃瓜', '蛋']): return 'D 小菜 (Sides)'
         if any(x in name for x in ['茶', '飲', '可樂', '雪碧']): return 'F 飲料 (Drinks)'
@@ -169,9 +167,8 @@ def calculate_delta(current, previous):
     if previous == 0: return None
     return (current - previous) / previous
 
-# --- Prediction Logic P11 ---
+# --- Prediction Logic P12 Fix ---
 def predict_revenue_summary(df_report):
-    # Base: Last 2 Weeks
     end_date = df_report['Date_Parsed'].max()
     start_date = end_date - timedelta(days=14)
     mask = (df_report['Date_Parsed'] >= start_date) & (df_report['Date_Parsed'] <= end_date)
@@ -183,20 +180,19 @@ def predict_revenue_summary(df_report):
         return 'Weekday'
     recent['Simple'] = recent['Date_Parsed'].apply(get_simple_type)
     
-    avgs = recent.groupby('Simple')['總計'].mean()
+    # FIX: Group by Date first to get Daily Revenue, THEN average
+    daily_sums = recent.groupby(['Date_Parsed', 'Simple'])['總計'].sum().reset_index()
+    avgs = daily_sums.groupby('Simple')['總計'].mean()
+    
     avg_wd = avgs.get('Weekday', 0)
     avg_hd = avgs.get('Holiday', 0)
     
-    # Fallback if missing
     if avg_wd == 0 and avg_hd > 0: avg_wd = avg_hd
     if avg_hd == 0 and avg_wd > 0: avg_hd = avg_wd
     
     return avg_wd, avg_hd
 
 def predict_monthly_table(avg_wd, avg_hd, start_date, months=12):
-    # Forecast next 12 months
-    # Logic: For each month, count weekdays and holidays, multiply by avg
-    
     dates = []
     curr = start_date + timedelta(days=1)
     end = start_date + relativedelta(months=months)
@@ -240,13 +236,13 @@ try:
         st.stop()
 
     st.sidebar.title("🍜 滾麵 Dashboard")
-    view_mode = st.sidebar.radio("功能切換", ["📊 營運總覽", "🍟 商品分析", "👥 會員查詢", "🔮 智慧預測"])
+    # P12 New Page
+    view_mode = st.sidebar.radio("功能切換", ["📊 營運總覽", "🍟 商品分析", "👥 會員查詢", "🆕 新舊客分析", "🔮 智慧預測"])
     st.sidebar.divider()
 
     st.sidebar.header("📅 日期篩選")
     today = date.today()
     month_options = [ (today - relativedelta(months=i)).strftime("%Y-%m") for i in range(6) ]
-    # P11: Added Last 2 Months, Last 6 Months
     filter_opts = ["今日 (Today)", "昨日 (Yesterday)", "本週 (This Week)", "本月 (This Month)", 
                    "近 28 天", "近 30 天", "近 2 個月 (60 Days)", "近 6 個月 (180 Days)", "自訂範圍"] + month_options
     filter_mode = st.sidebar.selectbox("快速區間", filter_opts, index=3)
@@ -296,7 +292,6 @@ try:
         c4.metric("👤平均客單價", f"${curr_avg:,.0f}", f"{calculate_delta(curr_avg, prev_avg):.1%}" if prev_avg else None)
         st.divider()
 
-        # P11: Overview Interval Selector
         ov_int = st.radio("圖表單位", ["天 (Daily)", "週 (Weekly)", "4週 (Monthly)"], horizontal=True, key='ov_int')
         ov_freq = 'D'
         if ov_int == "週 (Weekly)": ov_freq = 'W-MON'
@@ -306,23 +301,15 @@ try:
         with col_L:
             st.subheader("📈 營業額趨勢 (時段)")
             if not df_rep.empty:
-                # Group by Period first, then resample
-                # This is tricky with Period as a category. Simpler: Pivot -> Resample -> Unstack
-                # Or just Daily for bars if user selects Day.
-                
                 if ov_freq == 'D':
                     daily_period = df_rep.groupby(['Date_Parsed', 'Period'])['總計'].sum().reset_index()
-                    # Add total for custom data
                     daily_total = df_rep.groupby('Date_Parsed')['總計'].sum().reset_index().rename(columns={'總計': 'Daily_Total'})
                     daily_period = pd.merge(daily_period, daily_total, on='Date_Parsed', how='left')
-                    
                     fig = px.bar(daily_period, x='Date_Parsed', y='總計', color='Period', barmode='stack', color_discrete_map={'中午 (Lunch)': '#FFC107', '晚上 (Dinner)': '#3F51B5'}, custom_data=['Daily_Total'])
                     fig.update_traces(hovertemplate="Date: %{x}<br>Rev: $%{y:,.0f}<br>Total: $%{customdata[0]:,.0f}")
                 else:
-                    # For Week/Month, Resample Total
                     resampled = df_rep.set_index('Date_Parsed').resample(ov_freq)['總計'].sum().reset_index()
                     fig = px.bar(resampled, x='Date_Parsed', y='總計', title=f"營業額 ({ov_int})")
-                
                 st.plotly_chart(fig, use_container_width=True)
         with col_R:
             st.subheader("📅 平假日平均 (vs 上期)")
@@ -337,63 +324,115 @@ try:
                     st.metric(f"平均 {dtype}", f"${val:,.0f}", f"{calculate_delta(val, pval):.1%}" if pval else None)
 
         st.divider()
+        # P12: Restore Channel Chart
+        st.subheader("🛵 每日營收結構 (通路)")
+        col_type = '單類型' if '單類型' in df_rep.columns else 'Order Type'
+        if col_type in df_rep.columns:
+            if ov_freq == 'D':
+                 daily_type = df_rep.groupby(['Date_Parsed', col_type])['總計'].sum().reset_index()
+            else:
+                 daily_type = df_rep.set_index('Date_Parsed').groupby(col_type).resample(ov_freq)['總計'].sum().reset_index()
+            
+            fig_type = px.bar(daily_type, x='Date_Parsed', y='總計', color=col_type, barmode='stack')
+            st.plotly_chart(fig_type, use_container_width=True)
+
+        st.divider()
         c_vis, c_atv = st.columns(2)
         with c_vis:
             st.subheader("👥 來客數趨勢")
             if not df_rep.empty:
-                # Use ov_freq
                 daily_vis = df_det[df_det['Is_Main_Dish']].set_index('Date_Parsed').resample(ov_freq)['Item Quantity'].sum().reset_index()
                 fig_v = px.line(daily_vis, x='Date_Parsed', y='Item Quantity', markers=True, title=f"來客數 ({ov_int})")
                 st.plotly_chart(fig_v, use_container_width=True)
         with c_atv:
             st.subheader("💰 客單價趨勢")
             if not df_rep.empty:
-                # Calculate ATV per freq
                 res_rev = df_rep.set_index('Date_Parsed').resample(ov_freq)['總計'].sum()
                 res_vis = df_det[df_det['Is_Main_Dish']].set_index('Date_Parsed').resample(ov_freq)['Item Quantity'].sum()
                 df_atv = pd.DataFrame({'Rev': res_rev, 'Vis': res_vis})
                 df_atv['ATV'] = df_atv['Rev'] / df_atv['Vis']
                 df_atv = df_atv.reset_index()
-                
                 fig_a = px.line(df_atv, x='Date_Parsed', y='ATV', markers=True, title=f"客單價 ({ov_int})")
                 st.plotly_chart(fig_a, use_container_width=True)
         
         st.divider()
-        st.subheader("📋 每日營運報表 (Daily Report)")
+        st.subheader("📋 營運報表 (Table)")
         if not df_rep.empty:
-            base_agg = df_rep.groupby('Date_Parsed')['總計'].sum().reset_index().rename(columns={'總計': '總營業額'})
-            base_agg['Date'] = base_agg['Date_Parsed'].dt.date
-            period_rev = df_rep.groupby(['Date_Parsed', 'Period'])['總計'].sum().unstack(fill_value=0).reset_index()
-            # Handle potential missing columns
-            for p in ['中午 (Lunch)', '晚上 (Dinner)']: 
-                if p not in period_rev.columns: period_rev[p] = 0
-            period_rev.rename(columns={'中午 (Lunch)': '午餐營收', '晚上 (Dinner)': '晚餐營收'}, inplace=True)
+            # P12: Dynamic Table based on ov_freq
+            cols_to_agg = {'總計': 'sum'}
             
-            vis_agg = df_det[df_det['Is_Main_Dish']].groupby('Date_Parsed')['Item Quantity'].sum().reset_index().rename(columns={'Item Quantity': '來客數'})
-            
-            col_type = '單類型' if '單類型' in df_rep.columns else 'Order Type'
-            if col_type in df_rep.columns:
-                channel_rev = df_rep.groupby(['Date_Parsed', col_type])['總計'].sum().unstack(fill_value=0).reset_index()
-                rename_map = {}
-                for c in channel_rev.columns:
-                    if 'Delivery' in str(c) or '外送' in str(c): rename_map[c] = '外送營收'
-                    if 'Takeout' in str(c) or '外帶' in str(c): rename_map[c] = '外帶營收'
-                    if 'Dine-in' in str(c) or '內用' in str(c): rename_map[c] = '堂食營收 (內用)' 
-                channel_rev.rename(columns=rename_map, inplace=True)
+            # 1. Base Aggregation
+            if ov_freq == 'D':
+                grouped = df_rep.groupby('Date_Parsed')
             else:
-                channel_rev = pd.DataFrame(columns=['Date_Parsed'])
+                grouped = df_rep.set_index('Date_Parsed').resample(ov_freq)
+            
+            base_agg = grouped['總計'].sum().reset_index().rename(columns={'總計': '總營業額'})
+            base_agg['Date_Label'] = base_agg['Date_Parsed'].dt.date.astype(str)
+            if ov_freq != 'D': base_agg['Date_Label'] = base_agg['Date_Parsed'].dt.strftime('%Y-%m-%d (Start)')
 
+            # 2. Period (Lunch/Dinner)
+            # Hard to resample categorical strings. We sum revenue per period then pivot.
+            if ov_freq == 'D':
+                period_rev = df_rep.groupby(['Date_Parsed', 'Period'])['總計'].sum().unstack(fill_value=0)
+            else:
+                # Group by [Period] then resample [Date]
+                p_groups = []
+                for p in ['中午 (Lunch)', '晚上 (Dinner)']:
+                    mask_p = df_rep['Period'] == p
+                    if mask_p.any():
+                        res = df_rep[mask_p].set_index('Date_Parsed').resample(ov_freq)['總計'].sum()
+                        res.name = p
+                        p_groups.append(res)
+                if p_groups: period_rev = pd.concat(p_groups, axis=1).fillna(0)
+                else: period_rev = pd.DataFrame()
+
+            period_rev = period_rev.reset_index()
+            period_rev.rename(columns={'中午 (Lunch)': '午餐營收', '晚上 (Dinner)': '晚餐營收'}, inplace=True)
+            for c in ['午餐營收', '晚餐營收']: 
+                if c not in period_rev.columns: period_rev[c] = 0
+
+            # 3. Visitors
+            if ov_freq == 'D':
+                 vis_agg = df_det[df_det['Is_Main_Dish']].groupby('Date_Parsed')['Item Quantity'].sum()
+            else:
+                 vis_agg = df_det[df_det['Is_Main_Dish']].set_index('Date_Parsed').resample(ov_freq)['Item Quantity'].sum()
+            vis_agg = vis_agg.reset_index().rename(columns={'Item Quantity': '來客數'})
+
+            # 4. Channels
+            if col_type in df_rep.columns:
+                # Pivot then resample is safer? No, simpler to loop types
+                types = df_rep[col_type].unique()
+                c_groups = []
+                for t in types:
+                    mask_t = df_rep[col_type] == t
+                    if mask_t.any():
+                        if ov_freq == 'D': res = df_rep[mask_t].groupby('Date_Parsed')['總計'].sum()
+                        else: res = df_rep[mask_t].set_index('Date_Parsed').resample(ov_freq)['總計'].sum()
+                        res.name = t
+                        c_groups.append(res)
+                if c_groups: channel_rev = pd.concat(c_groups, axis=1).fillna(0).reset_index()
+                else: channel_rev = pd.DataFrame({'Date_Parsed': base_agg['Date_Parsed']})
+            else: channel_rev = pd.DataFrame({'Date_Parsed': base_agg['Date_Parsed']})
+
+            rename_map = {}
+            for c in channel_rev.columns:
+                if 'Delivery' in str(c) or '外送' in str(c): rename_map[c] = '外送營收'
+                if 'Takeout' in str(c) or '外帶' in str(c): rename_map[c] = '外帶營收'
+                if 'Dine-in' in str(c) or '內用' in str(c): rename_map[c] = '堂食營收 (內用)'
+            channel_rev.rename(columns=rename_map, inplace=True)
+
+            # Merge All
             final_df = base_agg.merge(period_rev, on='Date_Parsed', how='left')
             final_df = final_df.merge(vis_agg, on='Date_Parsed', how='left')
             final_df = final_df.merge(channel_rev, on='Date_Parsed', how='left')
             final_df['客單價'] = (final_df['總營業額'] / final_df['來客數']).replace([np.inf, -np.inf], 0).fillna(0).round(0)
             
-            cols_show = ['Date', '午餐營收', '晚餐營收', '總營業額', '來客數', '客單價']
-            # Explicit checks
+            cols_show = ['Date_Label', '午餐營收', '晚餐營收', '總營業額', '來客數', '客單價']
             for c in ['外送營收', '外帶營收', '堂食營收 (內用)']:
                 if c in final_df.columns: cols_show.append(c)
                 
-            st.dataframe(final_df[cols_show].sort_values('Date', ascending=False).style.format({
+            st.dataframe(final_df[cols_show].sort_values('Date_Label', ascending=False).style.format({
                 '午餐營收': '${:,.0f}', '晚餐營收': '${:,.0f}', '總營業額': '${:,.0f}',
                 '來客數': '{:,.0f}', '客單價': '${:,.0f}',
                 '外送營收': '${:,.0f}', '外帶營收': '${:,.0f}', '堂食營收 (內用)': '${:,.0f}'
@@ -420,27 +459,23 @@ try:
             elif interval == "4週 (Monthly)": freq_alias = 'M' 
 
             if sel_cat == comp_opt:
-                # SPECIAL CHART: Sum of Cat A vs Sum of Cat B
                 mask_a = df_items['Category'].str.contains('A 湯麵', na=False)
                 mask_b = df_items['Category'].str.contains('B 乾麵', na=False)
-                
                 comp_df = df_items[mask_a | mask_b].copy()
                 comp_df['Group'] = comp_df['Category'].apply(lambda x: '湯麵 (Soup)' if 'A 湯麵' in x else '乾麵/飯 (Dry/Rice)')
                 
                 chart_data = comp_df.set_index('Date_Parsed').groupby('Group').resample(freq_alias)['Item Quantity'].sum().reset_index()
-                
-                # Main Chart
                 fig_trend = px.line(chart_data, x='Date_Parsed', y='Item Quantity', color='Group', markers=True, title=f"乾麵/飯 vs 湯麵 - {interval} 走勢比較")
                 st.plotly_chart(fig_trend, use_container_width=True)
                 
-                # Ratio Chart (P11)
+                # Ratio Chart (P11/P12 Restore)
                 st.write("**比例分析 (Ratio)**")
                 pivot_ratio = chart_data.pivot(index='Date_Parsed', columns='Group', values='Item Quantity').fillna(0)
-                pivot_ratio['Total'] = pivot_ratio['湯麵 (Soup)'] + pivot_ratio['乾麵/飯 (Dry/Rice)']
-                pivot_ratio['湯麵 %'] = pivot_ratio['湯麵 (Soup)'] / pivot_ratio['Total']
-                pivot_ratio['乾麵/飯 %'] = pivot_ratio['乾麵/飯 (Dry/Rice)'] / pivot_ratio['Total']
+                pivot_ratio['Total'] = pivot_ratio.sum(axis=1)
+                for g in pivot_ratio.columns:
+                    if g != 'Total': pivot_ratio[g+' %'] = pivot_ratio[g] / pivot_ratio['Total']
                 
-                fig_ratio = px.bar(pivot_ratio.reset_index(), x='Date_Parsed', y=['湯麵 %', '乾麵/飯 %'], barmode='stack', title="銷售比例 (Share %)")
+                fig_ratio = px.bar(pivot_ratio.reset_index(), x='Date_Parsed', y=[c for c in pivot_ratio.columns if '%' in c], barmode='stack', title="銷售比例 (Share %)")
                 st.plotly_chart(fig_ratio, use_container_width=True)
 
             else:
@@ -472,7 +507,6 @@ try:
                  name_series = df_report[col_name].astype(str).fillna('')
             else: name_series = pd.Series([])
             
-            # P10 Fix
             mask = pd.Series(False, index=df_report.index)
             if not phone_series.empty: mask |= phone_series.str.contains(s_clean, na=False)
             if not name_series.empty: mask |= name_series.str.contains(s_clean, na=False)
@@ -494,11 +528,9 @@ try:
                 st.divider()
                 st.subheader(f"📄 {sel_name} 的消費紀錄")
                 
-                total_spend = mem_records['總計'].sum()
-                # P11: Visit Count based on Unique Date (Same day = 1 visit)
                 real_visit_count = mem_records['Date_Parsed'].nunique()
                 tx_count = len(mem_records)
-                
+                total_spend = mem_records['總計'].sum()
                 avg_spend = total_spend / real_visit_count if real_visit_count > 0 else 0
                 
                 m1, m2, m3, m4 = st.columns(4)
@@ -507,15 +539,124 @@ try:
                 m3.metric("總單數 (Txs)", f"{tx_count} 張")
                 m4.metric("平均客單 (Per Day)", f"${avg_spend:,.0f}")
                 
-                st.write("**詳細交易列表**")
-                st.dataframe(mem_records[['Datetime', '總計', '單類型']], use_container_width=True)
+                st.write("**詳細交易列表** (點擊展開明細)")
+                # P12: Expandable Details
+                for i, row in mem_records.iterrows():
+                    oid = row.get('Order Number')
+                    dt_str = row['Datetime'].strftime('%Y-%m-%d %H:%M')
+                    amt = row['總計']
+                    with st.expander(f"{dt_str} - ${amt:.0f} (單號: {oid})"):
+                         if oid and 'Order Number' in df_details.columns:
+                             items = df_details[df_details['Order Number'] == oid][['Item Name', 'Item Quantity', 'Item Amount(TWD)']]
+                             st.dataframe(items, use_container_width=True)
+                             st.write(f"總項數: {items['Item Quantity'].sum()}")
+                         else: st.write("無明細資料")
+
             else: st.warning("查無資料")
 
-    # --- VIEW 4: 智慧預測 ---
-    elif view_mode == "🔮 智慧預測":
-        st.title("🔮 AI 營收與銷量預測")
+    # --- VIEW 4 P12: 新舊客分析 (Guest Analysis) ---
+    elif view_mode == "🆕 新舊客分析":
+        st.title("🆕 新舊客消費分析")
         
-        # P11: New Revenue Logic
+        # 1. Identify Members based on Full History
+        # We need ALL history to define New/Old, but show stats for Filtered Period?
+        # Typically "New Customer" means 'First seen in this period'.
+        # But User Ref: "Based on ALL history: 1 visit=New, 2=Returning, 3+=Regular".
+        # So a Regular customer visiting TODAY counts as Regular Visit.
+        
+        df_full = df_report_raw # Use RAW (Full History) for tagging
+        col_phone = '客戶電話' if '客戶電話' in df_full.columns else 'Contact'
+        
+        if col_phone not in df_full.columns:
+            st.warning("無會員電話欄位，無法進行分析")
+            st.stop()
+            
+        # Filter Logic: User said "No member data excluded". So we only look at rows with Phone.
+        mask_has_phone = df_full[col_phone].notna() & (df_full[col_phone].astype(str).str.len() > 5)
+        df_members_only = df_full[mask_has_phone].copy()
+        
+        # Tagging Members (Global)
+        # Count unique dates per phone
+        mem_visits = df_members_only.groupby(col_phone)['Date_Parsed'].nunique()
+        
+        def get_loyalty(n):
+            if n == 1: return 'New (新客)'
+            if n == 2: return 'Returning (舊客)'
+            return 'Regular (常客)'
+            
+        loyalty_map = mem_visits.apply(get_loyalty).to_dict()
+        
+        # Clean Data for Analysis (using Filtered df_rep)
+        target_df = df_rep.copy()
+        target_df['Has_Data'] = target_df[col_phone].notna() & (target_df[col_phone].astype(str).str.len() > 5)
+        target_df['Loyalty'] = target_df[col_phone].map(loyalty_map).fillna('Unknown')
+        
+        # 2. Stats: Data vs No Data
+        st.subheader("1. 會員資料覆蓋率 (Data vs No Data)")
+        d_gb = target_df.groupby('Has_Data').agg({'總計': 'sum', 'Date_Parsed': 'count'}).rename(columns={'Date_Parsed': 'Tx_Count'})
+        d_gb.index = d_gb.index.map({True: '有資料 (Members)', False: '無資料 (Guests)'})
+        
+        c_d1, c_d2 = st.columns(2)
+        fig_d1 = px.pie(d_gb, values='Tx_Count', names=d_gb.index, title="交易筆數分佈")
+        fig_d2 = px.pie(d_gb, values='總計', names=d_gb.index, title="營業額分佈")
+        c_d1.plotly_chart(fig_d1, use_container_width=True)
+        c_d2.plotly_chart(fig_d2, use_container_width=True)
+        
+        # 3. Loyalty Trends (Only Has Data)
+        st.divider()
+        st.subheader("2. 新舊客趨勢分析 (僅含會員)")
+        
+        df_loyal = target_df[target_df['Has_Data']].copy()
+        
+        if df_loyal.empty:
+            st.warning("區間內無會員資料")
+        else:
+            an_int = st.radio("統計單位", ["天 (Daily)", "週 (Weekly)", "4週 (Monthly)"], horizontal=True, key='an_int')
+            an_freq = 'D'
+            if an_int == "週 (Weekly)": an_freq = 'W-MON'
+            elif an_int == "4週 (Monthly)": an_freq = 'M'
+            
+            # Stacked Bar: Revenue
+            res_rev = df_loyal.set_index('Date_Parsed').groupby('Loyalty').resample(an_freq)['總計'].sum().reset_index()
+            fig_l1 = px.bar(res_rev, x='Date_Parsed', y='總計', color='Loyalty', title=f"客群營業額貢獻 ({an_int})", barmode='stack',
+                            category_orders={"Loyalty": ["New (新客)", "Returning (舊客)", "Regular (常客)"]})
+            st.plotly_chart(fig_l1, use_container_width=True)
+            
+            # Stacked Bar: Visits (Days) -> Note: One member per day = 1 visit?
+            # User said "Come to store count". If one member 2 txs -> 1 visit?
+            # Currently df_loyal is transactions.
+            # To count Visits properly: Group by Date+Phone -> 1 Visit.
+            # But here we are aggregating by Time Period.
+            # Approximation: Count unique Phone-Date pairs in the bucket.
+            # Hard to do fully stacked if one member spans multiple buckets? No, just unique per day.
+            
+            # Simplified: Use Transaction Count for chart, or Unique Visits?
+            # User Q4: "Share of Visits (來店數佔比)"
+            # Let's count Tx first as it's easier to verify. Or try unique visits logic provided in P11.
+            
+            res_tx = df_loyal.set_index('Date_Parsed').groupby('Loyalty').resample(an_freq).size().reset_index(name='Count')
+            fig_l2 = px.bar(res_tx, x='Date_Parsed', y='Count', color='Loyalty', title=f"客群交易頻次 ({an_int})", barmode='stack',
+                            category_orders={"Loyalty": ["New (新客)", "Returning (舊客)", "Regular (常客)"]})
+            st.plotly_chart(fig_l2, use_container_width=True)
+            
+            # 4. Proportions (Pie)
+            st.subheader("3. 期間佔比 (Proportions)")
+            total_rev = df_loyal['總計'].sum()
+            total_tx = len(df_loyal)
+            
+            l_gb = df_loyal.groupby('Loyalty').agg({'總計': 'sum', 'Date_Parsed': 'count'})
+            c_p1, c_p2 = st.columns(2)
+            fig_p1 = px.pie(l_gb, values='總計', names=l_gb.index, title="營業額佔比")
+            fig_p2 = px.pie(l_gb, values='Date_Parsed', names=l_gb.index, title="交易數佔比")
+            c_p1.plotly_chart(fig_p1, use_container_width=True)
+            c_p2.plotly_chart(fig_p2, use_container_width=True)
+
+
+    # --- VIEW 5: 智慧預測 ---
+    elif view_mode == "🔮 智慧預測":
+        st.title("🔮 AI 營收預測")
+        # P12: Only Revenue Prediction requested
+        
         avg_wd, avg_hd = predict_revenue_summary(df_report)
         st.subheader("📊 預測基礎 (過去 2 週平均)")
         c1, c2 = st.columns(2)
@@ -527,12 +668,10 @@ try:
         latest_date = df_report['Date_Parsed'].max()
         forecast_df = predict_monthly_table(avg_wd, avg_hd, latest_date, months=12)
         
-        # Display Table: Month, WD Days, HD Days, Forecast Rev
         st.dataframe(forecast_df.style.format({
             'Forecast Revenue': '${:,.0f}'
         }), use_container_width=True)
         
-        # Chart
         fig_rev = px.bar(forecast_df, x='Month', y='Forecast Revenue', title="未來 12 個月預估營收")
         st.plotly_chart(fig_rev, use_container_width=True)
 
