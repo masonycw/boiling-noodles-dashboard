@@ -76,6 +76,12 @@ def preprocess_data(df_report, df_details):
     if 'Item Quantity' in df_details.columns:
         df_details['Item Quantity'] = pd.to_numeric(df_details['Item Quantity'], errors='coerce').fillna(0)
 
+    # --- 5. Deduplicate Modifier Rows (CRITICAL FIX) ---
+    # Filter out rows where 'Modifier Name' is present to avoid double counting items
+    if 'Modifier Name' in df_details.columns:
+        # Keep rows where Modifier Name is NaN or Empty
+        df_details = df_details[df_details['Modifier Name'].isna() | (df_details['Modifier Name'] == '')]
+
     # --- B. Specific Logic Updates ---
     
     # Logic 1: Time Split at 16:00
@@ -88,12 +94,16 @@ def preprocess_data(df_report, df_details):
     else:
         df_report['Period'] = 'Unknown'
 
-    # Logic 2: Main Dish Counting (Include Set Meals)
-    # Rules: (Item Type contains 'Set Meal') OR (Item Name contains 麵/飯)
+    # Logic 2: Main Dish Identification (Include Set Meals)
     df_details['Is_Main_Dish'] = False
+    
+    # Ensure column names are clean
+    clean_cols = {c: c.strip() for c in df_details.columns}
+    df_details.rename(columns=clean_cols, inplace=True)
     
     mask_name = df_details['Item Name'].astype(str).str.contains('麵|飯', regex=True, na=False)
     mask_type = pd.Series([False] * len(df_details))
+    
     if 'Item Type' in df_details.columns:
         mask_type = df_details['Item Type'].astype(str).str.contains('Set Meal|套餐', case=False, na=False)
     
