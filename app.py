@@ -177,8 +177,10 @@ def calculate_delta(current, previous):
     return (current - previous) / previous
 
 # --- Prediction Logic P13 + P17 Debug ---
-def predict_revenue_summary(df_report, days_back=14):
+def predict_revenue_logic(df_report, days_back=14):
     end_date = df_report['Date_Parsed'].max()
+    # Internal Debug
+    # st.write(f"DEBUG_INTERNAL: DaysBack={days_back}, EndDate={end_date}")
     start_date = end_date - timedelta(days=days_back)
     mask = (df_report['Date_Parsed'] >= start_date) & (df_report['Date_Parsed'] <= end_date)
     recent = df_report[mask].copy()
@@ -661,9 +663,10 @@ try:
         days_basis = st.radio("預測基礎", ["過去 2 週 (14 Days)", "過去 4 週 (28 Days)"], index=0, horizontal=True, key='pred_basis_radio')
         days_back = 28 if "4" in str(days_basis) else 14
         
-        st.write(f"🔧 Debug: Selected Mode='{days_basis}', DaysBack={days_back} (Type: {type(days_back)})")
+        max_dt = df_report['Date_Parsed'].max()
+        st.write(f"🔧 Debug: Mode='{days_basis}', Back={days_back}, MaxDate={max_dt}")
         
-        avg_wd, avg_hd, cnt_wd, cnt_hd, p_start, p_end = predict_revenue_summary(df_report, days_back=int(days_back))
+        avg_wd, avg_hd, cnt_wd, cnt_hd, p_start, p_end = predict_revenue_logic(df_report, days_back=int(days_back))
         
         st.subheader(f"📊 預測參數 ({days_basis} 平均)")
         st.caption(f"統計區間: {p_start.strftime('%Y-%m-%d')} ~ {p_end.strftime('%Y-%m-%d')}")
