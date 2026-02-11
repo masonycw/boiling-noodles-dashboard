@@ -29,7 +29,12 @@ tw_holidays = [
     "2025-01-01", "2025-01-25", "2025-01-26", "2025-01-27", "2025-01-28", "2025-01-29", "2025-01-30", "2025-01-31", 
     "2025-02-01", "2025-02-02", "2025-02-28", "2025-04-03", "2025-04-04", "2025-04-05", "2025-04-06", 
     "2025-05-01", "2025-05-31", "2025-06-01", "2025-06-02", "2025-10-04", "2025-10-05", "2025-10-06", 
-    "2025-10-10", "2025-10-11", "2025-10-12"
+    "2025-05-01", "2025-05-31", "2025-06-01", "2025-06-02", "2025-10-04", "2025-10-05", "2025-10-06", 
+    "2025-10-10", "2025-10-11", "2025-10-12",
+    # 2026 (Estimated / Partial)
+    "2026-01-01", "2026-02-13", "2026-02-14", "2026-02-15", "2026-02-16", "2026-02-17", "2026-02-18", # CNY
+    "2026-02-28", "2026-04-03", "2026-04-04", "2026-04-05", "2026-04-06", "2026-05-01", "2026-06-19", 
+    "2026-09-27", "2026-10-10"
 ]
 TW_HOLIDAYS_SET = set(tw_holidays)
 
@@ -65,10 +70,18 @@ def preprocess_data(df_report, df_details):
     if 'date' in df_details.columns:
         df_details['Date_Parsed'] = pd.to_datetime(df_details['date'], errors='coerce')
 
-    # Combine DateTime
+    # Combine DateTime (Robust Fix)
     if '時間' in df_report.columns and 'Date_Parsed' in df_report.columns:
+        # 1. Parse '時間' column flexibly (handles '11:00:00' AND '2026-01-24 11:00:00')
+        temp_time = pd.to_datetime(df_report['時間'], errors='coerce')
+        
+        # 2. Extract HH:MM:SS string
+        # If temp_time is NaT, fill with 00:00:00
+        time_str = temp_time.dt.strftime('%H:%M:%S').fillna('00:00:00')
+        
+        # 3. Combine with trusted 'Date_Parsed'
         df_report['Datetime'] = pd.to_datetime(
-            df_report['Date_Parsed'].dt.strftime('%Y-%m-%d') + ' ' + df_report['時間'].astype(str),
+            df_report['Date_Parsed'].dt.strftime('%Y-%m-%d') + ' ' + time_str,
             errors='coerce'
         )
 
