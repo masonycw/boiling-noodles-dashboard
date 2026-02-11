@@ -176,7 +176,7 @@ def calculate_delta(current, previous):
     if previous == 0: return None
     return (current - previous) / previous
 
-# --- Prediction Logic P13 ---
+# --- Prediction Logic P13 + P17 Debug ---
 def predict_revenue_summary(df_report, days_back=14):
     end_date = df_report['Date_Parsed'].max()
     start_date = end_date - timedelta(days=days_back)
@@ -191,14 +191,17 @@ def predict_revenue_summary(df_report, days_back=14):
     
     daily_sums = recent.groupby(['Date_Parsed', 'Simple'])['總計'].sum().reset_index()
     avgs = daily_sums.groupby('Simple')['總計'].mean()
+    counts = daily_sums.groupby('Simple')['Date_Parsed'].count()
     
     avg_wd = avgs.get('Weekday', 0)
     avg_hd = avgs.get('Holiday', 0)
+    cnt_wd = counts.get('Weekday', 0)
+    cnt_hd = counts.get('Holiday', 0)
     
     if avg_wd == 0 and avg_hd > 0: avg_wd = avg_hd
     if avg_hd == 0 and avg_wd > 0: avg_hd = avg_wd
     
-    return avg_wd, avg_hd
+    return avg_wd, avg_hd, cnt_wd, cnt_hd, start_date, end_date
 
 def predict_monthly_table_hybrid(avg_wd, avg_hd, df_report, months=12):
     # Hybrid: For current month (if partial data exists), sum Actual + Forecast Remainder
@@ -658,11 +661,14 @@ try:
         days_basis = st.radio("預測基礎", ["過去 2 週 (14 Days)", "過去 4 週 (28 Days)"], index=0, horizontal=True)
         days_back = 28 if "4" in days_basis else 14
         
-        avg_wd, avg_hd = predict_revenue_summary(df_report, days_back=days_back)
+        avg_wd, avg_hd, cnt_wd, cnt_hd, p_start, p_end = predict_revenue_summary(df_report, days_back=days_back)
+        
         st.subheader(f"📊 預測參數 ({days_basis} 平均)")
+        st.caption(f"統計區間: {p_start.strftime('%Y-%m-%d')} ~ {p_end.strftime('%Y-%m-%d')}")
+        
         c1, c2 = st.columns(2)
-        c1.metric("平日日均營收", f"${avg_wd:,.0f}")
-        c2.metric("假日日均營收", f"${avg_hd:,.0f}")
+        c1.metric(f"平日日均營收 (樣本: {cnt_wd}天)", f"${avg_wd:,.0f}")
+        c2.metric(f"假日日均營收 (樣本: {cnt_hd}天)", f"${avg_hd:,.0f}")
         
         st.divider()
         st.subheader("📅 未來 12 個月營收預測表")
