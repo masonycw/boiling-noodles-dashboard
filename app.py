@@ -96,7 +96,7 @@ def preprocess_data(df_report, df_details):
         mask_combo = df_details['Item Name'].astype(str).str.contains('超值組合', na=False)
         df_details.loc[mask_combo, 'Item Name'] = '超值組合'
     
-    # --- Categorization P13.5 Correction ---
+    # --- Categorization P14 Specific Items ---
     clean_cols = {c: c.strip() for c in df_details.columns}
     df_details.rename(columns=clean_cols, inplace=True)
     
@@ -104,6 +104,10 @@ def preprocess_data(df_report, df_details):
         sku = str(row.get('Product SKU', '')).strip().upper()
         name = str(row.get('Item Name', '')).strip()
         
+        # 0. User Forced Specific Items (P14)
+        if name in ['拌水蓮', '燙大陸妹', '燙高麗菜', '燙青江菜']: return 'C 青菜 (Vegetables)'
+        if name in ['桂花香豆乾', '涼拌豆干絲', '燒椒尬皮蛋', '紅燒茄子君']: return 'D 小菜 (Sides)'
+
         # 1. Special Cases C-1
         if name in ['蔥油雞', '芭樂遇見五花']: return 'C-1 特殊單點 (Special)'
         if name == '超值組合': return 'S 套餐 (Set)'
@@ -132,7 +136,7 @@ def preprocess_data(df_report, df_details):
         
         if any(x in name for x in ['湯', '羹']): return 'E 湯品 (Soup)'
         
-        # Consistent with SKU P13.5
+        # Consistent with P13.5 Correction
         if any(x in name for x in ['菜', '水蓮']): return 'C 青菜 (Vegetables)'
         if any(x in name for x in ['豆干', '皮蛋', '豆腐', '海帶', '花生', '毛豆', '黃瓜', '蛋']): return 'D 小菜 (Sides)'
         
@@ -235,15 +239,8 @@ def predict_monthly_table_hybrid(avg_wd, avg_hd, df_report, months=12):
         })
     df_future_agg = pd.DataFrame(future_stats)
     
-    # Get Current Month Actuals (and previous months if desired, but user said "Forecast")
-    # Usually we show Next 12 Months. 
-    # But user asked: "当月的业绩，要加入已知的历史业绩" (Add known history to current month).
-    # This implies we should show the "Current Month" in the table, combining Actual + Future.
-    
+    # Get Current Month Actuals
     current_month_period = latest_date.to_period('M')
-    
-    # Check if we already have a row for Current Month in Future (we likely do if we started tomorrow)
-    # If today is Feb 12, start_forecast is Feb 13. So Feb is present in df_future.
     
     # Calculate Actuals for Current Month
     current_month_start = latest_date.replace(day=1)
@@ -251,7 +248,6 @@ def predict_monthly_table_hybrid(avg_wd, avg_hd, df_report, months=12):
     actual_rev = df_report.loc[mask_cur, '總計'].sum()
     
     # Update the Current Month row in df_future_agg
-    # Find row with Month_Period == current_month_period
     idx = df_future_agg.index[df_future_agg['Month_Period'] == current_month_period].tolist()
     
     if idx:
@@ -260,10 +256,8 @@ def predict_monthly_table_hybrid(avg_wd, avg_hd, df_report, months=12):
         hybrid_total = actual_rev + future_val
         df_future_agg.loc[idx[0], 'Forecast Revenue'] = hybrid_total
         df_future_agg.loc[idx[0], 'Status'] = 'Hybrid (Actual+Fcst)'
-        df_future_agg.loc[idx[0], 'Actual_So_Far'] = actual_rev # Optional debug
     else:
-        # If we are at end of month, maybe no future days? 
-        # Add a row for Current Month purely Actual?
+        # If today is month end, we might not have a future date for this month.
         pass
 
     return df_future_agg
@@ -576,7 +570,6 @@ try:
                     amt = row['總計']
                     with st.expander(f"{dt_str} - ${amt:.0f} (單號: {oid})"):
                          if oid and 'Order Number' in df_details.columns:
-                             # P13: Add Discount Column? Check 'Item Discount' or similar
                              cols = ['Item Name', 'Item Quantity', 'Item Amount(TWD)']
                              if 'Item Discount' in df_details.columns: cols.append('Item Discount')
                              
@@ -591,7 +584,6 @@ try:
     elif view_mode == "🆕 新舊客分析":
         st.title("🆕 新舊客消費分析")
         
-        # P13 Fix: Ensure df_full is available. df_report_raw is RAW.
         df_full = df_report_raw 
         col_phone = '客戶電話' if '客戶電話' in df_full.columns else 'Contact'
         
@@ -655,7 +647,6 @@ try:
     elif view_mode == "🔮 智慧預測":
         st.title("🔮 AI 營收預測")
         
-        # P13: Select Basis
         days_basis = st.radio("預測基礎", ["過去 2 週 (14 Days)", "過去 4 週 (28 Days)"], index=0, horizontal=True)
         days_back = 28 if "4" in days_basis else 14
         
@@ -669,7 +660,6 @@ try:
         st.subheader("📅 未來 12 個月營收預測表")
         st.caption("含本月已知業績 (Hybrid Forecast)")
         
-        # P13: Hybrid Table
         forecast_df = predict_monthly_table_hybrid(avg_wd, avg_hd, df_report, months=12)
         
         st.dataframe(forecast_df[['Date_Label', 'Forecast Revenue', 'Status']].style.format({
