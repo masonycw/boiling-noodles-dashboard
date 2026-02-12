@@ -617,16 +617,20 @@ try:
             phone = str(row.get(col_phone, '')).strip()
             name = str(row.get('客戶姓名', '')).strip() 
             
+            # Normalize Phone (remove spaces, -, +886)
+            p_norm = phone.replace(" ", "").replace("-", "").replace("+886", "0")
+            if p_norm.startswith("886"): p_norm = "0" + p_norm[3:]
+
             # Exclude Invalid / Foodpanda (Masked)
-            if '*' in phone or phone == 'nan' or len(phone) < 5:
+            if '*' in phone or phone == 'nan' or len(p_norm) < 5:
                 return None
             
-            # Exclude Platform Phone (UberEats)
-            if phone == UBER_PHONE:
+            # Exclude Platform Phone (UberEats) and specific excluded names
+            if UBER_PHONE in p_norm or '陳美鳳' in name:
                 return None 
 
             # 2. Standard Member (Phone as ID)
-            return phone
+            return p_norm # Use normalized phone as ID to avoid duplicates (e.g. "0912 345 678" vs "0912345678")
 
         df_full['Member_ID'] = df_full.apply(get_member_id, axis=1)
         
