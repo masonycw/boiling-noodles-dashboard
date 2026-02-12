@@ -1003,8 +1003,8 @@ try:
                             st.plotly_chart(fig_r, use_container_width=True)
                         else: st.info("此區間無舊會員消費")
                     
-            else:
-                st.warning("無法連結訂單與商品資料 (缺少 Order Number 欄位)")
+                else:
+                    st.warning("無法連結訂單與商品資料 (缺少 Order Number 欄位)")
 
 
 
