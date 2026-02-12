@@ -593,67 +593,202 @@ try:
 
             else: st.warning("查無資料")
 
-    # --- VIEW 4: 新舊客分析 (Guest Analysis) ---
+    # --- VIEW 4: 新舊客分析 (Advanced Customer Analytics) ---
     elif view_mode == "🆕 新舊客分析":
-        st.title("🆕 新舊客消費分析")
+        st.title("🆕 新舊客深度分析 (Customer CRM)")
         
         df_full = df_report_raw 
         col_phone = '客戶電話' if '客戶電話' in df_full.columns else 'Contact'
         
         if col_phone not in df_full.columns:
             st.warning("無會員電話欄位，無法進行分析")
-        else:
-            mask_has_phone = df_full[col_phone].notna() & (df_full[col_phone].astype(str).str.len() > 5)
-            df_members_only = df_full[mask_has_phone].copy()
+            st.stop()
             
-            if df_members_only.empty:
-                st.warning("系統內無有效的會員電話資料")
+        # 1. Data Preparation (Valid Members Only)
+        mask_has_phone = df_full[col_phone].notna() & (df_full[col_phone].astype(str).str.len() > 5)
+        df_members = df_full[mask_has_phone].copy()
+        
+        if df_members.empty:
+            st.warning("系統內無有效的會員電話資料")
+            st.stop()
+            
+        # Calculate Member Stats
+        member_stats = df_members.groupby(col_phone).agg({
+            'Date_Parsed': ['min', 'max', 'nunique'],
+            '總計': 'sum'
+        }).reset_index()
+        member_stats.columns = ['Phone', 'First_Visit', 'Last_Visit', 'Frequency', 'Monetary']
+        
+        # Global Analysis Date
+        analysis_date = df_members['Date_Parsed'].max()
+        member_stats['Recency'] = (analysis_date - member_stats['Last_Visit']).dt.days
+
+        # --- Tab Selection ---
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 RFM 客群分群", "📅 留存率分析 (Cohort)", "💰 營收貢獻度", "🍛 口味偏好比較"])
+
+        # --- TAB 1: RFM Segmentation ---
+        with tab1:
+            st.subheader("👥 RFM 客群價值模型")
+            st.caption(f"分析基準日: {analysis_date.date()}")
+            
+            # Simple Rule-based Segmentation
+            def categorize_rfm(row):
+                r, f, m = row['Recency'], row['Frequency'], row['Monetary']
+                if f == 1 and r < 30: return 'New (新客)'
+                if f == 1 and r >= 30: return 'One-time (一次客)'
+                
+                if f >= 4 and r < 30: return 'Champions (主力常客)'
+                if f >= 2 and r < 30: return 'Potential (潛力新星)'
+                
+                if r >= 30 and r < 90: return 'At Risk (流失預警)'
+                if r >= 90: return 'Hibernating (沉睡客)'
+                
+                return 'Regular (一般熟客)'
+
+            member_stats['Segment'] = member_stats.apply(categorize_rfm, axis=1)
+            
+            # Metrics
+            seg_counts = member_stats['Segment'].value_counts().reset_index()
+            seg_counts.columns = ['Segment', 'Count']
+            
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.write("**客群人數分佈**")
+                st.dataframe(seg_counts, use_container_width=True)
+            with c2:
+                fig_rfm = px.bar(seg_counts, x='Segment', y='Count', color='Segment', title="客群分佈圖")
+                st.plotly_chart(fig_rfm, use_container_width=True)
+            
+            st.divider()
+            st.subheader("🩺 客群細節 (Scatter Plot)")
+            fig_scat = px.scatter(member_stats, x='Recency', y='Frequency', size='Monetary', color='Segment',
+                                hover_data=['Phone', 'Monetary', 'First_Visit'],
+                                title="RFM 分佈 (X=天數未訪, Y=消費次數, 大小=消費額)")
+            fig_scat.update_layout(xaxis_title="Recency (天數未訪 - 越小越好)", yaxis_title="Frequency (來店次數)")
+            st.plotly_chart(fig_scat, use_container_width=True)
+
+        # --- TAB 2: Cohort Analysis ---
+        with tab2:
+            st.subheader("📅 同源留存率 (Cohort Retention)")
+            st.caption("觀察每個月的新客，在後續月份的回訪比例")
+            
+            # 1. Assign Cohort Month (First Visit Month)
+            member_stats['CohortMonth'] = member_stats['First_Visit'].dt.to_period('M')
+            
+            # 2. Merge Cohort back to transaction data
+            df_cohort = df_members.merge(member_stats[['Phone', 'CohortMonth']], left_on=col_phone, right_on='Phone')
+            df_cohort['VisitMonth'] = df_cohort['Date_Parsed'].dt.to_period('M')
+            
+            # 3. Group by Cohort/VisitMonth and count unique users
+            cohort_data = df_cohort.groupby(['CohortMonth', 'VisitMonth'])['Phone'].nunique().reset_index()
+            cohort_data['PeriodNumber'] = (cohort_data['VisitMonth'] - cohort_data['CohortMonth']).apply(lambda x: x.n)
+            
+            # 4. Pivot for Heatmap
+            cohort_pivot = cohort_data.pivot(index='CohortMonth', columns='PeriodNumber', values='Phone')
+            cohort_size = cohort_pivot.iloc[:, 0]
+            retention = cohort_pivot.divide(cohort_size, axis=0) # Percentage
+            
+            # Display
+            st.write("**留存率熱力圖 (Retention Rate %)**")
+            st.dataframe(retention.style.format("{:.1%}", na_rep="").background_gradient(cmap="YlGn", axis=None), use_container_width=True)
+            
+            st.write("**實際回訪人數**")
+            st.dataframe(cohort_pivot.fillna(0).style.format("{:.0f}"), use_container_width=True)
+
+        # --- TAB 3: Revenue Contribution ---
+        with tab3:
+            st.subheader("💰 新舊客營收貢獻")
+            
+            # Define "New Customer Revenue" vs "Existing"
+            # Logic: If query date == First Visit Date -> New Rev, else Existing Rev
+            
+            # We need to map every transaction to whether it was that user's first visit
+            first_visit_map = member_stats.set_index('Phone')['First_Visit'].to_dict()
+            
+            def get_visit_type(row):
+                phone = row.get(col_phone)
+                visit_date = row['Date_Parsed']
+                if pd.isna(phone) or str(phone) == 'nan' or len(str(phone)) < 5:
+                    return 'Guest (散客)'
+                
+                fv = first_visit_map.get(phone)
+                if fv and visit_date.date() == fv.date():
+                    return 'New Member (新會員)'
+                return 'Returning Member (舊會員)'
+
+            df_full['UserType_Rev'] = df_full.apply(get_visit_type, axis=1)
+            
+            rev_int = st.radio("時間單位", ["天 (Daily)", "週 (Weekly)", "4週 (Monthly)"], horizontal=True, key='rev_cont_int')
+            rev_freq = 'D'
+            if rev_int == "週 (Weekly)": rev_freq = 'W-MON'
+            elif rev_int == "4週 (Monthly)": rev_freq = 'M'
+            
+            chart_data = df_full.set_index('Date_Parsed').groupby('UserType_Rev').resample(rev_freq)['總計'].sum().reset_index()
+            
+            fig_rev = px.bar(chart_data, x='Date_Parsed', y='總計', color='UserType_Rev', 
+                            title="新舊客營收佔比", barmode='stack',
+                            color_discrete_map={'New Member (新會員)': '#2ECC71', 'Returning Member (舊會員)': '#3498DB', 'Guest (散客)': '#95A5A6'})
+            st.plotly_chart(fig_rev, use_container_width=True)
+
+        # --- TAB 4: Preference Analysis ---
+        with tab4:
+            st.subheader("🍛 新舊客口味偏好比較")
+            
+            # Filter details for members only to link with segment
+            # We need to link df_details to member info. 
+            # Limitation: df_details typically doesn't have phone, only Order Number. 
+            # We must link df_report (with phone) -> Order Number -> df_details (Item)
+            
+            if 'Order Number' in df_report.columns and 'Order Number' in df_details.columns:
+                # 1. Create mapping Order -> User Segment
+                # We reuse the 'Segment' from member_stats
+                # Need to map phone to segment first
+                phone_seg_map = member_stats.set_index('Phone')['Segment'].to_dict()
+                
+                # Report subset with phone
+                rep_w_phone = df_full[df_full[col_phone].notna()].copy()
+                rep_w_phone['UserSeg'] = rep_w_phone[col_phone].map(phone_seg_map)
+                
+                # Simplified Mapping: OrderID -> 'New' or 'Returning'
+                # Actually, simpler to just map OrderID -> 'New Member' or 'Returning' based on First Visit Date logic
+                # using the previously computed 'UserType_Rev' if possible, but that's on df_full (report)
+                
+                order_type_map = df_full.set_index('Order Number')['UserType_Rev'].to_dict()
+                
+                # Map to details
+                df_det_pref = df_details.copy()
+                df_det_pref['UserType'] = df_det_pref['Order Number'].map(order_type_map).fillna('Unknown')
+                
+                # Filter Method
+                c_mode = st.radio("比較模式", ["新會員 vs 舊會員"], horizontal=True) # Can extend later
+                
+                mask_new = df_det_pref['UserType'] == 'New Member (新會員)'
+                mask_ret = df_det_pref['UserType'] == 'Returning Member (舊會員)'
+                
+                top_n = 10
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write(f"**🟢 新會員最愛 Top {top_n}**")
+                    new_top = df_det_pref[mask_new].groupby('Item Name')['Item Quantity'].sum().nlargest(top_n).reset_index()
+                    if not new_top.empty:
+                        fig_n = px.bar(new_top, x='Item Quantity', y='Item Name', orientation='h', title="New Members Favorites")
+                        fig_n.update_layout(yaxis={'categoryorder':'total ascending'})
+                        st.plotly_chart(fig_n, use_container_width=True)
+                    else: st.info("無新會員資料")
+
+                with col2:
+                    st.write(f"**🔵 舊會員最愛 Top {top_n}**")
+                    ret_top = df_det_pref[mask_ret].groupby('Item Name')['Item Quantity'].sum().nlargest(top_n).reset_index()
+                    if not ret_top.empty:
+                        fig_r = px.bar(ret_top, x='Item Quantity', y='Item Name', orientation='h', title="Returning Members Favorites")
+                        fig_r.update_layout(yaxis={'categoryorder':'total ascending'})
+                        st.plotly_chart(fig_r, use_container_width=True)
+                    else: st.info("無舊會員資料")
+                    
             else:
-                mem_visits = df_members_only.groupby(col_phone)['Date_Parsed'].nunique()
-                
-                def get_loyalty(n):
-                    if n == 1: return 'New (新客)'
-                    if n == 2: return 'Returning (舊客)'
-                    return 'Regular (常客)'
-                    
-                loyalty_map = mem_visits.apply(get_loyalty).to_dict()
-                
-                target_df = df_rep.copy()
-                target_df['Has_Data'] = target_df[col_phone].notna() & (target_df[col_phone].astype(str).str.len() > 5)
-                target_df['Loyalty'] = target_df[col_phone].map(loyalty_map).fillna('Unknown')
-                
-                # 2. Stats
-                st.subheader("1. 會員資料覆蓋率 (Data vs No Data)")
-                d_gb = target_df.groupby('Has_Data').agg({'總計': 'sum', 'Date_Parsed': 'count'}).rename(columns={'Date_Parsed': 'Tx_Count'})
-                d_gb.index = d_gb.index.map({True: '有資料 (Members)', False: '無資料 (Guests)'})
-                
-                c_d1, c_d2 = st.columns(2)
-                fig_d1 = px.pie(d_gb, values='Tx_Count', names=d_gb.index, title="交易筆數分佈")
-                fig_d2 = px.pie(d_gb, values='總計', names=d_gb.index, title="營業額分佈")
-                c_d1.plotly_chart(fig_d1, use_container_width=True)
-                c_d2.plotly_chart(fig_d2, use_container_width=True)
-                
-                st.divider()
-                st.subheader("2. 新舊客趨勢分析 (僅含會員)")
-                df_loyal = target_df[target_df['Has_Data']].copy()
-                
-                if df_loyal.empty:
-                    st.warning("區間內無會員資料")
-                else:
-                    an_int = st.radio("統計單位", ["天 (Daily)", "週 (Weekly)", "4週 (Monthly)"], horizontal=True, key='an_int')
-                    an_freq = 'D'
-                    if an_int == "週 (Weekly)": an_freq = 'W-MON'
-                    elif an_int == "4週 (Monthly)": an_freq = 'M'
-                    
-                    res_rev = df_loyal.set_index('Date_Parsed').groupby('Loyalty').resample(an_freq)['總計'].sum().reset_index()
-                    fig_l1 = px.bar(res_rev, x='Date_Parsed', y='總計', color='Loyalty', title=f"客群營業額貢獻 ({an_int})", barmode='stack',
-                                    category_orders={"Loyalty": ["New (新客)", "Returning (舊客)", "Regular (常客)"]})
-                    st.plotly_chart(fig_l1, use_container_width=True)
-                    
-                    res_tx = df_loyal.set_index('Date_Parsed').groupby('Loyalty').resample(an_freq).size().reset_index(name='Count')
-                    fig_l2 = px.bar(res_tx, x='Date_Parsed', y='Count', color='Loyalty', title=f"客群交易頻次 ({an_int})", barmode='stack',
-                                    category_orders={"Loyalty": ["New (新客)", "Returning (舊客)", "Regular (常客)"]})
-                    st.plotly_chart(fig_l2, use_container_width=True)
+                st.warning("無法連結訂單與商品資料 (缺少 Order Number 欄位)")
 
 
     # --- VIEW 5: 智慧預測 ---
