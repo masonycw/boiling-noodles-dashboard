@@ -639,8 +639,12 @@ try:
             st.stop()
             
         # Calculate Member Stats (Group by Member_ID instead of Phone)
+        # Fix: Count Visits by Unique Date (multiple orders same day = 1 visit)
+        df_members['Visit_Date'] = df_members['Date_Parsed'].dt.date
+        
         member_stats = df_members.groupby('Member_ID').agg({
-            'Date_Parsed': ['min', 'max', 'nunique'],
+            'Date_Parsed': ['min', 'max'],
+            'Visit_Date': 'nunique',
             '總計': 'sum',
             col_phone: 'first', 
             '客戶姓名': 'first'
