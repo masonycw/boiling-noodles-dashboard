@@ -645,8 +645,7 @@ try:
         min_date = df_full['Date_Parsed'].min().date()
         max_date = df_full['Date_Parsed'].max().date()
         
-        col_filter1, col_filter2 = st.columns(2)
-        with col_filter1:
+
         if 'crm_start_date' not in st.session_state:
             st.session_state['crm_start_date'] = min_date
         if 'crm_end_date' not in st.session_state:
