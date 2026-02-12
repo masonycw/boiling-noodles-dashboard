@@ -605,19 +605,47 @@ try:
             st.stop()
             
         # 1. Data Preparation (Valid Members Only)
-        mask_has_phone = df_full[col_phone].notna() & (df_full[col_phone].astype(str).str.len() > 5)
-        df_members = df_full[mask_has_phone].copy()
+        # 1. Data Preparation
+        # Define Platform Phone Numbers
+        # 55941277 = UberEats (Use Name to distinguish)
+        # Foodpanda = Often masked as *********** or has no data -> Exclude
+        
+        UBER_PHONE = '55941277'
+        
+        # Function to generate unique Member ID
+        def get_member_id(row):
+            phone = str(row.get(col_phone, '')).strip()
+            name = str(row.get('客戶姓名', '')).strip() 
+            
+            # Exclude Invalid / Foodpanda (Masked)
+            if '*' in phone or phone == 'nan' or len(phone) < 5:
+                return None
+            
+            # 1. UberEats: Use Phone + Name
+            if phone == UBER_PHONE:
+                if len(name) > 0 and name != 'nan':
+                     return f"{phone}_{name}" # e.g. 55941277_UberGuestA
+                return None # Uber order without name -> Treat as guest (exclude from member analysis)
+
+            # 2. Standard Member (Phone as ID)
+            return phone
+
+        df_full['Member_ID'] = df_full.apply(get_member_id, axis=1)
+        
+        df_members = df_full[df_full['Member_ID'].notna()].copy()
         
         if df_members.empty:
-            st.warning("系統內無有效的會員電話資料")
+            st.warning("系統內無有效的會員資料 (No valid Member IDs)")
             st.stop()
             
-        # Calculate Member Stats
-        member_stats = df_members.groupby(col_phone).agg({
+        # Calculate Member Stats (Group by Member_ID instead of Phone)
+        member_stats = df_members.groupby('Member_ID').agg({
             'Date_Parsed': ['min', 'max', 'nunique'],
-            '總計': 'sum'
+            '總計': 'sum',
+            col_phone: 'first', 
+            '客戶姓名': 'first'
         }).reset_index()
-        member_stats.columns = ['Phone', 'First_Visit', 'Last_Visit', 'Frequency', 'Monetary']
+        member_stats.columns = ['Member_ID', 'First_Visit', 'Last_Visit', 'Frequency', 'Monetary', 'Phone', 'Name']
         
         # Global Analysis Date
         analysis_date = df_members['Date_Parsed'].max()
