@@ -1007,9 +1007,6 @@ try:
                 st.warning("無法連結訂單與商品資料 (缺少 Order Number 欄位)")
 
 
-                    
-            else:
-                st.warning("無法連結訂單與商品資料 (缺少 Order Number 欄位)")
 
 
     # --- VIEW 5: 智慧預測 ---
