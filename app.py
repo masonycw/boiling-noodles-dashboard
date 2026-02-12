@@ -621,11 +621,9 @@ try:
             if '*' in phone or phone == 'nan' or len(phone) < 5:
                 return None
             
-            # 1. UberEats: Use Phone + Name
+            # Exclude Platform Phone (UberEats)
             if phone == UBER_PHONE:
-                if len(name) > 0 and name != 'nan':
-                     return f"{phone}_{name}" # e.g. 55941277_UberGuestA
-                return None # Uber order without name -> Treat as guest (exclude from member analysis)
+                return None 
 
             # 2. Standard Member (Phone as ID)
             return phone
