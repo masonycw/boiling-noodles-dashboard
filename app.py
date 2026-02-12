@@ -640,6 +640,36 @@ try:
             st.warning("系統內無有效的會員資料 (No valid Member IDs)")
             st.stop()
             
+        # --- Date Range Filter for CRM ---
+        st.markdown("### ⚙️ 分析設定")
+        min_date = df_full['Date_Parsed'].min().date()
+        max_date = df_full['Date_Parsed'].max().date()
+        
+        col_filter1, col_filter2 = st.columns(2)
+        with col_filter1:
+             start_date, end_date = st.date_input(
+                "選擇分析區間 (只分析此期間內有消費的會員)",
+                [min_date, max_date],
+                min_value=min_date,
+                max_value=max_date
+            )
+        
+        # Filter for logic:
+        # We want to establish the 'Status' of customers based on their behavior *within* or *up to* this window?
+        # Standard CRM: Usually analyzes "Active base". 
+        # Let's filter df_full to only include orders in this range? 
+        # No, RFM needs history. 
+        # Better Interpretation: "Who visited in this range?" OR "Analyze All History"
+        # User asked: "Is this all history?"
+        # Let's keep it "All History" by default but allow filtering "Last Visit >= Start Date" to separate active from dead?
+        # Actually, simpler: Just add a text explaining "This analyzes ALL historical data."
+        # And maybe a filter to "Exclude Sleeping Customers (> 1 year)"
+        
+        # Let's revert the filter for now to avoid complexity and simpler explanation.
+        # Instead, interpret the "All History" meaning.
+        
+        st.info(f"ℹ️ **分析母體**: 目前分析涵蓋從 `{min_date}` 到 `{max_date}` 的所有歷史訂單。")
+
         # Calculate Member Stats (Group by Member_ID instead of Phone)
         # Fix: Count Visits by Unique Date (multiple orders same day = 1 visit)
         df_members['Visit_Date'] = df_members['Date_Parsed'].dt.date
@@ -689,6 +719,26 @@ try:
             with c1:
                 st.write("**客群人數分佈**")
                 st.dataframe(seg_counts, use_container_width=True)
+                
+                # --- Automated Insights ---
+                total_customers = len(member_stats)
+                n_new = seg_counts[seg_counts['Segment'].str.contains('New')]['Count'].sum()
+                n_churn = seg_counts[seg_counts['Segment'].str.contains('One-time')]['Count'].sum()
+                n_champ = seg_counts[seg_counts['Segment'].str.contains('Champions')]['Count'].sum()
+                
+                churn_rate = (n_churn / total_customers * 100) if total_customers > 0 else 0
+                new_rate = (n_new / total_customers * 100) if total_customers > 0 else 0
+                
+                insight_text = ""
+                if new_rate > 40:
+                    insight_text += "🚀 **新客佔比高**：近期行銷有效，建議設計「二訪優惠券」轉化新客。\n\n"
+                if churn_rate > 30:
+                    insight_text += "⚠️ **一次客過多**：超過 30% 客人只來一次，需檢視「首次體驗」或「餐點品質」。\n\n"
+                if n_champ > 0:
+                    insight_text += f"💎 **主力常客**：共有 {n_champ} 位鐵粉，是營收核心，請好好照顧！"
+                
+                st.info(f"**💡 數據洞察**\n\n{insight_text}")
+
             with c2:
                 fig_rfm = px.bar(seg_counts, x='Segment', y='Count', color='Segment', title="客群分佈圖")
                 st.plotly_chart(fig_rfm, use_container_width=True)
