@@ -689,11 +689,25 @@ try:
             
             st.divider()
             st.subheader("🩺 客群細節 (Scatter Plot)")
+            
+            # Use Member_ID or Name for hover to distinguish Platform users
             fig_scat = px.scatter(member_stats, x='Recency', y='Frequency', size='Monetary', color='Segment',
-                                hover_data=['Phone', 'Monetary', 'First_Visit'],
+                                hover_data=['Member_ID', 'Name', 'Phone', 'Monetary', 'First_Visit'],
                                 title="RFM 分佈 (X=天數未訪, Y=消費次數, 大小=消費額)")
             fig_scat.update_layout(xaxis_title="Recency (天數未訪 - 越小越好)", yaxis_title="Frequency (來店次數)")
             st.plotly_chart(fig_scat, use_container_width=True)
+
+            st.markdown("""
+            ### 📌 客群定義說明
+            | 客群名稱 | 定義 (條件) | 意義 / 行動建議 |
+            | :--- | :--- | :--- |
+            | **🏆 Champions (主力常客)** | 近30天有來，且累積 **4次以上** | VIP 客戶，需重點維護。 |
+            | **🌱 Potential (潛力新星)** | 近30天有來，且累積 **2~3次** | 剛培養成習慣的熟客，需鼓勵回購。 |
+            | **🆕 New (新客)** | 近30天 **第一次來** | 剛認識品牌，首購體驗最關鍵。 |
+            | **📉 At Risk (流失預警)** | **30~90天** 沒出現了 | 曾經來過但最近消失，需發送優惠喚回。 |
+            | **💤 Hibernating (沉睡客)** | 超過 **90天 (3個月)** 沒來 | 幾乎流失，挽回成本較高。 |
+            | **🔵 One-time (一次客)** | 只來過 **1次**，且是 **30天前** | 試一次就沒來的過客。 |
+            """)
 
         # --- TAB 2: Cohort Analysis ---
         with tab2:
@@ -704,21 +718,34 @@ try:
             member_stats['CohortMonth'] = member_stats['First_Visit'].dt.to_period('M')
             
             # 2. Merge Cohort back to transaction data
-            df_cohort = df_members.merge(member_stats[['Phone', 'CohortMonth']], left_on=col_phone, right_on='Phone')
+            # Use Member_ID for merge to be consistent
+            df_cohort = df_members.merge(member_stats[['Member_ID', 'CohortMonth']], on='Member_ID', how='left')
             df_cohort['VisitMonth'] = df_cohort['Date_Parsed'].dt.to_period('M')
             
-            # 3. Group by Cohort/VisitMonth and count unique users
-            cohort_data = df_cohort.groupby(['CohortMonth', 'VisitMonth'])['Phone'].nunique().reset_index()
+            # 3. Group by Cohort/VisitMonth and count unique users (Members)
+            cohort_data = df_cohort.groupby(['CohortMonth', 'VisitMonth'])['Member_ID'].nunique().reset_index()
             cohort_data['PeriodNumber'] = (cohort_data['VisitMonth'] - cohort_data['CohortMonth']).apply(lambda x: x.n)
             
             # 4. Pivot for Heatmap
-            cohort_pivot = cohort_data.pivot(index='CohortMonth', columns='PeriodNumber', values='Phone')
+            cohort_pivot = cohort_data.pivot(index='CohortMonth', columns='PeriodNumber', values='Member_ID')
             cohort_size = cohort_pivot.iloc[:, 0]
             retention = cohort_pivot.divide(cohort_size, axis=0) # Percentage
             
-            # Display
-            st.write("**留存率熱力圖 (Retention Rate %)**")
-            st.dataframe(retention.style.format("{:.1%}", na_rep="").background_gradient(cmap="YlGn", axis=None), use_container_width=True)
+            # Display using Plotly Heatmap (No matplotlib needed)
+            import plotly.express as px
+            
+            # Format index for display
+            y_labels = [str(x) for x in retention.index]
+            x_labels = [f"+{x}月" for x in retention.columns]
+            
+            fig_cohort = px.imshow(retention, 
+                                   labels=dict(x="經過月份", y="首次來訪月份", color="留存率"),
+                                   x=x_labels,
+                                   y=y_labels,
+                                   text_auto='.1%',
+                                   color_continuous_scale='Greens',
+                                   title="留存率熱力圖 (Retention Rate %)")
+            st.plotly_chart(fig_cohort, use_container_width=True)
             
             st.write("**實際回訪人數**")
             st.dataframe(cohort_pivot.fillna(0).style.format("{:.0f}"), use_container_width=True)
