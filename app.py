@@ -597,7 +597,7 @@ try:
     elif view_mode == "🆕 新舊客分析":
         st.title("🆕 新舊客深度分析 (Customer CRM)")
         
-        df_full = df_report_raw 
+        df_full = df_report 
         col_phone = '客戶電話' if '客戶電話' in df_full.columns else 'Contact'
         
         if col_phone not in df_full.columns:
