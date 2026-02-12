@@ -803,25 +803,28 @@ try:
             # Limitation: df_details typically doesn't have phone, only Order Number. 
             # We must link df_report (with phone) -> Order Number -> df_details (Item)
             
-            if 'Order Number' in df_report.columns and 'Order Number' in df_details.columns:
+            col_order_rep = '訂單編號' if '訂單編號' in df_report.columns else 'Order Number'
+            col_order_det = 'Order Number' if 'Order Number' in df_details.columns else '訂單編號'
+
+            if col_order_rep in df_report.columns and col_order_det in df_details.columns:
                 # 1. Create mapping Order -> User Segment
                 # We reuse the 'Segment' from member_stats
                 # Need to map phone to segment first
-                phone_seg_map = member_stats.set_index('Phone')['Segment'].to_dict()
+                phone_seg_map = member_stats.set_index('Member_ID')['Segment'].to_dict()
                 
                 # Report subset with phone
-                rep_w_phone = df_full[df_full[col_phone].notna()].copy()
-                rep_w_phone['UserSeg'] = rep_w_phone[col_phone].map(phone_seg_map)
+                rep_w_phone = df_full[df_full['Member_ID'].notna()].copy()
+                rep_w_phone['UserSeg'] = rep_w_phone['Member_ID'].map(phone_seg_map)
                 
                 # Simplified Mapping: OrderID -> 'New' or 'Returning'
                 # Actually, simpler to just map OrderID -> 'New Member' or 'Returning' based on First Visit Date logic
                 # using the previously computed 'UserType_Rev' if possible, but that's on df_full (report)
                 
-                order_type_map = df_full.set_index('Order Number')['UserType_Rev'].to_dict()
+                order_type_map = df_full.set_index(col_order_rep)['UserType_Rev'].to_dict()
                 
                 # Map to details
                 df_det_pref = df_details.copy()
-                df_det_pref['UserType'] = df_det_pref['Order Number'].map(order_type_map).fillna('Unknown')
+                df_det_pref['UserType'] = df_det_pref[col_order_det].map(order_type_map).fillna('Unknown')
                 
                 # Filter Method
                 c_mode = st.radio("比較模式", ["新會員 vs 舊會員"], horizontal=True) # Can extend later
