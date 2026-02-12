@@ -1,6 +1,26 @@
 __pycache__/
 *.pyc
 .DS_Store
+<<<<<<< HEAD
 .env
 venv/
+=======
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build output
+dist/
+build/
+
+# Data
+>>>>>>> d686c8d (Add project files)
 *.csv
