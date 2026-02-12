@@ -647,12 +647,73 @@ try:
         
         col_filter1, col_filter2 = st.columns(2)
         with col_filter1:
-             start_date, end_date = st.date_input(
-                "選擇分析區間 (只分析此期間內有消費的會員)",
-                [min_date, max_date],
-                min_value=min_date,
-                max_value=max_date
-            )
+        if 'crm_start_date' not in st.session_state:
+            st.session_state['crm_start_date'] = min_date
+        if 'crm_end_date' not in st.session_state:
+            st.session_state['crm_end_date'] = max_date
+
+        col_shortcuts = st.columns(7)
+        today = date.today()
+        
+        if col_shortcuts[0].button("本週 (This Week)"):
+            start = today - timedelta(days=today.weekday())
+            st.session_state['crm_start_date'] = max(min_date, start)
+            st.session_state['crm_end_date'] = min(max_date, today)
+            st.rerun()
+            
+        if col_shortcuts[1].button("上週 (Last Week)"):
+            last_week_start = today - timedelta(days=today.weekday() + 7)
+            last_week_end = last_week_start + timedelta(days=6)
+            st.session_state['crm_start_date'] = max(min_date, last_week_start)
+            st.session_state['crm_end_date'] = min(max_date, last_week_end)
+            st.rerun()
+
+        if col_shortcuts[2].button("本月 (This Month)"):
+            start = today.replace(day=1)
+            st.session_state['crm_start_date'] = max(min_date, start)
+            st.session_state['crm_end_date'] = min(max_date, today)
+            st.rerun()
+
+        if col_shortcuts[3].button("上月 (Last Month)"):
+            first_this_month = today.replace(day=1)
+            last_month_end = first_this_month - timedelta(days=1)
+            last_month_start = last_month_end.replace(day=1)
+            st.session_state['crm_start_date'] = max(min_date, last_month_start)
+            st.session_state['crm_end_date'] = min(max_date, last_month_end)
+            st.rerun()
+
+        if col_shortcuts[4].button("近2月 (Last 60d)"):
+            start = today - timedelta(days=60)
+            st.session_state['crm_start_date'] = max(min_date, start)
+            st.session_state['crm_end_date'] = min(max_date, today)
+            st.rerun()
+            
+        if col_shortcuts[5].button("近6月 (Last 180d)"):
+            start = today - timedelta(days=180)
+            st.session_state['crm_start_date'] = max(min_date, start)
+            st.session_state['crm_end_date'] = min(max_date, today)
+            st.rerun()
+            
+        if col_shortcuts[6].button("全部 (All Time)"):
+            st.session_state['crm_start_date'] = min_date
+            st.session_state['crm_end_date'] = max_date
+            st.rerun()
+
+        date_range = st.date_input(
+            "選擇分析區間 (只分析此期間內有消費的會員)",
+            value=(st.session_state['crm_start_date'], st.session_state['crm_end_date']),
+            min_value=min_date,
+            max_value=max_date
+        )
+        
+        if len(date_range) == 2:
+            start_date, end_date = date_range
+            # Update session state if manually changed
+            if start_date != st.session_state['crm_start_date'] or end_date != st.session_state['crm_end_date']:
+                st.session_state['crm_start_date'] = start_date
+                st.session_state['crm_end_date'] = end_date
+        else:
+            start_date, end_date = min_date, max_date
         
         # Filter for logic:
         # We want to establish the 'Status' of customers based on their behavior *within* or *up to* this window?
