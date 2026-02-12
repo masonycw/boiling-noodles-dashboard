@@ -697,10 +697,13 @@ try:
             st.subheader("🩺 客群細節 (Scatter Plot)")
             
             # Use Member_ID or Name for hover to distinguish Platform users
+            member_stats['到店次數'] = member_stats['Frequency'] # Rename for hover
+            member_stats['消費金額'] = member_stats['Monetary'] # Rename for hover
+
             fig_scat = px.scatter(member_stats, x='Recency', y='Frequency', size='Monetary', color='Segment',
-                                hover_data=['Member_ID', 'Name', 'Phone', 'Monetary', 'First_Visit'],
-                                title="RFM 分佈 (X=天數未訪, Y=消費次數, 大小=消費額)")
-            fig_scat.update_layout(xaxis_title="Recency (天數未訪 - 越小越好)", yaxis_title="Frequency (來店次數)")
+                                hover_data=['Member_ID', 'Name', 'Phone', '消費金額', '到店次數', 'First_Visit'],
+                                title="RFM 分佈 (X=天數未訪, Y=到店次數, 大小=消費金額)")
+            fig_scat.update_layout(xaxis_title="Recency (天數未訪 - 越小越好)", yaxis_title="Frequency (到店次數)")
             st.plotly_chart(fig_scat, use_container_width=True)
 
             st.markdown("""
