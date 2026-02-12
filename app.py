@@ -728,8 +728,6 @@ try:
         # Let's revert the filter for now to avoid complexity and simpler explanation.
         # Instead, interpret the "All History" meaning.
         
-        st.info(f"ℹ️ **分析母體**: 目前分析涵蓋從 `{min_date}` 到 `{max_date}` 的所有歷史訂單。")
-
         # Calculate Member Stats (Group by Member_ID instead of Phone)
         # Fix: Count Visits by Unique Date (multiple orders same day = 1 visit)
         df_members['Visit_Date'] = df_members['Date_Parsed'].dt.date
@@ -744,44 +742,74 @@ try:
         member_stats.columns = ['Member_ID', 'First_Visit', 'Last_Visit', 'Frequency', 'Monetary', 'Phone', 'Name']
         
         # Global Analysis Date
-        analysis_date = df_members['Date_Parsed'].max()
-        member_stats['Recency'] = (analysis_date - member_stats['Last_Visit']).dt.days
-
-        # --- Tab Selection ---
-        tab1, tab2, tab3, tab4 = st.tabs(["📊 RFM 客群分群", "📅 留存率分析 (Cohort)", "💰 營收貢獻度", "🍛 口味偏好比較"])
-
-        # --- TAB 1: RFM Segmentation ---
-        with tab1:
-            st.subheader("👥 RFM 客群價值模型")
-            st.caption(f"分析基準日: {analysis_date.date()}")
+        today_date = pd.Timestamp(date.today())
+        
+        # --- RFM Calculation (Based on ALL History Analysis) ---
+        # We calculate status based on full history first, then filter for display
+        member_stats['Recency'] = (today_date - member_stats['Last_Visit']).dt.days
+        
+        # Define Segments
+        def categorize_rfm(row):
+            r, f, m = row['Recency'], row['Frequency'], row['Monetary']
             
-            # Simple Rule-based Segmentation
-            def categorize_rfm(row):
-                r, f, m = row['Recency'], row['Frequency'], row['Monetary']
-                if f == 1 and r < 30: return 'New (新客)'
-                if f == 1 and r >= 30: return 'One-time (一次客)'
+            if f == 1:
+                return 'One-time (一次客)' # Only 1 visit ever
+            
+            if r > 90:
+                if f > 3: return 'Hibernating (沉睡客)'
+                return 'At Risk (流失預警)' # Visited >1 time, but long ago
+            
+            if r <= 30:
+                if f >= 4: return 'Champions (主力常客)' # Frequent & Recent
+                if f >= 2: return 'Potential (潛力新星)' # Recent but low freq (2-3)
+                return 'New (新客)' # Recent, low freq (likely just switched from 1->2 or just 1? No, f=1 is One-time)
+                # Actually if F=1 and R<=30, it is 'One-time' by first rule. 
+                # So here F>=2. 
+            
+            if r <= 60:
+                return 'New (新客)' # A bit looser definition for "Recent"
                 
-                if f >= 4 and r < 30: return 'Champions (主力常客)'
-                if f >= 2 and r < 30: return 'Potential (潛力新星)'
-                
-                if r >= 30 and r < 90: return 'At Risk (流失預警)'
-                if r >= 90: return 'Hibernating (沉睡客)'
-                
-                return 'Regular (一般熟客)'
+            return 'Regular (一般熟客)'
 
-            member_stats['Segment'] = member_stats.apply(categorize_rfm, axis=1)
+        member_stats['Segment'] = member_stats.apply(categorize_rfm, axis=1)
+        
+        # --- FILTERING FOR DISPLAY ---
+        # Filter Member Population: Only those who visited within [start_date, end_date]
+        # We need to know if a member visited in this range. 
+        # Since member_stats only has First/Last, we might miss someone who visited in middle but first/last are outside?
+        # A safer way: Check df_members for visits in range.
+        
+        active_members_in_range = df_members[
+            (df_members['Date_Parsed'].dt.date >= start_date) & 
+            (df_members['Date_Parsed'].dt.date <= end_date)
+        ]['Member_ID'].unique()
+        
+        member_stats_display = member_stats[member_stats['Member_ID'].isin(active_members_in_range)].copy()
+        
+        # Filter Transactions for Revenue/Preference
+        df_full_filtered = df_full[
+            (df_full['Date_Parsed'].dt.date >= start_date) & 
+            (df_full['Date_Parsed'].dt.date <= end_date)
+        ].copy()
+        
+        st.info(f"ℹ️ **分析母體**: 分析在 `{start_date}` 到 `{end_date}` 期間 **有消費的 {len(member_stats_display)} 位會員** (屬性由歷史行為判定)。")
+
+        tab1, tab2, tab3 = st.tabs(["📊 RFM 客群分群", "📅 留存率分析 (Cohort)", "💰 營收與偏好"])
+
+        with tab1:
+            st.subheader("👥 客群分佈 (依歷史行為)")
             
             # Metrics
-            seg_counts = member_stats['Segment'].value_counts().reset_index()
+            seg_counts = member_stats_display['Segment'].value_counts().reset_index()
             seg_counts.columns = ['Segment', 'Count']
             
             c1, c2 = st.columns([1, 2])
             with c1:
-                st.write("**客群人數分佈**")
+                st.write("**客群人數分佈 (此區間有來訪)**")
                 st.dataframe(seg_counts, use_container_width=True)
                 
                 # --- Automated Insights ---
-                total_customers = len(member_stats)
+                total_customers = len(member_stats_display)
                 n_new = seg_counts[seg_counts['Segment'].str.contains('New')]['Count'].sum()
                 n_churn = seg_counts[seg_counts['Segment'].str.contains('One-time')]['Count'].sum()
                 n_champ = seg_counts[seg_counts['Segment'].str.contains('Champions')]['Count'].sum()
@@ -795,26 +823,33 @@ try:
                 if churn_rate > 30:
                     insight_text += "⚠️ **一次客過多**：超過 30% 客人只來一次，需檢視「首次體驗」或「餐點品質」。\n\n"
                 if n_champ > 0:
-                    insight_text += f"💎 **主力常客**：共有 {n_champ} 位鐵粉，是營收核心，請好好照顧！"
+                    insight_text += f"💎 **主力常客**：共有 {n_champ} 位鐵粉在期間內回訪！"
                 
-                st.info(f"**💡 數據洞察**\n\n{insight_text}")
+                if total_customers > 0:
+                    st.info(f"**💡 數據洞察**\n\n{insight_text}")
+                else:
+                    st.warning("在此期間無會員消費數據。")
 
             with c2:
-                fig_rfm = px.bar(seg_counts, x='Segment', y='Count', color='Segment', title="客群分佈圖")
-                st.plotly_chart(fig_rfm, use_container_width=True)
+                if not seg_counts.empty:
+                    fig_rfm = px.bar(seg_counts, x='Segment', y='Count', color='Segment', title="客群分佈圖 (活躍會員)")
+                    st.plotly_chart(fig_rfm, use_container_width=True)
             
             st.divider()
             st.subheader("🩺 客群細節 (Scatter Plot)")
             
-            # Use Member_ID or Name for hover to distinguish Platform users
-            member_stats['到店次數'] = member_stats['Frequency'] # Rename for hover
-            member_stats['消費金額'] = member_stats['Monetary'] # Rename for hover
-
-            fig_scat = px.scatter(member_stats, x='Recency', y='Frequency', size='Monetary', color='Segment',
-                                hover_data=['Member_ID', 'Name', 'Phone', '消費金額', '到店次數', 'First_Visit'],
-                                title="RFM 分佈 (X=天數未訪, Y=到店次數, 大小=消費金額)")
-            fig_scat.update_layout(xaxis_title="Recency (天數未訪 - 越小越好)", yaxis_title="Frequency (到店次數)")
-            st.plotly_chart(fig_scat, use_container_width=True)
+            if not member_stats_display.empty:
+                # Use Member_ID or Name for hover to distinguish Platform users
+                member_stats_display['到店次數'] = member_stats_display['Frequency'] # Rename for hover
+                member_stats_display['消費金額'] = member_stats_display['Monetary'] # Rename for hover
+    
+                fig_scat = px.scatter(member_stats_display, x='Recency', y='Frequency', size='Monetary', color='Segment',
+                                    hover_data=['Member_ID', 'Name', 'Phone', '消費金額', '到店次數', 'First_Visit'],
+                                    title="RFM 分佈 (X=天數未訪, Y=到店次數, 大小=消費金額)")
+                fig_scat.update_layout(xaxis_title="Recency (天數未訪 - 越小越好)", yaxis_title="Frequency (到店次數)")
+                st.plotly_chart(fig_scat, use_container_width=True)
+            else:
+                st.info("無數據可顯示散佈圖")
 
             st.markdown("""
             ### 📌 客群定義說明
@@ -873,96 +908,105 @@ try:
         with tab3:
             st.subheader("💰 新舊客營收貢獻")
             
-            # Define "New Customer Revenue" vs "Existing"
+            # Use filtered data for Revenue Calculation to respect date range
             # Logic: If query date == First Visit Date -> New Rev, else Existing Rev
             
             # We need to map every transaction to whether it was that user's first visit
             first_visit_map = member_stats.set_index('Phone')['First_Visit'].to_dict()
             
-            def get_visit_type(row):
-                phone = row.get(col_phone)
-                visit_date = row['Date_Parsed']
-                if pd.isna(phone) or str(phone) == 'nan' or len(str(phone)) < 5:
-                    return 'Guest (散客)'
-                
-                fv = first_visit_map.get(phone)
-                if fv and visit_date.date() == fv.date():
-                    return 'New Member (新會員)'
-                return 'Returning Member (舊會員)'
+            # Use df_full_filtered (Transactions in selected range)
+            if df_full_filtered.empty:
+                st.warning("此區間無營收數據")
+            else:
+                def classify_transaction(row):
+                    phone = row.get(col_phone)
+                    if pd.isna(phone): return 'Guest (非會員)'
+                    
+                    # Check first visit
+                    fv = first_visit_map.get(phone)
+                    if not fv: return 'Guest (非會員)'
+                    
+                    # If transaction date is same as first visit date -> New Member Revenue
+                    # Actually, "New Customer Revenue" usually means revenue from customers acquired in this period?
+                    # Or revenue from "New Segment" customers?
+                    # Let's use the Segment definition! 
+                    # Much better: Revenue from "New" vs "Regular" segments.
+                    
+                    # Get Member ID (we need to re-derive or merge)
+                    # Optimization: Map Phone -> Segment
+                    return 'Unknown'
 
-            df_full['UserType_Rev'] = df_full.apply(get_visit_type, axis=1)
-            
-            rev_int = st.radio("時間單位", ["天 (Daily)", "週 (Weekly)", "4週 (Monthly)"], horizontal=True, key='rev_cont_int')
-            rev_freq = 'D'
-            if rev_int == "週 (Weekly)": rev_freq = 'W-MON'
-            elif rev_int == "4週 (Monthly)": rev_freq = 'M'
-            
-            chart_data = df_full.set_index('Date_Parsed').groupby('UserType_Rev').resample(rev_freq)['總計'].sum().reset_index()
-            
-            fig_rev = px.bar(chart_data, x='Date_Parsed', y='總計', color='UserType_Rev', 
-                            title="新舊客營收佔比", barmode='stack',
-                            color_discrete_map={'New Member (新會員)': '#2ECC71', 'Returning Member (舊會員)': '#3498DB', 'Guest (散客)': '#95A5A6'})
-            st.plotly_chart(fig_rev, use_container_width=True)
+                # Better Approach: Map Member_ID to Segment, then sum revenue by Segment
+                # We have member_stats (All History) -> Segment
+                mem_seg_map = member_stats.set_index('Member_ID')['Segment'].to_dict()
+                
+                df_rev_calc = df_full_filtered.copy()
+                df_rev_calc['UserSeg'] = df_rev_calc['Member_ID'].map(mem_seg_map).fillna('Guest (非會員)')
+                
+                # Simplify Segments for Chart
+                def simple_seg(s):
+                    if 'New' in s or 'Potential' in s: return 'New Member (新會員)'
+                    if 'Guest' in s: return 'Guest (非會員)'
+                    return 'Returning Member (舊會員)'
+                
+                df_rev_calc['UserType_Rev'] = df_rev_calc['UserSeg'].apply(simple_seg)
+                
+                # Stacked Bar: Date vs Revenue by Type
+                rev_trend = df_rev_calc.groupby(['Date_Parsed', 'UserType_Rev'])['總計'].sum().reset_index()
+                
+                fig_rev = px.bar(rev_trend, x='Date_Parsed', y='總計', color='UserType_Rev', 
+                                title="營收貢獻趨勢 (依會員身份)",
+                                color_discrete_map={'New Member (新會員)': '#FF7043', 'Returning Member (舊會員)': '#42A5F5', 'Guest (非會員)': '#BDBDBD'})
+                st.plotly_chart(fig_rev, use_container_width=True)
+                
+                st.divider()
+                st.subheader("🍛 口味偏好比較")
+                
+                # Use filtered transactions for Preference
+                # Filter details for members only to link with segment
+                
+                col_order_rep = '訂單編號' if '訂單編號' in df_report.columns else 'Order Number'
+                col_order_det = 'Order Number' if 'Order Number' in df_details.columns else '訂單編號'
 
-        # --- TAB 4: Preference Analysis ---
-        with tab4:
-            st.subheader("🍛 新舊客口味偏好比較")
-            
-            # Filter details for members only to link with segment
-            # We need to link df_details to member info. 
-            # Limitation: df_details typically doesn't have phone, only Order Number. 
-            # We must link df_report (with phone) -> Order Number -> df_details (Item)
-            
-            col_order_rep = '訂單編號' if '訂單編號' in df_report.columns else 'Order Number'
-            col_order_det = 'Order Number' if 'Order Number' in df_details.columns else '訂單編號'
+                if col_order_rep in df_full_filtered.columns and col_order_det in df_details.columns:
+                    # Map Order -> User Type (New/Return)
+                    order_type_map = df_rev_calc.set_index(col_order_rep)['UserType_Rev'].to_dict()
+                    
+                    # Filter df_details to match filtered orders
+                    valid_orders = set(df_rev_calc[col_order_rep])
+                    df_det_pref = df_details[df_details[col_order_det].isin(valid_orders)].copy()
+                    
+                    df_det_pref['UserType'] = df_det_pref[col_order_det].map(order_type_map).fillna('Unknown')
+                    
+                    mask_new = df_det_pref['UserType'] == 'New Member (新會員)'
+                    mask_ret = df_det_pref['UserType'] == 'Returning Member (舊會員)'
+                    
+                    top_n = 10
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write(f"**🟢 新會員最愛 Top {top_n}**")
+                        if mask_new.any():
+                            new_top = df_det_pref[mask_new].groupby('Item Name')['Item Quantity'].sum().nlargest(top_n).reset_index()
+                            fig_n = px.bar(new_top, x='Item Quantity', y='Item Name', orientation='h', title="New Members Favorites")
+                            fig_n.update_layout(yaxis={'categoryorder':'total ascending'})
+                            st.plotly_chart(fig_n, use_container_width=True)
+                        else: st.info("此區間無新會員消費")
+    
+                    with col2:
+                        st.write(f"**🔵 舊會員最愛 Top {top_n}**")
+                        if mask_ret.any():
+                            ret_top = df_det_pref[mask_ret].groupby('Item Name')['Item Quantity'].sum().nlargest(top_n).reset_index()
+                            fig_r = px.bar(ret_top, x='Item Quantity', y='Item Name', orientation='h', title="Returning Members Favorites")
+                            fig_r.update_layout(yaxis={'categoryorder':'total ascending'})
+                            st.plotly_chart(fig_r, use_container_width=True)
+                        else: st.info("此區間無舊會員消費")
+                    
+            else:
+                st.warning("無法連結訂單與商品資料 (缺少 Order Number 欄位)")
 
-            if col_order_rep in df_report.columns and col_order_det in df_details.columns:
-                # 1. Create mapping Order -> User Segment
-                # We reuse the 'Segment' from member_stats
-                # Need to map phone to segment first
-                phone_seg_map = member_stats.set_index('Member_ID')['Segment'].to_dict()
-                
-                # Report subset with phone
-                rep_w_phone = df_full[df_full['Member_ID'].notna()].copy()
-                rep_w_phone['UserSeg'] = rep_w_phone['Member_ID'].map(phone_seg_map)
-                
-                # Simplified Mapping: OrderID -> 'New' or 'Returning'
-                # Actually, simpler to just map OrderID -> 'New Member' or 'Returning' based on First Visit Date logic
-                # using the previously computed 'UserType_Rev' if possible, but that's on df_full (report)
-                
-                order_type_map = df_full.set_index(col_order_rep)['UserType_Rev'].to_dict()
-                
-                # Map to details
-                df_det_pref = df_details.copy()
-                df_det_pref['UserType'] = df_det_pref[col_order_det].map(order_type_map).fillna('Unknown')
-                
-                # Filter Method
-                c_mode = st.radio("比較模式", ["新會員 vs 舊會員"], horizontal=True) # Can extend later
-                
-                mask_new = df_det_pref['UserType'] == 'New Member (新會員)'
-                mask_ret = df_det_pref['UserType'] == 'Returning Member (舊會員)'
-                
-                top_n = 10
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write(f"**🟢 新會員最愛 Top {top_n}**")
-                    new_top = df_det_pref[mask_new].groupby('Item Name')['Item Quantity'].sum().nlargest(top_n).reset_index()
-                    if not new_top.empty:
-                        fig_n = px.bar(new_top, x='Item Quantity', y='Item Name', orientation='h', title="New Members Favorites")
-                        fig_n.update_layout(yaxis={'categoryorder':'total ascending'})
-                        st.plotly_chart(fig_n, use_container_width=True)
-                    else: st.info("無新會員資料")
 
-                with col2:
-                    st.write(f"**🔵 舊會員最愛 Top {top_n}**")
-                    ret_top = df_det_pref[mask_ret].groupby('Item Name')['Item Quantity'].sum().nlargest(top_n).reset_index()
-                    if not ret_top.empty:
-                        fig_r = px.bar(ret_top, x='Item Quantity', y='Item Name', orientation='h', title="Returning Members Favorites")
-                        fig_r.update_layout(yaxis={'categoryorder':'total ascending'})
-                        st.plotly_chart(fig_r, use_container_width=True)
-                    else: st.info("無舊會員資料")
                     
             else:
                 st.warning("無法連結訂單與商品資料 (缺少 Order Number 欄位)")
