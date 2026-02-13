@@ -151,11 +151,16 @@ def preprocess_data(df_report, df_details):
 
     # --- P18 Fix: Standardize 'Order Number' for Joining ---
     # Ensure both dataframes have 'Order Number' column
+    # Report might have '訂單編號' OR '單號' (as seen in debug)
     if '訂單編號' in df_report.columns and 'Order Number' not in df_report.columns:
         df_report['Order Number'] = df_report['訂單編號']
+    elif '單號' in df_report.columns and 'Order Number' not in df_report.columns:
+        df_report['Order Number'] = df_report['單號']
     
     if '訂單編號' in df_details.columns and 'Order Number' not in df_details.columns:
         df_details['Order Number'] = df_details['訂單編號']
+    elif '單號' in df_details.columns and 'Order Number' not in df_details.columns:
+        df_details['Order Number'] = df_details['單號']
         
     # Ensure they are transparently string type for merging
     if 'Order Number' in df_report.columns:
