@@ -31,6 +31,12 @@ jobs:
             echo "Creating directories..."
             mkdir -p /home/eats365/data
             mkdir -p /home/eats365/upload
+            
+            # Fix Permissions for Data Upload
+            echo "Setting permissions for /home/eats365/data..."
+            sudo chown -R eats365:eats365 /home/eats365/data || echo "Failed to chown data dir"
+            sudo chmod -R 777 /home/eats365/data || echo "Failed to chmod data dir"
+            
             chmod 777 /home/eats365/upload
             
             # Try to create root /upload if possible (might fail without sudo password)

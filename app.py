@@ -38,14 +38,38 @@ TW_HOLIDAYS_SET = set(tw_holidays)
 
 @st.cache_data(ttl=300)
 def load_data():
-    local_report = os.path.join(LOCAL_DATA_DIR, "history_report.csv")
-    local_details = os.path.join(LOCAL_DATA_DIR, "history_details.csv")
+    # Define search paths in priority order
+    search_paths = [
+        LOCAL_DATA_DIR,                # 1. Server path (/home/eats365/data)
+        os.getcwd(),                   # 2. Current working directory (for Local/Mac)
+        os.path.join(os.getcwd(), 'data') # 3. Relative data folder
+    ]
     
-    if os.path.exists(local_report) and os.path.exists(local_details):
-        df_report = pd.read_csv(local_report)
-        df_details = pd.read_csv(local_details)
+    df_report = pd.DataFrame()
+    df_details = pd.DataFrame()
+    
+    found_path = None
+    
+    for path in search_paths:
+        p_rep = os.path.join(path, "history_report.csv")
+        p_det = os.path.join(path, "history_details.csv")
+        
+        if os.path.exists(p_rep) and os.path.exists(p_det):
+            try:
+                # Add logging/warning to UI if running locally? No, just load.
+                df_report = pd.read_csv(p_rep)
+                df_details = pd.read_csv(p_det)
+                found_path = path
+                break
+            except Exception as e:
+                print(f"Error loading from {path}: {e}")
+                continue
+    
+    if found_path:
+        print(f"Data loaded from: {found_path}")
     else:
-        return pd.DataFrame(), pd.DataFrame()
+        print("Data not found in any search path.")
+        
     return df_report, df_details
 
 def clean_currency(series):
@@ -627,44 +651,66 @@ try:
             st.warning("無會員電話欄位，無法進行分析")
             st.stop()
             
-        # 1. Data Preparation (Valid Members Only)
         # 1. Data Preparation
-        # Define Platform Phone Numbers
-        # 55941277 = UberEats (Use Name to distinguish)
-        # Foodpanda = Often masked as *********** or has no data -> Exclude
         
+        # --- Feature: Select Analysis Basis (Phone vs Carrier) ---
+        analysis_basis = st.radio("分析基準 (Analysis Basis)", ["電話號碼 (Phone)", "載具號碼 (Carrier)"], horizontal=True)
+        
+        # Define Platform Phone Numbers
         UBER_PHONE = '55941277'
         
+        # Helper to find Carrier Column
+        possible_carrier_cols = ['載具號碼', 'Carrier Number', 'Carrier No', 'Mobile Carrier', '載具', 'Carrier']
+        col_carrier = next((c for c in possible_carrier_cols if c in df_full.columns), None)
+        
         # Function to generate unique Member ID
-        def get_member_id(row):
-            phone = str(row.get(col_phone, '')).strip()
-            name = str(row.get('客戶姓名', '')).strip() 
+        def get_member_id(row, basis='phone'):
+            if basis == 'phone':
+                phone = str(row.get(col_phone, '')).strip()
+                name = str(row.get('客戶姓名', '')).strip() 
+                
+                # Normalize Phone (remove spaces, -, +886)
+                p_norm = phone.replace(" ", "").replace("-", "").replace("+886", "0")
+                if p_norm.startswith("886"): p_norm = "0" + p_norm[3:]
+    
+                # Exclude Invalid / Foodpanda (Masked)
+                if '*' in phone or phone == 'nan' or len(p_norm) < 5:
+                    return None
+                
+                # Exclude Platform Phone (UberEats) and specific excluded names
+                if UBER_PHONE in p_norm or '陳美鳳' in name:
+                    return None 
+    
+                # Standard Member (Phone as ID)
+                return p_norm 
             
-            # Normalize Phone (remove spaces, -, +886)
-            p_norm = phone.replace(" ", "").replace("-", "").replace("+886", "0")
-            if p_norm.startswith("886"): p_norm = "0" + p_norm[3:]
+            elif basis == 'carrier':
+                if not col_carrier: return None
+                carrier = str(row.get(col_carrier, '')).strip()
+                
+                # Basic validation for Carrier Number (usually / followed by 7 alphanum, or pure alphanum)
+                # Exclude empty, nan, or too short
+                if carrier == 'nan' or not carrier or len(carrier) < 3:
+                    return None
+                
+                return carrier
 
-            # Exclude Invalid / Foodpanda (Masked)
-            if '*' in phone or phone == 'nan' or len(p_norm) < 5:
-                return None
+        basis_key = 'phone' if "Phone" in analysis_basis else 'carrier'
+        
+        if basis_key == 'carrier' and not col_carrier:
+            st.warning(f"⚠️ 找不到載具號碼欄位。請確認資料包含以下欄位之一: {possible_carrier_cols}")
+            st.stop()
             
-            # Exclude Platform Phone (UberEats) and specific excluded names
-            if UBER_PHONE in p_norm or '陳美鳳' in name:
-                return None 
-
-            # 2. Standard Member (Phone as ID)
-            return p_norm # Use normalized phone as ID to avoid duplicates (e.g. "0912 345 678" vs "0912345678")
-
-        df_full['Member_ID'] = df_full.apply(get_member_id, axis=1)
+        df_full['Member_ID'] = df_full.apply(lambda r: get_member_id(r, basis=basis_key), axis=1)
         
         df_members = df_full[df_full['Member_ID'].notna()].copy()
         
         if df_members.empty:
-            st.warning("系統內無有效的會員資料 (No valid Member IDs)")
+            st.warning(f"分析失敗: 找不到有效的會員資料 (Basis: {analysis_basis})")
             st.stop()
             
         # --- Date Range Filter for CRM ---
-        st.markdown("### ⚙️ 分析設定")
+        st.markdown(f"### ⚙️ 分析設定 ({analysis_basis})")
         min_date = df_full['Date_Parsed'].min().date()
         max_date = df_full['Date_Parsed'].max().date()
         
@@ -737,19 +783,6 @@ try:
         else:
             start_date, end_date = min_date, max_date
         
-        # Filter for logic:
-        # We want to establish the 'Status' of customers based on their behavior *within* or *up to* this window?
-        # Standard CRM: Usually analyzes "Active base". 
-        # Let's filter df_full to only include orders in this range? 
-        # No, RFM needs history. 
-        # Better Interpretation: "Who visited in this range?" OR "Analyze All History"
-        # User asked: "Is this all history?"
-        # Let's keep it "All History" by default but allow filtering "Last Visit >= Start Date" to separate active from dead?
-        # Actually, simpler: Just add a text explaining "This analyzes ALL historical data."
-        # And maybe a filter to "Exclude Sleeping Customers (> 1 year)"
-        
-        # Let's revert the filter for now to avoid complexity and simpler explanation.
-        # Instead, interpret the "All History" meaning.
         
         # Calculate Member Stats (Group by Member_ID instead of Phone)
         # Fix: Count Visits by Unique Date (multiple orders same day = 1 visit)
