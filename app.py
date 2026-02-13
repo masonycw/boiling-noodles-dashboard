@@ -1044,7 +1044,7 @@ try:
 
 
     # --- VIEW 6: 系統檢查 (System Check) ---
-    elif view_mode == "🔍 系統檢查":
+    elif view_mode == "📁 檔案檢查":
         st.title("🔍 伺服器檔案檢查")
         
         # Define directories to check
