@@ -1107,15 +1107,38 @@ try:
         st.plotly_chart(fig_rev, use_container_width=True)
 
 
-    # --- VIEW 6: 系統檢查 (System Check) ---
+    # --- VIEW 6: 系統檢查 (System Check & Diagnostics) ---
     elif view_mode == "📁 檔案檢查":
-        st.title("🔍 伺服器檔案檢查")
+        st.title("🔍 伺服器檔案檢查 & 權限診斷")
+        
+        # --- Diagnostic Tools ---
+        st.subheader("🛠️ 系統診斷資訊 (Debug Info)")
+        if st.button("執行系統診斷 (Run Diagnostics)"):
+            import subprocess
+            
+            def run_cmd(cmd):
+                try:
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+                    return result.stdout + result.stderr
+                except Exception as e:
+                    return f"Error: {e}"
+
+            st.code(f"Current User (whoami): {run_cmd('whoami')}", language='bash')
+            st.code(f"User Groups (groups): {run_cmd('groups')}", language='bash')
+            st.code(f"Folder Permissions (ls -ld /home/eats365/data):\n{run_cmd('ls -ld /home/eats365/data')}", language='bash')
+            st.code(f"Parent Permissions (ls -ld /home/eats365):\n{run_cmd('ls -ld /home/eats365')}", language='bash')
+            st.code(f"Disk Usage (df -h /home/eats365):\n{run_cmd('df -h /home/eats365')}", language='bash')
+            
+            # Check sudo capability (might fail if interactive)
+            st.code(f"Sudo Check (sudo -n true):\n{run_cmd('sudo -n true && echo Sudo_OK || echo Sudo_Fail')}", language='bash')
+
+        st.divider()
         
         # Define directories to check
         dirs_to_check = {
             "🏠 SFTP Home (/home/eats365)": "/home/eats365",
             "📂 Data Dir (/home/eats365/data)": "/home/eats365/data",
-            "⬆️ Upload Dir (/upload)": "/upload",
+            "⬆️ Upload Dir (/home/eats365/upload)": "/home/eats365/upload",
             "📍 Current Dir (.)": os.getcwd()
         }
         
@@ -1134,16 +1157,33 @@ try:
                         size_kb = round(stat.st_size / 1024, 2)
                         mtime = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
                         ftype = "Dir" if os.path.isdir(full_path) else "File"
+                        
+                        # Get Owner/Permissions if possible
+                        import pwd, grp
+                        try:
+                            owner = pwd.getpwuid(stat.st_uid).pw_name
+                        except: owner = str(stat.st_uid)
+                        try:
+                            group = grp.getgrgid(stat.st_gid).gr_name
+                        except: group = str(stat.st_gid)
+                        perms = oct(stat.st_mode)[-3:]
+                        
                     except:
                         size_kb = 0
                         mtime = "Unknown"
                         ftype = "Unknown"
+                        owner = "?"
+                        group = "?"
+                        perms = "?"
                         
                     files.append({
                         "Filename": f,
                         "Type": ftype,
                         "Size (KB)": size_kb,
-                        "Modified Time": mtime
+                        "Modified Time": mtime,
+                        "Owner": owner,
+                        "Group": group,
+                        "Perms": perms
                     })
                 
                 if files:
@@ -1156,7 +1196,6 @@ try:
         else:
             st.warning(f"找不到此資料夾: {target_path}")
             
-        st.divider()
         st.caption(f"Current User: {os.environ.get('USER', 'Unknown')}")
 
 except Exception as e:
