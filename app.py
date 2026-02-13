@@ -1132,6 +1132,44 @@ try:
             # Check sudo capability (might fail if interactive)
             st.code(f"Sudo Check (sudo -n true):\n{run_cmd('sudo -n true && echo Sudo_OK || echo Sudo_Fail')}", language='bash')
 
+        # --- Fix Tool (Root Only) ---
+        if st.button("🔧 一鍵修復權限 (Fix Permissions)"):
+            try:
+                # 1. Fix Home Dir
+                # ownership: 1001:1002 seem to be mason_ycw:mason_ycw per previous ls -ld?
+                # Actually, let's just make it world writable 777.
+                # And try to chown to 1001 (whatever user that is)
+                
+                target_uid = 1001 # Try to match observed UID if possible, or leave as is
+                target_gid = 1002 
+                
+                paths = ["/home/eats365", "/home/eats365/data", "/home/eats365/upload"]
+                
+                log = []
+                for p in paths:
+                    if not os.path.exists(p):
+                        os.makedirs(p, exist_ok=True)
+                        log.append(f"Created {p}")
+                    
+                    # Chmod 777
+                    os.chmod(p, 0o777)
+                    log.append(f"Chmod 777 {p} OK")
+                    
+                    # Recursively for data/upload
+                    if p != "/home/eats365":
+                        for root, dirs, files in os.walk(p):
+                            for d in dirs:
+                                os.chmod(os.path.join(root, d), 0o777)
+                            for f in files:
+                                os.chmod(os.path.join(root, f), 0o666)
+                        log.append(f"Recursive fix {p} OK")
+
+                st.success("權限修復完成！日誌如下：\n" + "\n".join(log))
+                st.balloons()
+                
+            except Exception as e:
+                st.error(f"修復失敗: {e}")
+
         st.divider()
         
         # Define directories to check
