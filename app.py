@@ -146,6 +146,21 @@ def preprocess_data(df_report, df_details):
         
     df_details['Category'] = df_details.apply(infer_category, axis=1)
 
+    # --- P18 Fix: Standardize 'Order Number' for Joining ---
+    # Ensure both dataframes have 'Order Number' column
+    if '訂單編號' in df_report.columns and 'Order Number' not in df_report.columns:
+        df_report['Order Number'] = df_report['訂單編號']
+    
+    if '訂單編號' in df_details.columns and 'Order Number' not in df_details.columns:
+        df_details['Order Number'] = df_details['訂單編號']
+        
+    # Ensure they are transparently string type for merging
+    if 'Order Number' in df_report.columns:
+        df_report['Order Number'] = df_report['Order Number'].astype(str).str.strip()
+        
+    if 'Order Number' in df_details.columns:
+        df_details['Order Number'] = df_details['Order Number'].astype(str).str.strip()
+
     # --- Day Type ---
     def get_day_type(dt):
         if pd.isnull(dt): return 'Unknown'
