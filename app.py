@@ -1030,6 +1030,10 @@ try:
                     
                 else:
                     st.warning("無法連結訂單與商品資料 (缺少 Order Number 欄位)")
+                    st.write("**Debugging Info (Columns Available):**")
+                    st.write(f"Report Cols: {df_report.columns.tolist()}")
+                    st.write(f"Details Cols: {df_details.columns.tolist()}")
+                    st.write(f"Filtered Rep Cols: {df_full_filtered.columns.tolist()}")
 
 
 
