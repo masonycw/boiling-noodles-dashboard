@@ -1042,33 +1042,44 @@ try:
         fig_rev = px.bar(forecast_df, x='Date_Label', y='Forecast Revenue', title="未來 12 個月預估營收", color='Status')
         st.plotly_chart(fig_rev, use_container_width=True)
 
-    # --- VIEW 6: 檔案檢查 (File Inspector) ---
-    elif view_mode == "📁 檔案檢查":
-        st.title("📁 系統檔案檢查 (SFTP)")
+
+    # --- VIEW 6: 系統檢查 (System Check) ---
+    elif view_mode == "🔍 系統檢查":
+        st.title("🔍 伺服器檔案檢查")
         
-        # Target Directories to check
+        # Define directories to check
         dirs_to_check = {
-            "🏠 SFTP Root (/home/eats365)": "/home/eats365",
+            "🏠 SFTP Home (/home/eats365)": "/home/eats365",
             "📂 Data Dir (/home/eats365/data)": "/home/eats365/data",
-            "⬆️ Upload Dir (/home/eats365/upload)": "/home/eats365/upload"
+            "⬆️ Upload Dir (/upload)": "/upload",
+            "📍 Current Dir (.)": os.getcwd()
         }
         
-        sel_dir_name = st.selectbox("選擇資料夾", list(dirs_to_check.keys()))
+        sel_dir_name = st.selectbox("選擇要檢查的資料夾", list(dirs_to_check.keys()))
         target_path = dirs_to_check[sel_dir_name]
         
         st.write(f"正在檢查路徑: `{target_path}`")
         
         if os.path.exists(target_path):
-            files = []
             try:
+                files = []
                 for f in os.listdir(target_path):
                     full_path = os.path.join(target_path, f)
-                    stat = os.stat(full_path)
+                    try:
+                        stat = os.stat(full_path)
+                        size_kb = round(stat.st_size / 1024, 2)
+                        mtime = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                        ftype = "Dir" if os.path.isdir(full_path) else "File"
+                    except:
+                        size_kb = 0
+                        mtime = "Unknown"
+                        ftype = "Unknown"
+                        
                     files.append({
                         "Filename": f,
-                        "Size (KB)": round(stat.st_size / 1024, 2),
-                        "Modified Time": datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
-                        "Type": "Dir" if os.path.isdir(full_path) else "File"
+                        "Type": ftype,
+                        "Size (KB)": size_kb,
+                        "Modified Time": mtime
                     })
                 
                 if files:
@@ -1077,20 +1088,12 @@ try:
                 else:
                     st.info("此資料夾為空 (Empty)")
             except Exception as e:
-                st.error(f"讀取權限不足或錯誤: {e}")
+                st.error(f"無法讀取 (Permission Error?): {e}")
         else:
-            st.warning("找不到此資料夾 (可能是路徑錯誤或尚未建立)")
+            st.warning(f"找不到此資料夾: {target_path}")
+            
+        st.divider()
+        st.caption(f"Current User: {os.environ.get('USER', 'Unknown')}")
 
-    # --- VIEW 7: 部署測試 ---
-    elif view_mode == "🚀 部署測試":
-        st.title("🚀 部署測試成功！")
-        st.balloons()
-        st.success("如果您看到這個頁面，代表 GitHub Actions 自動部署已經成功運作！")
-        
-        st.subheader("系統資訊")
-        st.write(f"當前時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        st.write(f"執行路徑: {os.getcwd()}")
-        
-        st.info("此頁面由 GitHub Actions 自動部署更新。")
-
-except Exception as e: st.error(f"系統錯誤: {e}")
+except Exception as e:
+    st.error(f"系統錯誤: {e}")
