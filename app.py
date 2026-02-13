@@ -936,20 +936,27 @@ try:
                     # Optimization: Map Phone -> Segment
                     return 'Unknown'
 
-                # Better Approach: Map Member_ID to Segment, then sum revenue by Segment
-                # We have member_stats (All History) -> Segment
-                mem_seg_map = member_stats.set_index('Member_ID')['Segment'].to_dict()
+                # Better Approach: Classify based on Transaction Date vs First Visit Date
+                # If Transaction Date == First Visit Date -> New Member (First Purchase)
+                # If Transaction Date > First Visit Date -> Returning Member
+                
+                # 1. Get First Visit Date for each member (from member_stats or df_members)
+                # member_stats has 'First_Visit' (datetime64[ns] or similar)
+                mem_fv_map = member_stats.set_index('Member_ID')['First_Visit'].dt.date.to_dict()
                 
                 df_rev_calc = df_full_filtered.copy()
-                df_rev_calc['UserSeg'] = df_rev_calc['Member_ID'].map(mem_seg_map).fillna('Guest (非會員)')
                 
-                # Simplify Segments for Chart
-                def simple_seg(s):
-                    if 'New' in s or 'Potential' in s: return 'New Member (新會員)'
-                    if 'Guest' in s: return 'Guest (非會員)'
+                def classify_rev_type(row):
+                    mid = row.get('Member_ID')
+                    if pd.isna(mid) or mid not in mem_fv_map: return 'Guest (非會員)'
+                    
+                    tx_date = row['Date_Parsed'].date() # Assuming Date_Parsed is datetime
+                    fv_date = mem_fv_map[mid]
+                    
+                    if tx_date == fv_date: return 'New Member (新會員)'
                     return 'Returning Member (舊會員)'
-                
-                df_rev_calc['UserType_Rev'] = df_rev_calc['UserSeg'].apply(simple_seg)
+
+                df_rev_calc['UserType_Rev'] = df_rev_calc.apply(classify_rev_type, axis=1)
                 
                 # Stacked Bar: Date vs Revenue by Type
                 rev_trend = df_rev_calc.groupby(['Date_Parsed', 'UserType_Rev'])['總計'].sum().reset_index()
