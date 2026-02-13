@@ -54,8 +54,8 @@ def load_data():
         if not os.path.exists(path): continue
         
         try:
-            # List all files in directory
-            files = os.listdir(path)
+            # List all files and SORT them to ensure deterministic order (old -> new usually)
+            files = sorted(os.listdir(path))
             for f in files:
                 full_p = os.path.join(path, f)
                 
@@ -63,6 +63,11 @@ def load_data():
                 if f.startswith("history_report") and f.endswith(".csv"):
                     try:
                         temp_df = pd.read_csv(full_p)
+                        # clean column names
+                        temp_df.columns = temp_df.columns.str.strip()
+                        if '單號' in temp_df.columns:
+                            temp_df['單號'] = temp_df['單號'].astype(str).str.strip()
+                            
                         all_reports.append(temp_df)
                         print(f"Loaded Report: {full_p} ({len(temp_df)} rows)")
                     except Exception as e:
@@ -72,6 +77,8 @@ def load_data():
                 if f.startswith("history_details") and f.endswith(".csv"):
                     try:
                         temp_df = pd.read_csv(full_p)
+                        temp_df.columns = temp_df.columns.str.strip()
+                        # normalize order id column if possible ? Details usually has related ID
                         all_details.append(temp_df)
                         print(f"Loaded Details: {full_p} ({len(temp_df)} rows)")
                     except Exception as e:
@@ -82,10 +89,15 @@ def load_data():
     # Merge Reports
     if all_reports:
         df_report = pd.concat(all_reports, ignore_index=True)
+        print(f"Pre-dedup Report Rows: {len(df_report)}")
+        
         # Deduplicate based on Order Number (單號) if present
         if '單號' in df_report.columns:
+            # Ensure type consistency again just in case
+            df_report['單號'] = df_report['單號'].astype(str).str.strip()
             df_report.drop_duplicates(subset=['單號'], keep='last', inplace=True)
-        print(f"Total Merged Report Rows: {len(df_report)}")
+            
+        print(f"Post-dedup Report Rows: {len(df_report)}")
     else:
         print("No report data found.")
 
@@ -93,6 +105,12 @@ def load_data():
     if all_details:
         df_details = pd.concat(all_details, ignore_index=True)
         print(f"Total Merged Details Rows: {len(df_details)}")
+        # Ideally deduplicate details too, but they don't always have a unique row ID. 
+        # Usually we rely on joining with Report.
+        # But if we updated report, we might have duplicate details for the same order.
+        # Let's try to dedup details if they match exactly.
+        df_details.drop_duplicates(inplace=True)
+        print(f"Post-dedup Details Rows: {len(df_details)}")
     else:
         print("No details data found.")
         
