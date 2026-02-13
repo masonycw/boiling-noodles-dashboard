@@ -1197,6 +1197,35 @@ try:
             else:
                 st.info("無資料讀取日誌")
 
+        # --- Daily Revenue Inspector ---
+        st.subheader("📅 每日營收檢查 (Daily Revenue Check)")
+        
+        # Select Month to Inspect
+        if not df_report.empty and 'Date_Parsed' in df_report.columns:
+            months = df_report['Date_Parsed'].dt.to_period('M').unique().astype(str)
+            months = sorted(months, reverse=True) # Newest first
+            sel_month = st.selectbox("選擇月份 (Select Month)", months, index=0)
+            
+            # Filter Data
+            mask_m = df_report['Date_Parsed'].dt.to_period('M').astype(str) == sel_month
+            df_m = df_report[mask_m].copy()
+            
+            # Group by Day
+            df_daily_chk = df_m.groupby(df_m['Date_Parsed'].dt.date).agg(
+                Orders=('總計', 'count'),
+                Revenue=('總計', 'sum')
+            ).reset_index().rename(columns={'Date_Parsed': 'Date'})
+            
+            # Show Table
+            st.dataframe(df_daily_chk.style.format({'Revenue': '${:,.0f}'}), use_container_width=True)
+            
+            total_rev = df_daily_chk['Revenue'].sum()
+            st.metric(f"{sel_month} 總營收", f"${total_rev:,.0f}")
+        else:
+            st.warning("無日期資料可供檢查")
+
+        st.divider()
+
         # --- Diagnostic Tools ---
         st.subheader("🛠️ 系統診斷資訊 (Debug Info)")
         if st.button("執行系統診斷 (Run Diagnostics)"):
