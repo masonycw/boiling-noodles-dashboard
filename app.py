@@ -97,8 +97,11 @@ def preprocess_data(df_report, df_details):
         df_details.loc[mask_combo, 'Item Name'] = '超值組合'
     
     # --- Categorization P14 Specific Items ---
-    clean_cols = {c: c.strip() for c in df_details.columns}
-    df_details.rename(columns=clean_cols, inplace=True)
+    clean_cols_d = {c: c.strip() for c in df_details.columns}
+    df_details.rename(columns=clean_cols_d, inplace=True)
+    
+    clean_cols_r = {c: c.strip() for c in df_report.columns}
+    df_report.rename(columns=clean_cols_r, inplace=True)
     
     def infer_category(row):
         sku = str(row.get('Product SKU', '')).strip().upper()
