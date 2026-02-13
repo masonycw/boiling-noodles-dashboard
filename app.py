@@ -46,30 +46,55 @@ def load_data():
         os.path.join(os.getcwd(), 'data') # 3. Relative data folder
     ]
     
-    df_report = pd.DataFrame()
-    df_details = pd.DataFrame()
-    
-    found_path = None
-    
+    all_reports = []
+    all_details = []
+
+    # Iterate ALL paths to find potential data chunks
     for path in search_paths:
-        p_rep = os.path.join(path, "history_report.csv")
-        p_det = os.path.join(path, "history_details.csv")
+        if not os.path.exists(path): continue
         
-        if os.path.exists(p_rep) and os.path.exists(p_det):
-            try:
-                # Add logging/warning to UI if running locally? No, just load.
-                df_report = pd.read_csv(p_rep)
-                df_details = pd.read_csv(p_det)
-                found_path = path
-                break
-            except Exception as e:
-                print(f"Error loading from {path}: {e}")
-                continue
-    
-    if found_path:
-        print(f"Data loaded from: {found_path}")
+        try:
+            # List all files in directory
+            files = os.listdir(path)
+            for f in files:
+                full_p = os.path.join(path, f)
+                
+                # Check for any history_report*.csv file
+                if f.startswith("history_report") and f.endswith(".csv"):
+                    try:
+                        temp_df = pd.read_csv(full_p)
+                        all_reports.append(temp_df)
+                        print(f"Loaded Report: {full_p} ({len(temp_df)} rows)")
+                    except Exception as e:
+                        print(f"Error reading {full_p}: {e}")
+                        
+                # Check for any history_details*.csv file
+                if f.startswith("history_details") and f.endswith(".csv"):
+                    try:
+                        temp_df = pd.read_csv(full_p)
+                        all_details.append(temp_df)
+                        print(f"Loaded Details: {full_p} ({len(temp_df)} rows)")
+                    except Exception as e:
+                        print(f"Error reading {full_p}: {e}")
+        except Exception as e:
+            print(f"Error listing {path}: {e}")
+
+    # Merge Reports
+    if all_reports:
+        df_report = pd.concat(all_reports, ignore_index=True)
+        # Deduplicate based on Order Number (單號) if present
+        if '單號' in df_report.columns:
+            df_report.drop_duplicates(subset=['單號'], keep='last', inplace=True)
+        print(f"Total Merged Report Rows: {len(df_report)}")
     else:
-        print("Data not found in any search path.")
+        print("No report data found.")
+
+    # Merge Details
+    if all_details:
+        df_details = pd.concat(all_details, ignore_index=True)
+        print(f"Total Merged Details Rows: {len(df_details)}")
+    else:
+        print("No details data found.")
         
     return df_report, df_details
 
