@@ -40,6 +40,7 @@ TW_HOLIDAYS_SET = set(tw_holidays)
 def load_data():
     # Define search paths in priority order
     search_paths = [
+        "/home/eats365/upload",        # 0. User verified working path (Highest Priority)
         LOCAL_DATA_DIR,                # 1. Server path (/home/eats365/data)
         os.getcwd(),                   # 2. Current working directory (for Local/Mac)
         os.path.join(os.getcwd(), 'data') # 3. Relative data folder
