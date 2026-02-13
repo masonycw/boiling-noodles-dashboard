@@ -26,6 +26,17 @@ jobs:
             whoami
             ls -al
           SCRIPT_AFTER: |
+            echo "Current User:"
             whoami
-            ls -al
-            echo $RSYNC_STDOUT
+            echo "Creating directories..."
+            mkdir -p /home/eats365/data
+            mkdir -p /home/eats365/upload
+            chmod 777 /home/eats365/upload
+            
+            # Try to create root /upload if possible (might fail without sudo password)
+            echo "Attempting to create root /upload..."
+            sudo mkdir -p /upload || echo "Failed to create /upload (Permission denied?)"
+            sudo chmod 777 /upload || echo "Failed to chmod /upload"
+            
+            ls -al /home/eats365
+            echo "Done."
