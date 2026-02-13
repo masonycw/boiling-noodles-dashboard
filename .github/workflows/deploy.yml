@@ -38,5 +38,9 @@ jobs:
             sudo mkdir -p /upload || echo "Failed to create /upload (Permission denied?)"
             sudo chmod 777 /upload || echo "Failed to chmod /upload"
             
+            # Reset Password for eats365
+            echo "Resetting password for eats365..."
+            echo "eats365:eats365pass" | sudo chpasswd || echo "Failed to reset password (Requires root)"
+            
             ls -al /home/eats365
             echo "Done."
