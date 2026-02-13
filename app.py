@@ -96,9 +96,31 @@ def load_data(safe_mode=False):
     # Merge
     if all_reports:
         df_report = pd.concat(all_reports, ignore_index=True)
-        if '單號' in df_report.columns:
+        
+        # Deduplication Strategy
+        dedup_cols = []
+        df_report.columns = df_report.columns.str.strip()
+        
+        # 1. Prefer Source Order ID (Unique across time)
+        if '來源訂單編號' in df_report.columns and df_report['來源訂單編號'].notna().any():
+            dedup_cols = ['來源訂單編號']
+            df_report['來源訂單編號'] = df_report['來源訂單編號'].astype(str).str.strip()
+            
+        # 2. Fallback to Date + Order No (Compound Key)
+        elif 'date' in df_report.columns and '單號' in df_report.columns:
+            dedup_cols = ['date', '單號']
+            df_report['date'] = df_report['date'].astype(str).str.strip()
             df_report['單號'] = df_report['單號'].astype(str).str.strip()
-            df_report.drop_duplicates(subset=['單號'], keep='last', inplace=True)
+            
+        # 3. Last Resort: Single Order No (Dangerous!)
+        elif '單號' in df_report.columns:
+            dedup_cols = ['單號']
+            df_report['單號'] = df_report['單號'].astype(str).str.strip()
+            
+        if dedup_cols:
+            prev_len = len(df_report)
+            df_report.drop_duplicates(subset=dedup_cols, keep='last', inplace=True)
+            debug_logs.append(f"Deduplicated by {dedup_cols}: {prev_len} -> {len(df_report)} rows")
     else:
         df_report = pd.DataFrame()
 
