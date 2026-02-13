@@ -37,7 +37,7 @@ tw_holidays = [
 TW_HOLIDAYS_SET = set(tw_holidays)
 
 @st.cache_data(ttl=300)
-def load_data():
+def load_data(safe_mode=False):
     # Define search paths in priority order
     search_paths = [
         "/home/eats365/upload",        # 0. User verified working path (Highest Priority)
@@ -48,73 +48,67 @@ def load_data():
     
     all_reports = []
     all_details = []
+    debug_logs = []
 
-    # Iterate ALL paths to find potential data chunks
+    # Iterate ALL paths
     for path in search_paths:
         if not os.path.exists(path): continue
         
         try:
-            # List all files and SORT them to ensure deterministic order (old -> new usually)
+            # Sort files for deterministic order
             files = sorted(os.listdir(path))
             for f in files:
                 full_p = os.path.join(path, f)
                 
-                # Check for any history_report*.csv file
+                # Report Files
                 if f.startswith("history_report") and f.endswith(".csv"):
+                    # Safe Mode: Only load exact match "history_report.csv"
+                    if safe_mode and f != "history_report.csv":
+                        continue
+                        
                     try:
                         temp_df = pd.read_csv(full_p)
-                        # clean column names
+                        # clean columns
                         temp_df.columns = temp_df.columns.str.strip()
                         if '單號' in temp_df.columns:
                             temp_df['單號'] = temp_df['單號'].astype(str).str.strip()
-                            
-                        all_reports.append(temp_df)
-                        print(f"Loaded Report: {full_p} ({len(temp_df)} rows)")
-                    except Exception as e:
-                        print(f"Error reading {full_p}: {e}")
                         
-                # Check for any history_details*.csv file
+                        all_reports.append(temp_df)
+                        debug_logs.append(f"Loaded Report: {f} ({len(temp_df)} rows) | Cols: {list(temp_df.columns[:3])}...")
+                    except Exception as e:
+                        debug_logs.append(f"Error reading {f}: {e}")
+                        
+                # Details Files
                 if f.startswith("history_details") and f.endswith(".csv"):
+                    if safe_mode and f != "history_details.csv":
+                        continue
+                        
                     try:
                         temp_df = pd.read_csv(full_p)
                         temp_df.columns = temp_df.columns.str.strip()
-                        # normalize order id column if possible ? Details usually has related ID
                         all_details.append(temp_df)
-                        print(f"Loaded Details: {full_p} ({len(temp_df)} rows)")
+                        debug_logs.append(f"Loaded Details: {f} ({len(temp_df)} rows)")
                     except Exception as e:
-                        print(f"Error reading {full_p}: {e}")
+                        debug_logs.append(f"Error reading {f}: {e}")
         except Exception as e:
-            print(f"Error listing {path}: {e}")
+            debug_logs.append(f"Error listing {path}: {e}")
 
-    # Merge Reports
+    # Merge
     if all_reports:
         df_report = pd.concat(all_reports, ignore_index=True)
-        print(f"Pre-dedup Report Rows: {len(df_report)}")
-        
-        # Deduplicate based on Order Number (單號) if present
         if '單號' in df_report.columns:
-            # Ensure type consistency again just in case
             df_report['單號'] = df_report['單號'].astype(str).str.strip()
             df_report.drop_duplicates(subset=['單號'], keep='last', inplace=True)
-            
-        print(f"Post-dedup Report Rows: {len(df_report)}")
     else:
-        print("No report data found.")
+        df_report = pd.DataFrame()
 
-    # Merge Details
     if all_details:
         df_details = pd.concat(all_details, ignore_index=True)
-        print(f"Total Merged Details Rows: {len(df_details)}")
-        # Ideally deduplicate details too, but they don't always have a unique row ID. 
-        # Usually we rely on joining with Report.
-        # But if we updated report, we might have duplicate details for the same order.
-        # Let's try to dedup details if they match exactly.
         df_details.drop_duplicates(inplace=True)
-        print(f"Post-dedup Details Rows: {len(df_details)}")
     else:
-        print("No details data found.")
+        df_details = pd.DataFrame()
         
-    return df_report, df_details
+    return df_report, df_details, debug_logs
 
 def clean_currency(series):
     if series.dtype == 'object':
@@ -362,15 +356,27 @@ def predict_monthly_table_hybrid(avg_wd, avg_hd, df_report, months=12):
 
 # --- 3. Main App ---
 try:
+    st.sidebar.title("🍜 滾麵 Dashboard")
+    
+    # Safe Mode Toggle (Before Data Load)
+    safe_mode = st.sidebar.checkbox("⚠️ 僅讀取舊資料 (Safe Mode)", value=False, help="若資料異常，請勾選此項以排除新上傳的檔案")
+    
     with st.spinner('數據處理中...'):
-        df_report_raw, df_details_raw = load_data()
+        df_report_raw, df_details_raw, debug_logs = load_data(safe_mode=safe_mode)
         df_report, df_details = preprocess_data(df_report_raw, df_details_raw)
 
     if df_report.empty:
         st.warning("尚未載入資料")
+        if debug_logs:
+            with st.expander("除錯日誌 (Debug Logs)"):
+                for l in debug_logs: st.write(l)
         st.stop()
-
-    st.sidebar.title("🍜 滾麵 Dashboard")
+        
+    # Navigation
+    # view_mode = st.sidebar.radio... (Keep existing logic if possible, or re-declare)
+    # The original code had st.sidebar.title AFTER load_data. I moved it up.
+    # Let's just restate the navigation.
+    
     view_mode = st.sidebar.radio("功能切換", ["📊 營運總覽", "🍟 商品分析", "👥 會員查詢", "🆕 新舊客分析", "🔮 智慧預測", "📁 檔案檢查", "🚀 部署測試"])
     st.sidebar.divider()
 
@@ -1154,6 +1160,15 @@ try:
     elif view_mode == "📁 檔案檢查":
         st.title("🔍 伺服器檔案檢查 & 權限診斷")
         
+        # --- Data Loading Logs ---
+        with st.expander("📄 資料讀取詳細日誌 (Data Loading Logs)", expanded=True):
+            if 'debug_logs' in locals() and debug_logs:
+                st.write("以下顯示每個被讀取檔案的詳細資訊 (檔名, 列數, 前幾欄名稱):")
+                for l in debug_logs:
+                    st.text(l)
+            else:
+                st.info("無資料讀取日誌")
+
         # --- Diagnostic Tools ---
         st.subheader("🛠️ 系統診斷資訊 (Debug Info)")
         if st.button("執行系統診斷 (Run Diagnostics)"):
