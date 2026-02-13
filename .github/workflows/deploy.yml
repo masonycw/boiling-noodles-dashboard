@@ -32,24 +32,32 @@ jobs:
             mkdir -p /home/eats365/data
             mkdir -p /home/eats365/upload
             
-            # ATTEMPT 1: Fix Permissions via SUDO (Preferred)
-            echo "Attempting sudo chown/chmod..."
+            # ATTEMPT: Recreate Data Directory Strategy
+            # If the old directory is locked, move it aside and create a fresh one.
+            echo "Checking /home/eats365/data status..."
             
-            # General Home Fix
-            sudo chown -R eats365:eats365 /home/eats365 || echo "Sudo chown home failed"
-            sudo chmod -R 755 /home/eats365 || echo "Sudo chmod home failed"
-            
-            # SPECIFIC AGGRESSIVE FIX FOR DATA DIR
-            # It seems 'data' directory is stubborn (maybe owned by root). We must force it.
-            echo "Forcing permissions on /home/eats365/data..."
             if [ -d "/home/eats365/data" ]; then
-                sudo chown -R eats365:eats365 /home/eats365/data || echo "Sudo chown data failed"
-                sudo chmod -R 777 /home/eats365/data || echo "Sudo chmod data failed"
-            else
-                echo "Data dir missing? Creating it now..."
+                # Try to write a test file
+                if touch /home/eats365/data/test_write_check 2>/dev/null; then
+                    echo "Write check passed. Permissions seem OK."
+                    rm /home/eats365/data/test_write_check
+                else
+                    echo "Write check FAILED. Directory is locked. Moving to backup..."
+                    TIMESTAMP=$(date +%s)
+                    sudo mv /home/eats365/data /home/eats365/data_backup_$TIMESTAMP || echo "Failed to move locked data dir"
+                fi
+            fi
+            
+            # Ensure Data Dir exists and is fresh/writable
+            if [ ! -d "/home/eats365/data" ]; then
+                echo "Creating fresh data directory..."
                 mkdir -p /home/eats365/data
                 sudo chown eats365:eats365 /home/eats365/data
                 sudo chmod 777 /home/eats365/data
+            else
+                # Fallback force permission again
+                sudo chown -R eats365:eats365 /home/eats365/data
+                sudo chmod -R 777 /home/eats365/data
             fi
             
             # Ensure Upload dir is also open
