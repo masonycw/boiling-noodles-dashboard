@@ -98,35 +98,41 @@ def load_data(safe_mode=False):
         df_report = pd.concat(all_reports, ignore_index=True)
         
         # Deduplication Strategy
-        dedup_cols = []
-        df_report.columns = df_report.columns.str.strip()
-        
-        # 1. Prefer Source Order ID (Unique across time)
-        if '來源訂單編號' in df_report.columns and df_report['來源訂單編號'].notna().any():
-            dedup_cols = ['來源訂單編號']
-            df_report['來源訂單編號'] = df_report['來源訂單編號'].astype(str).str.strip()
+        # ONLY run if NOT in Safe Mode
+        if not safe_mode:
+            dedup_cols = []
+            df_report.columns = df_report.columns.str.strip()
             
-        # 2. Fallback to Date + Order No (Compound Key)
-        elif 'date' in df_report.columns and '單號' in df_report.columns:
-            dedup_cols = ['date', '單號']
-            df_report['date'] = df_report['date'].astype(str).str.strip()
-            df_report['單號'] = df_report['單號'].astype(str).str.strip()
+            # 1. Prefer Source Order ID (Unique across time)
+            if '來源訂單編號' in df_report.columns and df_report['來源訂單編號'].notna().sum() > 10:
+                dedup_cols = ['來源訂單編號']
+                df_report['來源訂單編號'] = df_report['來源訂單編號'].astype(str).str.strip()
+                
+            # 2. Fallback to Date + Order No (Compound Key)
+            elif 'date' in df_report.columns and '單號' in df_report.columns:
+                dedup_cols = ['date', '單號']
+                df_report['date'] = df_report['date'].astype(str).str.strip()
+                df_report['單號'] = df_report['單號'].astype(str).str.strip()
             
-        # 3. Last Resort: Single Order No (Dangerous!)
-        elif '單號' in df_report.columns:
-            dedup_cols = ['單號']
-            df_report['單號'] = df_report['單號'].astype(str).str.strip()
+            if dedup_cols:
+                prev_len = len(df_report)
+                # Ensure we don't accidentally drop NaNs as duplicates if using SourceID
+                if '來源訂單編號' in dedup_cols:
+                     df_report.drop_duplicates(subset=dedup_cols, keep='last', inplace=True)
+                else:
+                     df_report.drop_duplicates(subset=dedup_cols, keep='last', inplace=True)
+                     
+                debug_logs.append(f"Deduplicated by {dedup_cols}: {prev_len} -> {len(df_report)} rows")
+        else:
+            debug_logs.append("Safe Mode: Skipped Deduplication")
             
-        if dedup_cols:
-            prev_len = len(df_report)
-            df_report.drop_duplicates(subset=dedup_cols, keep='last', inplace=True)
-            debug_logs.append(f"Deduplicated by {dedup_cols}: {prev_len} -> {len(df_report)} rows")
     else:
         df_report = pd.DataFrame()
 
     if all_details:
         df_details = pd.concat(all_details, ignore_index=True)
-        df_details.drop_duplicates(inplace=True)
+        if not safe_mode:
+             df_details.drop_duplicates(inplace=True)
     else:
         df_details = pd.DataFrame()
         
