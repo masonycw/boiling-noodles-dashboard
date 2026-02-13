@@ -50,55 +50,39 @@ def load_data(safe_mode=False):
     all_details = []
     debug_logs = []
 
-    # Iterate ALL paths
+    # Iterate paths
     for path in search_paths:
         if not os.path.exists(path): continue
         
-        try:
-            # Sort files for deterministic order
-            files = sorted(os.listdir(path))
-            for f in files:
-                full_p = os.path.join(path, f)
-                
-                # Report Files
-                if f.startswith("history_report") and f.endswith(".csv"):
-                    # Safe Mode: Only load exact match "history_report.csv"
-                    if safe_mode and f != "history_report.csv":
-                        continue
-                        
-                    try:
-                        temp_df = pd.read_csv(full_p)
-                        # clean columns
-                        temp_df.columns = temp_df.columns.str.strip()
-                        if '單號' in temp_df.columns:
-                            temp_df['單號'] = temp_df['單號'].astype(str).str.strip()
-                        
-                        all_reports.append(temp_df)
-                        debug_logs.append(f"Loaded Report: {f} ({len(temp_df)} rows) | Cols: {list(temp_df.columns[:3])}...")
-                    except Exception as e:
-                        debug_logs.append(f"Error reading {f}: {e}")
-                        
-                # Details Files
-                if f.startswith("history_details") and f.endswith(".csv"):
-                    if safe_mode and f != "history_details.csv":
-                        continue
-                        
-                    try:
-                        temp_df = pd.read_csv(full_p)
-                        temp_df.columns = temp_df.columns.str.strip()
-                        all_details.append(temp_df)
-                        debug_logs.append(f"Loaded Details: {f} ({len(temp_df)} rows)")
-                    except Exception as e:
-                        debug_logs.append(f"Error reading {f}: {e}")
-        except Exception as e:
-            debug_logs.append(f"Error listing {path}: {e}")
+        # Check Report
+        p_rep = os.path.join(path, "history_report.csv")
+        if os.path.exists(p_rep):
+            try:
+                temp_df = pd.read_csv(p_rep)
+                temp_df.columns = temp_df.columns.str.strip()
+                if '單號' in temp_df.columns:
+                    temp_df['單號'] = temp_df['單號'].astype(str).str.strip()
+                all_reports.append(temp_df)
+                debug_logs.append(f"Loaded Report: {p_rep} ({len(temp_df)} rows)")
+            except Exception as e:
+                debug_logs.append(f"Error reading {p_rep}: {e}")
 
-    # Merge
+        # Check Details
+        p_det = os.path.join(path, "history_details.csv")
+        if os.path.exists(p_det):
+            try:
+                temp_df = pd.read_csv(p_det)
+                temp_df.columns = temp_df.columns.str.strip()
+                all_details.append(temp_df)
+                debug_logs.append(f"Loaded Details: {p_det} ({len(temp_df)} rows)")
+            except Exception as e:
+                debug_logs.append(f"Error reading {p_det}: {e}")
+
+    # Merge (Only strictly concat if multiple found in different paths, though usually only one path exists)
     if all_reports:
         df_report = pd.concat(all_reports, ignore_index=True)
         # Simply drop exact duplicate rows (entire row match), but NO column-based dedup
         df_report.drop_duplicates(inplace=True)
-        debug_logs.append(f"Loaded {len(df_report)} rows (simple dedup)")
     else:
         df_report = pd.DataFrame()
 
