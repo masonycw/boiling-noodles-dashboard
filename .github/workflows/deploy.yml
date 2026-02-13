@@ -32,13 +32,18 @@ jobs:
             mkdir -p /home/eats365/data
             mkdir -p /home/eats365/upload
             
-            # Fix Permissions for Data Upload
-            echo "Setting permissions for /home/eats365/data..."
-            sudo chown -R eats365:eats365 /home/eats365/data || echo "Failed to chown data dir"
-            sudo chmod -R 777 /home/eats365/data || echo "Failed to chmod data dir"
+            # Fix Permissions for ENTIRE Home Directory
+            echo "Setting ownership for /home/eats365..."
+            sudo chown -R eats365:eats365 /home/eats365
             
-            chmod 777 /home/eats365/upload
+            echo "Setting permissions (755) for /home/eats365..."
+            sudo chmod -R 755 /home/eats365
             
+            # CRITICAL: Securing SSH directory to prevent lockout
+            echo "Securing .ssh permissions..."
+            sudo chmod 700 /home/eats365/.ssh || echo "No .ssh dir found or failed"
+            sudo chmod 600 /home/eats365/.ssh/authorized_keys || echo "No keys found or failed"
+
             # Try to create root /upload if possible (might fail without sudo password)
             echo "Attempting to create root /upload..."
             sudo mkdir -p /upload || echo "Failed to create /upload (Permission denied?)"
