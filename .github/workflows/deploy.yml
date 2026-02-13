@@ -32,32 +32,32 @@ jobs:
             mkdir -p /home/eats365/data
             mkdir -p /home/eats365/upload
             
-            # Fix Permissions for ENTIRE Home Directory
-            echo "Setting ownership for /home/eats365..."
-            sudo chown -R eats365:eats365 /home/eats365
+            # ATTEMPT 1: Fix Permissions via SUDO (Preferred)
+            echo "Attempting sudo chown/chmod..."
+            if sudo chown -R eats365:eats365 /home/eats365; then
+              echo "Sudo chown success"
+              sudo chmod -R 777 /home/eats365 || echo "Sudo chmod 777 failed"
+            else
+              echo "Sudo failed (User not in sudoers?). Trying direct chmod..."
+              # ATTEMPT 2: Direct chmod (If user owns home dir)
+              chmod -R 777 /home/eats365 || echo "Direct chmod failed"
+            fi
             
-            echo "Setting permissions (755) for /home/eats365..."
-            sudo chmod -R 755 /home/eats365
-            
-            # CRITICAL: Securing SSH directory to prevent lockout
+            # CRITICAL: Re-secure SSH directory (Must be strict)
             echo "Securing .ssh permissions..."
-            sudo chmod 700 /home/eats365/.ssh || echo "No .ssh dir found or failed"
-            sudo chmod 600 /home/eats365/.ssh/authorized_keys || echo "No keys found or failed"
+            # Try sudo first, fallback to direct
+            sudo chmod 700 /home/eats365/.ssh || chmod 700 /home/eats365/.ssh || echo "Failed to secure .ssh"
+            sudo chmod 600 /home/eats365/.ssh/authorized_keys || chmod 600 /home/eats365/.ssh/authorized_keys || echo "Failed to secure authorized_keys"
 
-            # Try to create root /upload if possible (might fail without sudo password)
-            echo "Attempting to create root /upload..."
-            sudo mkdir -p /upload || echo "Failed to create /upload (Permission denied?)"
-            sudo chmod 777 /upload || echo "Failed to chmod /upload"
-            
-            # Reset Password for eats365
+            # Reset Password for eats365 (Only if sudo works)
             echo "Resetting password for eats365..."
             echo "eats365:eats365pass" | sudo chpasswd || echo "Failed to reset password (Requires root)"
             
-            # Enable Password Authentication (GCP default is often 'no')
+            # Enable Password Authentication
             echo "Enabling Password Authentication..."
-            sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
-            sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/g' /etc/ssh/sshd_config
-            sudo service ssh restart || sudo service sshd restart
+            sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config || echo "Failed to modify sshd_config"
+            sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/g' /etc/ssh/sshd_config || echo "Failed to modify sshd_config"
+            sudo service ssh restart || sudo service sshd restart || echo "Failed to restart ssh service"
             
             ls -al /home/eats365
             echo "Done."
