@@ -42,5 +42,11 @@ jobs:
             echo "Resetting password for eats365..."
             echo "eats365:eats365pass" | sudo chpasswd || echo "Failed to reset password (Requires root)"
             
+            # Enable Password Authentication (GCP default is often 'no')
+            echo "Enabling Password Authentication..."
+            sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
+            sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/g' /etc/ssh/sshd_config
+            sudo service ssh restart || sudo service sshd restart
+            
             ls -al /home/eats365
             echo "Done."
