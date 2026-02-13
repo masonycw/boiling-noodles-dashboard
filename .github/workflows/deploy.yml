@@ -34,14 +34,26 @@ jobs:
             
             # ATTEMPT 1: Fix Permissions via SUDO (Preferred)
             echo "Attempting sudo chown/chmod..."
-            if sudo chown -R eats365:eats365 /home/eats365; then
-              echo "Sudo chown success"
-              sudo chmod -R 777 /home/eats365 || echo "Sudo chmod 777 failed"
+            
+            # General Home Fix
+            sudo chown -R eats365:eats365 /home/eats365 || echo "Sudo chown home failed"
+            sudo chmod -R 755 /home/eats365 || echo "Sudo chmod home failed"
+            
+            # SPECIFIC AGGRESSIVE FIX FOR DATA DIR
+            # It seems 'data' directory is stubborn (maybe owned by root). We must force it.
+            echo "Forcing permissions on /home/eats365/data..."
+            if [ -d "/home/eats365/data" ]; then
+                sudo chown -R eats365:eats365 /home/eats365/data || echo "Sudo chown data failed"
+                sudo chmod -R 777 /home/eats365/data || echo "Sudo chmod data failed"
             else
-              echo "Sudo failed (User not in sudoers?). Trying direct chmod..."
-              # ATTEMPT 2: Direct chmod (If user owns home dir)
-              chmod -R 777 /home/eats365 || echo "Direct chmod failed"
+                echo "Data dir missing? Creating it now..."
+                mkdir -p /home/eats365/data
+                sudo chown eats365:eats365 /home/eats365/data
+                sudo chmod 777 /home/eats365/data
             fi
+            
+            # Ensure Upload dir is also open
+            sudo chmod 777 /home/eats365/upload || chmod 777 /home/eats365/upload
             
             # CRITICAL: Re-secure SSH directory (Must be strict)
             echo "Securing .ssh permissions..."
