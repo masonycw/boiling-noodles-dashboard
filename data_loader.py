@@ -80,7 +80,7 @@ class UniversalLoader:
                 
             else:
                 # Fallback to Content-Based Classification
-                if self._is_details(df):
+                if self._is_details(df, filename): # Pass filename
                     df = self._clean_details(df)
                     self.details_data.append(df)
                     self.log(f"✅ Loaded DETAILS (Type 3 - By Cols): {filename} ({len(df)} rows)")
@@ -105,7 +105,10 @@ class UniversalLoader:
         """Returns 'report', 'details', 'invoice', or None based on naming convention."""
         fn_lower = filename.lower()
         if 'transaction report' in fn_lower: return 'details' # User Definition
-        if 'undefined' in fn_lower or 'history_report' in fn_lower: return 'report'
+        
+        if 'history_report' in fn_lower: return 'report'
+        if 'undefined' in fn_lower: return None # Let content decide
+        
         if '發票' in fn_lower or 'invoice' in fn_lower: return 'invoice'
         return None
 
@@ -138,9 +141,17 @@ class UniversalLoader:
         """Type 1: Trans Record. Must have Order ID & Total Amount."""
         return 'order_id' in df.columns and 'total_amount' in df.columns
 
-    def _is_details(self, df):
+    def _is_details(self, df, filename=""):
         """Type 3: Details. Must have Item Name. (Order ID is usually there too)"""
-        return 'item_name' in df.columns
+        if "transaction report" in filename.lower() and "undefined" not in filename.lower():
+             return True
+             
+        if 'item_name' in df.columns: return True
+        # Check aliases
+        for alias in config.COLUMN_MAPPING.get('item_name', []):
+            if alias in df.columns: return True
+            
+        return False
 
     def _is_invoice(self, df):
         """Type 2: Invoice Record. Must have Invoice ID. (Order ID usually MISSING in strictly Type 2 files)"""
@@ -168,14 +179,11 @@ class UniversalLoader:
         # Filter Status (Only Completed)
         if 'status' in df.columns:
             # Normalize status
-            df['status'] = df['status'].astype(str).str.strip()
-            # Keep only '已完成' (Completed)
-            # Users might have English 'Completed' too? Let's check.
-            # For now, strict '已完成' as seen in data.
-            initial_count = len(df)
-            df = df[df['status'] == '已完成']
-            if len(df) < initial_count:
-                pass
+            df['status'] = df['status'].astype(str).str.strip().str.lower()
+            
+            # Keep only '已完成' or 'completed'
+            valid_statuses = ['已完成', 'completed']
+            df = df[df['status'].isin(valid_statuses)]
             
         return df
 
@@ -339,6 +347,8 @@ class UniversalLoader:
             if 'item_name' in df_details.columns:
                 mask_name = df_details['item_name'].astype(str).str.contains('麵|飯', regex=True, na=False)
                 df_details['Is_Main_Dish'] = mask_name & (~df_details['Is_Modifier'])
+                
+        return df_report, df_details
 
     def _get_day_type(self, dt):
         if pd.isnull(dt): return 'Unknown'
