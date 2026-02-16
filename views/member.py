@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from datetime import timedelta
 
 def render_member_search(df_report, df_details):
     st.title("👥 會員消費紀錄查詢")
