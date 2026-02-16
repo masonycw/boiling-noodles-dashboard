@@ -15,14 +15,18 @@ DATA_DIRS = [
 COLUMN_MAPPING = {
     # Report Columns
     'order_id': ['單號', '訂單編號', 'Order Number', 'Order No', 'No.'],
-    'date': ['日期', 'Date', 'Time', '交易時間', '付款時間'],
+    'date': ['日期', 'Date', 'Time', '交易時間', '付款時間', '發票日期'], # Invoice date also valid
     'total_amount': ['總計', 'Total', 'Order Total', '金額', 'Order Total(TWD)'],
-    'tax_id': ['統一編號', 'Tax ID', 'Buyer Tax ID'],
+    'tax_id': ['統一編號', 'Tax ID', 'Buyer Tax ID', '買受人統編'],
     'source_id': ['來源訂單編號', 'Source ID', 'Source Order ID'],
     'member_phone': ['會員電話', 'Phone', 'Customer Phone', '客戶電話', 'Contact'],
-    'customer_name': ['客戶姓名', 'Customer Name', 'Name'],
+    'customer_name': ['客戶姓名', 'Customer Name', 'Name', '買受人名稱'],
+    
+    # Invoice Specific
+    'invoice_id': ['電子發票號', '發票號碼', 'Invoice No', 'Invoice Number'],
     'carrier_id': ['載具號碼', 'Carrier Number', 'Carrier No', 'Mobile Carrier', '載具', 'Carrier'],
-    'status': ['狀態', 'Status', 'Order Status'],
+    
+    'status': ['狀態', 'Status', 'Order Status', '發票狀態'],
     'order_type': ['單類型', 'Order Type', 'Type'],
 
     # Details Columns
