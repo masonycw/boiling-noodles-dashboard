@@ -10,7 +10,7 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     # So we ignore passed defaults for interactive control here? 
     # Let's Implement Local Control.
 
-    st.title("📊 營運總覽 (Operational Overview)")
+    st.title("📊 營運總覽 v2.1 (Charts Added)")
     
     # --- Local Date Filter ---
     # Default to This Month if not passed
@@ -152,6 +152,99 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     dm6.metric("👥 整日來客數", f"{curr_vis:,.0f}")
     dm7.metric("💰 客單價", f"${curr_avg:,.0f}")
     
+    st.divider()
+
+    # --- Charts Section ---
+    st.subheader("📊 營運圖表 (Charts)")
+    
+    if not df_rep.empty:
+        # Data Preparation
+        # 1. Daily Revenue Breakdown (Lunch/Dinner)
+        daily_period = df_rep.groupby(['Date_Parsed', 'Period'])['total_amount'].sum().reset_index()
+        
+        # 2. Daily Visitor & Avg Check
+        # Need to handle visitor count logic per day
+        daily_stats = df_rep.groupby('Date_Parsed').agg({
+            'total_amount': 'sum',
+            'people_count': 'sum', # Default report count
+            'order_id': 'count'
+        }).reset_index()
+        
+        # If details exist, try to improve visitor count accuracy per day
+        if has_details and 'Is_Main_Dish' in df_details.columns:
+            daily_vis_det = df_details[df_details['Is_Main_Dish']].groupby('Date_Parsed')['qty'].sum().reset_index()
+            # Rename for merge
+            daily_vis_det.rename(columns={'qty': 'det_qty'}, inplace=True)
+            daily_stats = daily_stats.merge(daily_vis_det, on='Date_Parsed', how='left')
+            daily_stats['det_qty'] = daily_stats['det_qty'].fillna(0)
+            
+            # Logic: Use detailsqty, if 0 fallback to people_count
+            daily_stats['final_visitors'] = np.where(daily_stats['det_qty'] > 0, daily_stats['det_qty'], daily_stats['people_count'])
+        else:
+             daily_stats['final_visitors'] = daily_stats['people_count']
+             
+        # Calculate Avg Check
+        daily_stats['avg_check'] = daily_stats['total_amount'] / daily_stats['final_visitors'].replace(0, 1)
+        
+        # 3. Order Category (Overall for Pie)
+        cat_pie = df_rep.groupby('Order_Category')['total_amount'].sum().reset_index()
+
+        # --- Visualizations ---
+        
+        c_chart1, c_chart2 = st.columns([2, 1])
+        
+        with c_chart1:
+            # Stacked Bar: Lunch/Dinner
+            fig_bar = px.bar(
+                daily_period, 
+                x='Date_Parsed', 
+                y='total_amount', 
+                color='Period', 
+                title="每日營業額 (午餐/晚餐)",
+                labels={'total_amount': '金額', 'Date_Parsed': '日期', 'Period': '時段'},
+                # text_auto='.2s' # Too cluttered for daily?
+            )
+            fig_bar.update_layout(xaxis_title=None)
+            st.plotly_chart(fig_bar, use_container_width=True)
+            
+        with c_chart2:
+            # Pie Chart: Order Category
+            fig_pie = px.pie(
+                cat_pie, 
+                values='total_amount', 
+                names='Order_Category', 
+                title="營收佔比 (期間加總)",
+                hole=0.4
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+            
+        # Row 2: Line Chart (Visitors & Avg Check) - Dual Axis
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+        
+        fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
+        
+        # Line 1: Visitors
+        fig_dual.add_trace(
+            go.Scatter(x=daily_stats['Date_Parsed'], y=daily_stats['final_visitors'], name="整日來客數", mode='lines+markers'),
+            secondary_y=False
+        )
+        
+        # Line 2: Avg Check
+        fig_dual.add_trace(
+            go.Scatter(x=daily_stats['Date_Parsed'], y=daily_stats['avg_check'], name="客單價", mode='lines+markers', line=dict(dash='dot')),
+            secondary_y=True
+        )
+        
+        fig_dual.update_layout(
+            title_text="每日來客數 & 客單價趨勢",
+            xaxis_title="日期"
+        )
+        fig_dual.update_yaxes(title_text="來客數 (人)", secondary_y=False)
+        fig_dual.update_yaxes(title_text="客單價 ($)", secondary_y=True)
+        
+        st.plotly_chart(fig_dual, use_container_width=True)
+
     st.divider()
     
     # Table Report
