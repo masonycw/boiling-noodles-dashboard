@@ -5,9 +5,9 @@ import config
 
 class UniversalLoader:
     def __init__(self):
-        self.report_data = [] # Type 1: Transaction Record (Master Revenue)
-        self.invoice_data = [] # Type 2: Invoice Record (Carrier Info)
-        self.details_data = [] # Type 3: details (Item Info)
+        self.report_data = [] # Type 1: Transaction Record (undefined) - Master Revenue
+        self.invoice_data = [] # Type 2: Invoice Record (發票) - Carrier Info
+        self.details_data = [] # Type 3: Transaction Details (Transaction Report) - Item Info
         self.debug_logs = []
         self.seen_files = set()
 
@@ -44,13 +44,13 @@ class UniversalLoader:
 
     def _process_file(self, file_path):
         try:
-            # Attempt 1: Standard Load
-            df = pd.read_csv(file_path)
+            # Attempt 1: Standard Load with BOM support
+            df = pd.read_csv(file_path, encoding='utf-8-sig')
             
             # Smart Header Detection
             if self._is_messy_header(df):
                 self.log(f"🔄 Detected messy header in {os.path.basename(file_path)}, retrying with header=1")
-                df = pd.read_csv(file_path, header=1)
+                df = pd.read_csv(file_path, header=1, encoding='utf-8-sig') # Retry with correct encoding
             
             # 1. Clean Column Names
             df.columns = df.columns.astype(str).str.strip()
@@ -59,28 +59,55 @@ class UniversalLoader:
             df = self._map_columns(df)
             
             # 3. Classify and Store
-            # Priority: Details > Report (Strict) > Invoice
+            # Strategy: Filename Priority -> Column Content Fallback
+            filename = os.path.basename(file_path)
+            file_type = self._classify_by_filename(filename)
             
-            if self._is_details(df):
+            if file_type == 'details':
                 df = self._clean_details(df)
                 self.details_data.append(df)
-                self.log(f"✅ Loaded DETAILS (Type 3): {os.path.basename(file_path)} ({len(df)} rows)")
+                self.log(f"✅ Loaded DETAILS (Type 3 - By Name): {filename} ({len(df)} rows)")
                 
-            elif self._is_report(df):
+            elif file_type == 'report':
                 df = self._clean_report(df)
                 self.report_data.append(df)
-                self.log(f"✅ Loaded REPORT (Type 1): {os.path.basename(file_path)} ({len(df)} rows)")
+                self.log(f"✅ Loaded REPORT (Type 1 - By Name): {filename} ({len(df)} rows)")
                 
-            elif self._is_invoice(df):
+            elif file_type == 'invoice':
                 df = self._clean_invoice(df)
                 self.invoice_data.append(df)
-                self.log(f"✅ Loaded INVOICE (Type 2): {os.path.basename(file_path)} ({len(df)} rows)")
+                self.log(f"✅ Loaded INVOICE (Type 2 - By Name): {filename} ({len(df)} rows)")
                 
             else:
-                self.log(f"⚠️ Skipped {os.path.basename(file_path)}: Could not classify (Cols: {list(df.columns[:5])}...)")
+                # Fallback to Content-Based Classification
+                if self._is_details(df):
+                    df = self._clean_details(df)
+                    self.details_data.append(df)
+                    self.log(f"✅ Loaded DETAILS (Type 3 - By Cols): {filename} ({len(df)} rows)")
+                    
+                elif self._is_report(df):
+                    df = self._clean_report(df)
+                    self.report_data.append(df)
+                    self.log(f"✅ Loaded REPORT (Type 1 - By Cols): {filename} ({len(df)} rows)")
+                    
+                elif self._is_invoice(df):
+                    df = self._clean_invoice(df)
+                    self.invoice_data.append(df)
+                    self.log(f"✅ Loaded INVOICE (Type 2 - By Cols): {filename} ({len(df)} rows)")
+                    
+                else:
+                    self.log(f"⚠️ Skipped {filename}: Could not classify (Cols: {list(df.columns[:5])}...)")
 
         except Exception as e:
             self.log(f"❌ Error reading {os.path.basename(file_path)}: {e}")
+
+    def _classify_by_filename(self, filename):
+        """Returns 'report', 'details', 'invoice', or None based on naming convention."""
+        fn_lower = filename.lower()
+        if 'transaction report' in fn_lower: return 'details' # User Definition
+        if 'undefined' in fn_lower or 'history_report' in fn_lower: return 'report'
+        if '發票' in fn_lower or 'invoice' in fn_lower: return 'invoice'
+        return None
 
     def _is_messy_header(self, df):
         """Heuristic to detect if the first row is metadata."""
