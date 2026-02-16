@@ -44,24 +44,41 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     prev_rev = df_rep_prev['total_amount'].sum()
     
     # Visitors/Details (If available)
+    # Priority 1: Visitor Count from Item Details (Main Dishes)
+    # Priority 2: Visitor Count from Report (People Count)
+    # Priority 3: Quantity from Details
+    # Priority 4: Transaction Count
+    
     has_details = not df_details.empty
-    if has_details:
+    
+    # Current Period Visitors
+    curr_vis = 0
+    if has_details and 'Is_Main_Dish' in df_details.columns:
         mask_det = (df_details['Date_Parsed'] >= start_date) & (df_details['Date_Parsed'] <= end_date)
-        df_det = df_details.loc[mask_det].copy()
+        df_det = df_details.loc[mask_det]
+        # Method 1
+        curr_vis = df_det[df_det['Is_Main_Dish']]['qty'].sum()
         
+    if curr_vis == 0 and 'people_count' in df_rep.columns:
+        # Method 2
+        curr_vis = df_rep['people_count'].sum()
+        
+    if curr_vis == 0 and has_details:
+        # Method 3
+        curr_vis = df_det['qty'].sum()
+        
+    # Previous Period Visitors
+    prev_vis = 0
+    if has_details and 'Is_Main_Dish' in df_details.columns:
         mask_det_prev = (df_details['Date_Parsed'] >= prev_start) & (df_details['Date_Parsed'] <= prev_end)
-        df_det_prev = df_details.loc[mask_det_prev].copy()
+        df_det_prev = df_details.loc[mask_det_prev]
+        prev_vis = df_det_prev[df_det_prev['Is_Main_Dish']]['qty'].sum()
         
-        # Use Is_Main_Dish for visitor count proxy if available, else count unique orders or just sum qty
-        if 'Is_Main_Dish' in df_det.columns:
-            curr_vis = df_det[df_det['Is_Main_Dish']]['qty'].sum()
-            prev_vis = df_det_prev[df_det_prev['Is_Main_Dish']]['qty'].sum()
-        else:
-            curr_vis = df_det['qty'].sum()
-            prev_vis = df_det_prev['qty'].sum()
-    else:
-        curr_vis = 0
-        prev_vis = 0
+    if prev_vis == 0 and 'people_count' in df_rep_prev.columns:
+        prev_vis = df_rep_prev['people_count'].sum()
+        
+    if prev_vis == 0 and has_details:
+        prev_vis = df_det_prev['qty'].sum()
 
     curr_txs = len(df_rep)
     prev_txs = len(df_rep_prev)

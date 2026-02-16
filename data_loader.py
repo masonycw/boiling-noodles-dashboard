@@ -162,6 +162,9 @@ class UniversalLoader:
         if 'total_amount' in df.columns:
             df['total_amount'] = self._to_numeric(df['total_amount'])
             
+        if 'people_count' in df.columns:
+            df['people_count'] = pd.to_numeric(df['people_count'], errors='coerce').fillna(0)
+            
         # Filter Status (Only Completed)
         if 'status' in df.columns:
             # Normalize status
