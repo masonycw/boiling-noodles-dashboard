@@ -171,6 +171,9 @@ class UniversalLoader:
             final_details.drop_duplicates(inplace=True)
             self.log(f"TOTAL DETAILS ROWS: {len(final_details)}")
 
+        return final_report, final_details, self.debug_logs
+
+
     def enrich_data(self, df_report, df_details):
         """Applies business logic: Day Type, Period, Categories, etc."""
         
