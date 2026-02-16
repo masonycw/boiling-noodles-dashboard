@@ -354,10 +354,16 @@ class UniversalLoader:
                 else:
                     df_details['Is_Modifier'] = False
             
-            # Is_Main_Dish: Not a modifier AND contains '麵' or '飯'
+            # Is_Main_Dish:
             if 'item_name' in df_details.columns:
-                mask_name = df_details['item_name'].astype(str).str.contains('麵|飯', regex=True, na=False)
-                df_details['Is_Main_Dish'] = mask_name & (~df_details['Is_Modifier'])
+                # 1. Must contain Noodle/Rice
+                mask_type = df_details['item_name'].astype(str).str.contains('麵|飯', regex=True, na=False)
+                # 2. Must NOT be a Set Meal (Container) - User Request
+                mask_not_set = ~df_details['item_name'].astype(str).str.contains('套餐', na=False)
+                # 3. Must NOT be a Modifier
+                mask_not_mod = ~df_details['Is_Modifier']
+                
+                df_details['Is_Main_Dish'] = mask_type & mask_not_set & mask_not_mod
                 
         return df_report, df_details
 
