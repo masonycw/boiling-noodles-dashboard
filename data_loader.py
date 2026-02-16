@@ -318,6 +318,17 @@ class UniversalLoader:
                 return None # Non-member
                 
             df_report['Member_ID'] = df_report.apply(get_member_id, axis=1)
+            
+            # Order Category Logic (Dine-in / Takeout / Delivery)
+            if 'order_type' in df_report.columns:
+                def get_order_category(otype):
+                    s = str(otype).lower()
+                    if 'uber' in s or 'panda' in s or 'delivery' in s or '外送' in s: return '外送 (Delivery)'
+                    if 'take' in s or 'tago' in s or '外帶' in s or '自取' in s: return '外帶 (Takeout)'
+                    return '內用 (Dine-in)' # Default
+                df_report['Order_Category'] = df_report['order_type'].apply(get_order_category)
+            else:
+                 df_report['Order_Category'] = '內用 (Dine-in)' # Fallback
 
         # --- 2. Details Enrichment ---
         if not df_details.empty:

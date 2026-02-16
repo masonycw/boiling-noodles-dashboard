@@ -126,6 +126,34 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
 
     st.divider()
     
+    # Detailed Metrics Section
+    st.subheader("🔢 詳細營運數據 (Detailed Breakdown)")
+    
+    # Calculate detailed metrics
+    rev_lunch = df_rep[df_rep['Period'] == '中午 (Lunch)']['total_amount'].sum() if 'Period' in df_rep.columns else 0
+    rev_dinner = df_rep[df_rep['Period'] == '晚上 (Dinner)']['total_amount'].sum() if 'Period' in df_rep.columns else 0
+    
+    # Order Category Logic (Ensure column exists)
+    if 'Order_Category' not in df_rep.columns:
+        df_rep['Order_Category'] = '內用 (Dine-in)' # Fallback if not enriched yet
+        
+    rev_dine_in = df_rep[df_rep['Order_Category'] == '內用 (Dine-in)']['total_amount'].sum()
+    rev_takeout = df_rep[df_rep['Order_Category'] == '外帶 (Takeout)']['total_amount'].sum()
+    rev_delivery = df_rep[df_rep['Order_Category'] == '外送 (Delivery)']['total_amount'].sum()
+
+    dm1, dm2, dm3, dm4 = st.columns(4)
+    dm1.metric("🌞 中午營業額", f"${rev_lunch:,.0f}")
+    dm2.metric("🌙 晚上營業額", f"${rev_dinner:,.0f}")
+    dm3.metric("🍽️ 堂食營業額", f"${rev_dine_in:,.0f}")
+    dm4.metric("🥡 外帶營業額", f"${rev_takeout:,.0f}")
+    
+    dm5, dm6, dm7, dm8 = st.columns(4)
+    dm5.metric("🛵 外送營業額", f"${rev_delivery:,.0f}")
+    dm6.metric("👥 整日來客數", f"{curr_vis:,.0f}")
+    dm7.metric("💰 客單價", f"${curr_avg:,.0f}")
+    
+    st.divider()
+    
     # Table Report
     st.subheader("📋 營運報表")
     if not df_rep.empty:
