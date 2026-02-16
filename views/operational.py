@@ -10,7 +10,7 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     # So we ignore passed defaults for interactive control here? 
     # Let's Implement Local Control.
 
-    st.title("📊 營運總覽 v2.2 (Daily Table Added)")
+    st.title("📊 營運總覽 v2.3 (Fixes Applied)")
     
     # --- Local Date Filter ---
     # Default to This Month if not passed
@@ -109,12 +109,16 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     with col_R:
         st.subheader("📅 平假日平均 (vs 上期)")
         if not df_rep.empty and 'Day_Type' in df_rep.columns:
-            daily_rev = df_rep.groupby(['Date_Parsed', 'Day_Type'])['total_amount'].sum().reset_index()
+            # Fix: Group by Date ONLY (strip time) to get Daily Sum
+            df_rep['Date_Only'] = df_rep['Date_Parsed'].dt.date
+            
+            daily_rev = df_rep.groupby(['Date_Only', 'Day_Type'])['total_amount'].sum().reset_index()
             curr_type_avg = daily_rev.groupby('Day_Type')['total_amount'].mean()
             
             # Prev
             if not df_rep_prev.empty:
-                daily_rev_prev = df_rep_prev.groupby(['Date_Parsed', 'Day_Type'])['total_amount'].sum().reset_index()
+                df_rep_prev['Date_Only'] = df_rep_prev['Date_Parsed'].dt.date
+                daily_rev_prev = df_rep_prev.groupby(['Date_Only', 'Day_Type'])['total_amount'].sum().reset_index()
                 prev_type_avg = daily_rev_prev.groupby('Day_Type')['total_amount'].mean()
             else:
                 prev_type_avg = pd.Series()
@@ -133,22 +137,38 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     
     if not df_rep.empty:
         # Data Preparation
+        # Ensure Date_Only exists (it might be created in the block above, but safe to redo or check)
+        if 'Date_Only' not in df_rep.columns:
+            df_rep['Date_Only'] = df_rep['Date_Parsed'].dt.date
+            
         # 1. Daily Revenue Breakdown (Lunch/Dinner)
-        daily_period = df_rep.groupby(['Date_Parsed', 'Period'])['total_amount'].sum().reset_index()
+        # Use Date_Only for grouping
+        daily_period = df_rep.groupby(['Date_Only', 'Period'])['total_amount'].sum().reset_index()
+        # Rename back to Date_Parsed for Plotly consistency or use Date_Only
+        daily_period.rename(columns={'Date_Only': 'Date_Parsed'}, inplace=True)
         
         # 2. Daily Visitor & Avg Check
         # Need to handle visitor count logic per day
-        daily_stats = df_rep.groupby('Date_Parsed').agg({
+        daily_stats = df_rep.groupby('Date_Only').agg({
             'total_amount': 'sum',
             'people_count': 'sum', # Default report count
             'order_id': 'count'
         }).reset_index()
+        daily_stats.rename(columns={'Date_Only': 'Date_Parsed'}, inplace=True)
+        # Fix: Convert back to datetime for merge/resample compatibility
+        daily_stats['Date_Parsed'] = pd.to_datetime(daily_stats['Date_Parsed'])
         
         # If details exist, try to improve visitor count accuracy per day
         if has_details and 'Is_Main_Dish' in df_details.columns:
-            daily_vis_det = df_details[df_details['Is_Main_Dish']].groupby('Date_Parsed')['qty'].sum().reset_index()
+            # Create Date_Only for details too
+            df_details['Date_Only'] = df_details['Date_Parsed'].dt.date
+            
+            daily_vis_det = df_details[df_details['Is_Main_Dish']].groupby('Date_Only')['qty'].sum().reset_index()
             # Rename for merge
-            daily_vis_det.rename(columns={'qty': 'det_qty'}, inplace=True)
+            daily_vis_det.rename(columns={'qty': 'det_qty', 'Date_Only': 'Date_Parsed'}, inplace=True)
+            
+            # Merge
+            # Check dtypes: Date_Parsed in daily_stats is object (date), in daily_vis_det is object (date)
             daily_stats = daily_stats.merge(daily_vis_det, on='Date_Parsed', how='left')
             daily_stats['det_qty'] = daily_stats['det_qty'].fillna(0)
             

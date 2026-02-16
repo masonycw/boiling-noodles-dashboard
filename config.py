@@ -1,5 +1,8 @@
 import os
 
+# System Version
+APP_VERSION = "2.3"
+
 # --- Paths ---
 # Define ROOT paths to scan recursively
 DATA_DIRS = [
