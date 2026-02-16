@@ -318,26 +318,27 @@ class UniversalLoader:
                  df_details['Date_Parsed'] = pd.to_datetime(df_details['date'], errors='coerce')
 
             # Main Dish / Modifier Logic
-            # User says: "Some items are taste notes (modifiers)".
-            # Heuristic: Price == 0 implies modifier OR 'free item'. 
+            # User Definition (Strict):
+            # 1. Product = Item Name + SKU
+            # 2. Exclude rows where Modifier Name (options) is NOT Empty
             
-            if 'unit_price' in df_details.columns:
-                # If price is 0, likely a modifier or note
-                df_details['Is_Modifier'] = (df_details['unit_price'] <= 0)
+            if 'options' in df_details.columns:
+                # If options has content, it's a modifier row
+                df_details['Is_Modifier'] = (
+                    df_details['options'].notna() & 
+                    (df_details['options'].astype(str).str.strip() != '')
+                )
             else:
-                # Fallback: if 'item_total' is 0
-                if 'item_total' in df_details.columns:
-                    df_details['Is_Modifier'] = (df_details['item_total'] <= 0)
+                # Fallback
+                if 'unit_price' in df_details.columns:
+                    df_details['Is_Modifier'] = (df_details['unit_price'] <= 0)
                 else:
                     df_details['Is_Modifier'] = False
-
+            
             # Is_Main_Dish: Not a modifier AND contains '麵' or '飯'
             if 'item_name' in df_details.columns:
                 mask_name = df_details['item_name'].astype(str).str.contains('麵|飯', regex=True, na=False)
                 df_details['Is_Main_Dish'] = mask_name & (~df_details['Is_Modifier'])
-            # Category Inference could go here (omitted for brevity as we lack details data now)
-            
-        return df_report, df_details
 
     def _get_day_type(self, dt):
         if pd.isnull(dt): return 'Unknown'

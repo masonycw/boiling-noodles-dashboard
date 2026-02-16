@@ -29,7 +29,7 @@ COLUMN_MAPPING = {
     'invoice_id': ['電子發票號', '發票號碼', 'Invoice No', 'Invoice Number'],
     'carrier_id': ['載具號碼', 'Carrier Number', 'Carrier No', 'Mobile Carrier', '載具', 'Carrier'],
     
-    'status': ['狀態', 'Status', 'Order Status', '發票狀態'],
+    'status': ['狀態', 'Status', 'Order Status', '發票狀態', 'Overall Status'],
     'order_type': ['單類型', 'Order Type', 'Type'],
 
     # Details Columns
@@ -38,7 +38,7 @@ COLUMN_MAPPING = {
     'qty': ['Item Quantity', '數量', 'Qty', 'Quantity'],
     'unit_price': ['Unit Price', '單價', 'Price'],
     'item_total': ['Item Total', '小計', 'Subtotal', 'Item Amount(TWD)'],
-    'options': ['Item Option', '選項', 'Options', 'Modifier Name'], # Modifier Name can be separate or joined
+    'options': ['Item Option', '選項', 'Options', 'Modifier Name', 'Product Note'], 
     'sku': ['Product SKU', 'SKU', '料號']
 }
 
