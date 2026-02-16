@@ -15,6 +15,35 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- Auto-Install Dependencies (Hotfix for Remote Server) ---
+# Check if Excel dependencies are installed, if not, install them automatically.
+import sys
+import subprocess
+import importlib.util
+
+def check_and_install(package_name, install_name=None):
+    if install_name is None: install_name = package_name
+    if importlib.util.find_spec(package_name) is None:
+        st.warning(f"偵測到缺少 {package_name}，正在自動安裝中... (Installing {install_name})")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", install_name])
+            st.success(f"{package_name} 安裝成功！")
+            return True
+        except Exception as e:
+            st.error(f"安裝失敗: {e}")
+            return False
+    return False
+
+# Run checks
+pkgs_installed = False
+pkgs_installed |= check_and_install("openpyxl")
+pkgs_installed |= check_and_install("xlrd", "xlrd>=2.0.1")
+
+if pkgs_installed:
+    st.success("所有必要套件已安裝完成！請 **重新整理頁面** 以載入新功能。")
+    st.stop() # Stop execution to force refresh
+
+
 # --- 2. Constants & Loading ---
 LOCAL_DATA_DIR = "/home/eats365/data"
 
