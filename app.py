@@ -4,9 +4,9 @@ from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 
 # Import new modules
+# Import new modules
 from data_loader import UniversalLoader
-from views import operational, member, system
-# from views import product # Omitted for now until data available
+from views import operational, member, system, sales, prediction
 
 # --- 1. Config ---
 st.set_page_config(
@@ -43,43 +43,52 @@ def main():
     # --- Sidebar Navigation ---
     view_mode = st.sidebar.radio(
         "功能切換", 
-        ["📊 營運總覽", "👥 會員查詢", "🆕 新舊客分析", "🔧 系統檢查"]
-        # "🍟 商品分析" -> Removed until details available
+        [
+            "📊 營運總覽", 
+            "🍟 商品銷售分析", 
+            "📈 營業額預測",
+            "👥 會員查詢", 
+            "🆕 新舊客分析", 
+            "🔧 系統檢查"
+        ]
     )
     st.sidebar.divider()
-
-    # --- Date Filter (Global) ---
-    st.sidebar.header("📅 日期篩選")
-    today = date.today()
-    month_options = [ (today - relativedelta(months=i)).strftime("%Y-%m") for i in range(6) ]
-    filter_opts = ["今日 (Today)", "昨日 (Yesterday)", "本週 (This Week)", "本月 (This Month)", 
-                   "近 28 天", "近 30 天", "近 2 個月 (60 Days)", "近 6 個月 (180 Days)", "自訂範圍"] + month_options
-    filter_mode = st.sidebar.selectbox("快速區間", filter_opts, index=3)
-
-    start_date, end_date = today, today 
-    
-    # Date Logic
-    if filter_mode == "今日 (Today)": start_date = end_date = pd.Timestamp(today)
-    elif filter_mode == "昨日 (Yesterday)": start_date = end_date = pd.Timestamp(today - timedelta(days=1))
-    elif filter_mode == "本週 (This Week)": start_date = pd.Timestamp(today - timedelta(days=today.weekday())); end_date = pd.Timestamp(today)
-    elif filter_mode == "本月 (This Month)": start_date = pd.Timestamp(today.replace(day=1)); end_date = pd.Timestamp(today)
-    elif filter_mode == "近 28 天": start_date = pd.Timestamp(today - timedelta(days=28)); end_date = pd.Timestamp(today)
-    elif filter_mode == "近 30 天": start_date = pd.Timestamp(today - timedelta(days=30)); end_date = pd.Timestamp(today)
-    elif filter_mode == "近 2 個月 (60 Days)": start_date = pd.Timestamp(today - timedelta(days=60)); end_date = pd.Timestamp(today)
-    elif filter_mode == "近 6 個月 (180 Days)": start_date = pd.Timestamp(today - timedelta(days=180)); end_date = pd.Timestamp(today)
-    elif filter_mode in month_options: 
-        y, m = map(int, filter_mode.split('-'))
-        start_date = pd.Timestamp(date(y, m, 1))
-        end_date = pd.Timestamp(start_date + relativedelta(months=1, days=-1))
-    else: 
-        d = st.sidebar.date_input("選擇日期", [today - timedelta(days=7), today])
-        if len(d) > 0: start_date = pd.to_datetime(d[0])
-        if len(d) > 1: end_date = pd.to_datetime(d[1])
-        else: end_date = start_date
+    st.sidebar.caption(f"資料更新時間: {datetime.now().strftime('%H:%M:%S')}")
 
     # --- Routing ---
     if view_mode == "📊 營運總覽":
-        operational.render_operational_view(df_report, df_details, start_date, end_date)
+        # operational view handles its own dates now
+        operational.render_operational_view(df_report, df_details)
+        
+    elif view_mode == "🍟 商品銷售分析":
+        # Needs date range, likely local to view or share same logic?
+        # For now, let's implement local date filter in sales view too or pass None
+        # User requested Sales Analysis.
+        # I created render_sales_view taking start/end.
+        # Let's simple create a date picker here if we want consistency?
+        # Or let the view handle it. 
+        # I haven't put a date picker IN render_sales_view yet? 
+        # Wait, I did: "# 1. Date Filter (Local to View)" in my thought, but did I write it?
+        # Let me check my previous write_to_file for sales.py...
+        # I wrote: "# 1. Date Filter (Local to View)... if start_date is None..."
+        # No, I wrote: "def render_sales_view(df_details, start_date, end_date):"
+        # and "if df.empty...". It EXPECTS arguments.
+        # So I need to provide dates here or wrap it.
+        # Ideally, each view handles its own controls if global is removed.
+        # Let's add a helper for date picker here or inside the view?
+        # Better: Add date picker in this block for Sales View.
+        
+        st.subheader("📅 銷售分析區間")
+        d_range = st.date_input("選擇日期", [date.today().replace(day=1), date.today()], key='sales_date')
+        if len(d_range) == 2:
+            s_date = pd.to_datetime(d_range[0])
+            e_date = pd.to_datetime(d_range[1])
+            sales.render_sales_view(df_details, s_date, e_date)
+        else:
+            st.info("請選擇完整日期區間")
+            
+    elif view_mode == "📈 營業額預測":
+        prediction.render_prediction_view(df_report)
         
     elif view_mode == "👥 會員查詢":
         member.render_member_search(df_report, df_details)

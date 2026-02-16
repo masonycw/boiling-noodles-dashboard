@@ -151,7 +151,7 @@ class UniversalLoader:
         return has_invoice and not has_order
 
     def _clean_report(self, df):
-        """Standardizes Report data."""
+        """Standardizes types for Report data."""
         if 'order_id' in df.columns:
             df['order_id'] = df['order_id'].astype(str).str.strip()
             df = df[df['order_id'] != 'nan']
@@ -162,25 +162,41 @@ class UniversalLoader:
         if 'total_amount' in df.columns:
             df['total_amount'] = self._to_numeric(df['total_amount'])
             
+        # Filter Status (Only Completed)
+        if 'status' in df.columns:
+            # Normalize status
+            df['status'] = df['status'].astype(str).str.strip()
+            # Keep only '已完成' (Completed)
+            # Users might have English 'Completed' too? Let's check.
+            # For now, strict '已完成' as seen in data.
+            initial_count = len(df)
+            df = df[df['status'] == '已完成']
+            if len(df) < initial_count:
+                pass
+            
         return df
 
     def _clean_details(self, df):
-        """Standardizes Details data."""
+        """Standardizes types for Details data."""
         if 'order_id' in df.columns:
             df['order_id'] = df['order_id'].astype(str).str.strip()
             df = df[df['order_id'] != 'nan']
 
         if 'item_total' in df.columns:
             df['item_total'] = self._to_numeric(df['item_total'])
+        if 'unit_price' in df.columns:
+            df['unit_price'] = self._to_numeric(df['unit_price'])
+            
         if 'qty' in df.columns:
             df['qty'] = pd.to_numeric(df['qty'], errors='coerce').fillna(0)
             
         return df
-
+        
     def _clean_invoice(self, df):
         """Standardizes Invoice data."""
         if 'invoice_id' in df.columns:
-            df['invoice_id'] = df['invoice_id'].astype(str).str.strip()
+            # Handle potential float/int IDs
+            df['invoice_id'] = df['invoice_id'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
             df = df[df['invoice_id'] != 'nan']
             
         if 'carrier_id' in df.columns:
@@ -248,7 +264,6 @@ class UniversalLoader:
         return final_report, final_details, self.debug_logs
 
 
-
     def enrich_data(self, df_report, df_details):
         """Applies business logic: Day Type, Period, Categories, etc."""
         
@@ -276,19 +291,47 @@ class UniversalLoader:
                 # For now, simplistic period check from Date_Parsed if it has time.
                 df_report['Period'] = df_report['Date_Parsed'].apply(self._get_period)
 
+            # Member Identification Logic (Name/Phone OR Carrier)
+            # Create a 'Member_ID' column
+            # User wants: "Check carrier if name/phone missing"
+            
+            # Ensure columns exist
+            if 'member_phone' not in df_report.columns: df_report['member_phone'] = None
+            if 'carrier_id' not in df_report.columns: df_report['carrier_id'] = None
+            
+            def get_member_id(row):
+                p = str(row.get('member_phone', ''))
+                c = str(row.get('carrier_id', ''))
+                if len(p) > 6 and p != 'nan': return p # Valid Phone
+                if len(c) > 4 and c != 'nan': return c # Valid Carrier
+                return None # Non-member
+                
+            df_report['Member_ID'] = df_report.apply(get_member_id, axis=1)
+
         # --- 2. Details Enrichment ---
         if not df_details.empty:
             # Parse Date
             if 'date' in df_details.columns:
                  df_details['Date_Parsed'] = pd.to_datetime(df_details['date'], errors='coerce')
 
-            # Main Dish Logic
+            # Main Dish / Modifier Logic
+            # User says: "Some items are taste notes (modifiers)".
+            # Heuristic: Price == 0 implies modifier OR 'free item'. 
+            
+            if 'unit_price' in df_details.columns:
+                # If price is 0, likely a modifier or note
+                df_details['Is_Modifier'] = (df_details['unit_price'] <= 0)
+            else:
+                # Fallback: if 'item_total' is 0
+                if 'item_total' in df_details.columns:
+                    df_details['Is_Modifier'] = (df_details['item_total'] <= 0)
+                else:
+                    df_details['Is_Modifier'] = False
+
+            # Is_Main_Dish: Not a modifier AND contains '麵' or '飯'
             if 'item_name' in df_details.columns:
-                # Simple logic: '麵' or '飯' implies Main Dish
-                # And exclude 'Combo Item' wrapper if identifiable
                 mask_name = df_details['item_name'].astype(str).str.contains('麵|飯', regex=True, na=False)
-                df_details['Is_Main_Dish'] = mask_name
-                
+                df_details['Is_Main_Dish'] = mask_name & (~df_details['Is_Modifier'])
             # Category Inference could go here (omitted for brevity as we lack details data now)
             
         return df_report, df_details

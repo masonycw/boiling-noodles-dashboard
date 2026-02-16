@@ -4,9 +4,30 @@ import pandas as pd
 import numpy as np
 from .utils import calculate_delta
 
-def render_operational_view(df_report, df_details, start_date, end_date):
-    st.title(f"📊 營運總覽 ({start_date.date()} ~ {end_date.date()})")
+def render_operational_view(df_report, df_details, start_date=None, end_date=None):
+    # If dates passed from global, use them as defaults? 
+    # User said: "Left side date filter, only for operational overview, move it to top"
+    # So we ignore passed defaults for interactive control here? 
+    # Let's Implement Local Control.
+
+    st.title("📊 營運總覽 (Operational Overview)")
     
+    # --- Local Date Filter ---
+    # Default to This Month if not passed
+    if start_date is None:
+        today = pd.Timestamp.now().date()
+        start_date = pd.Timestamp(today.replace(day=1))
+        end_date = pd.Timestamp(today)
+    
+    c_d1, c_d2 = st.columns([1, 3])
+    with c_d1:
+        date_range = st.date_input("選擇日期區間", [start_date, end_date])
+        if len(date_range) > 0: start_date = pd.to_datetime(date_range[0])
+        if len(date_range) > 1: end_date = pd.to_datetime(date_range[1])
+        else: end_date = start_date
+        
+    st.divider()
+
     # Filter Data
     mask_rep = (df_report['Date_Parsed'] >= start_date) & (df_report['Date_Parsed'] <= end_date)
     df_rep = df_report.loc[mask_rep].copy()
