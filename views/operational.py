@@ -10,7 +10,7 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     # So we ignore passed defaults for interactive control here? 
     # Let's Implement Local Control.
 
-    st.title("📊 營運總覽 v2.1 (Charts Added)")
+    st.title("📊 營運總覽 v2.2 (Daily Table Added)")
     
     # --- Local Date Filter ---
     # Default to This Month if not passed
@@ -126,32 +126,6 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
 
     st.divider()
     
-    # Detailed Metrics Section
-    st.subheader("🔢 詳細營運數據 (Detailed Breakdown)")
-    
-    # Calculate detailed metrics
-    rev_lunch = df_rep[df_rep['Period'] == '中午 (Lunch)']['total_amount'].sum() if 'Period' in df_rep.columns else 0
-    rev_dinner = df_rep[df_rep['Period'] == '晚上 (Dinner)']['total_amount'].sum() if 'Period' in df_rep.columns else 0
-    
-    # Order Category Logic (Ensure column exists)
-    if 'Order_Category' not in df_rep.columns:
-        df_rep['Order_Category'] = '內用 (Dine-in)' # Fallback if not enriched yet
-        
-    rev_dine_in = df_rep[df_rep['Order_Category'] == '內用 (Dine-in)']['total_amount'].sum()
-    rev_takeout = df_rep[df_rep['Order_Category'] == '外帶 (Takeout)']['total_amount'].sum()
-    rev_delivery = df_rep[df_rep['Order_Category'] == '外送 (Delivery)']['total_amount'].sum()
-
-    dm1, dm2, dm3, dm4 = st.columns(4)
-    dm1.metric("🌞 中午營業額", f"${rev_lunch:,.0f}")
-    dm2.metric("🌙 晚上營業額", f"${rev_dinner:,.0f}")
-    dm3.metric("🍽️ 堂食營業額", f"${rev_dine_in:,.0f}")
-    dm4.metric("🥡 外帶營業額", f"${rev_takeout:,.0f}")
-    
-    dm5, dm6, dm7, dm8 = st.columns(4)
-    dm5.metric("🛵 外送營業額", f"${rev_delivery:,.0f}")
-    dm6.metric("👥 整日來客數", f"{curr_vis:,.0f}")
-    dm7.metric("💰 客單價", f"${curr_avg:,.0f}")
-    
     st.divider()
 
     # --- Charts Section ---
@@ -187,6 +161,9 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
         daily_stats['avg_check'] = daily_stats['total_amount'] / daily_stats['final_visitors'].replace(0, 1)
         
         # 3. Order Category (Overall for Pie)
+        if 'Order_Category' not in df_rep.columns:
+            df_rep['Order_Category'] = '內用 (Dine-in)'
+            
         cat_pie = df_rep.groupby('Order_Category')['total_amount'].sum().reset_index()
 
         # --- Visualizations ---
@@ -247,31 +224,93 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
 
     st.divider()
     
-    # Table Report
-    st.subheader("📋 營運報表")
+    # Table Report (Detailed Daily Data)
+    st.subheader("📋 詳細營運數據 (Daily Metrics Table)")
     if not df_rep.empty:
+        # Resample Base
         grouped = df_rep.set_index('Date_Parsed').resample(ov_freq)
         base_agg = grouped['total_amount'].sum().reset_index().rename(columns={'total_amount': '總營業額'})
         
-        # Period Breakdown
+        # 1. Lunch / Dinner
         if 'Period' in df_rep.columns:
-            p_groups = []
-            for p in ['中午 (Lunch)', '晚上 (Dinner)']:
+            for p, col_name in [('中午 (Lunch)', '午餐營業額'), ('晚上 (Dinner)', '晚餐營業額')]:
                 mask_p = df_rep['Period'] == p
-                if mask_p.any():
-                    res = df_rep[mask_p].set_index('Date_Parsed').resample(ov_freq)['total_amount'].sum()
-                    res.name = p
-                    p_groups.append(res)
-            if p_groups: 
-                period_rev = pd.concat(p_groups, axis=1).fillna(0).reset_index()
-                base_agg = base_agg.merge(period_rev, on='Date_Parsed', how='left')
+                # Resample this period even if periods are missing on some days
+                # Use pivot or just filter loop
+                res = df_rep[mask_p].set_index('Date_Parsed').resample(ov_freq)['total_amount'].sum().reset_index()
+                res.rename(columns={'total_amount': col_name}, inplace=True)
+                base_agg = base_agg.merge(res, on='Date_Parsed', how='left').fillna(0)
+
+        # 2. Order Category (Dine-in / Takeout / Delivery)
+        # Assuming categories: '內用 (Dine-in)', '外帶 (Takeout)', '外送 (Delivery)'
+        for cat, col_name in [('內用 (Dine-in)', '堂食營業額'), ('外帶 (Takeout)', '外帶營業額'), ('外送 (Delivery)', '外送營業額')]:
+             mask_c = df_rep['Order_Category'] == cat
+             res = df_rep[mask_c].set_index('Date_Parsed').resample(ov_freq)['total_amount'].sum().reset_index()
+             res.rename(columns={'total_amount': col_name}, inplace=True)
+             base_agg = base_agg.merge(res, on='Date_Parsed', how='left').fillna(0)
+             
+        # 3. Visitor & Avg Check (From daily_stats logic above if ov_freq is Daily, else re-agg)
+        # Note: ov_freq might be Weekly/Monthly. 
+        # If freq != 'D', we need to sum visitors.
+        # Let's reuse 'people_count' col from report as base, add details logic if possible?
+        # Aggregating complex visitor logic over weeks is tricky.
+        # Fallback: Sum 'people_count' for now to be safe and consistent with previous logic?
+        # Or re-implement the strict Main Dish logic for the whole resample bin?
         
-        # Display
-        date_col = 'Date_Label'
+        # Re-calc visitors for the BIN (Day/Week/Month)
+        # Efficient way: Filter details by date bin.
+        # But we simply need to sum 'people_count' (Report) OR 'qty' (Details Main Dish)
+        
+        # Create a helper df with Date, Rev, Visitor
+        # We can just sum the calculated daily_stats if ov_freq is 'D'
+        # If ov_freq is W/M, we need to resample daily_stats.
+        
+        # Let's use daily_stats from above (it is Daily).
+        ds_indexed = daily_stats.set_index('Date_Parsed')
+        ds_resampled = ds_indexed.resample(ov_freq).agg({
+            'final_visitors': 'sum'
+        }).reset_index()
+        
+        base_agg = base_agg.merge(ds_resampled, on='Date_Parsed', how='left')
+        base_agg.rename(columns={'final_visitors': '整日來客數'}, inplace=True)
+        
+        # Avg Check
+        base_agg['客單價'] = base_agg['總營業額'] / base_agg['整日來客數'].replace(0, 1)
+
+        # Display Formatting
+        date_col = '日期'
         if ov_freq == 'D':
             base_agg[date_col] = base_agg['Date_Parsed'].dt.date.astype(str)
         else:
             base_agg[date_col] = base_agg['Date_Parsed'].dt.strftime('%Y-%m-%d (Start)')
             
-        base_agg.rename(columns={'中午 (Lunch)': '午餐', '晚上 (Dinner)': '晚餐'}, inplace=True)
-        st.dataframe(base_agg.sort_values(date_col, ascending=False).style.format("${:,.0f}", subset=['總營業額']), use_container_width=True)
+        # Reorder Columns
+        cols_order = [
+            date_col, '中午營業額', '晚上營業額', '總營業額', 
+            '整日來客數', '客單價', 
+            '外送營業額', '外帶營業額', '堂食營業額'
+        ]
+        # Ensure all cols exist
+        final_cols = [c for c in cols_order if c in base_agg.columns]
+        
+        # Rename for cleaner internal keys if needed, but we already renamed above.
+        # Note: '中午營業額' was named '午餐營業額' above? Checking... yes '午餐營業額'.
+        # User asked for "中午營業額". I should stick to user's terms.
+        # Correction: I named them '午餐營業額' in line 228. I will rename to match user request.
+        
+        rename_map = {
+            '午餐營業額': '中午營業額',
+            '晚餐營業額': '晚上營業額'
+        }
+        base_agg.rename(columns=rename_map, inplace=True)
+        
+        final_cols = [c for c in cols_order if c in base_agg.columns]
+        
+        st.dataframe(
+            base_agg[final_cols].sort_values(date_col, ascending=False).style.format({
+                '中午營業額': "${:,.0f}", '晚上營業額': "${:,.0f}", '總營業額': "${:,.0f}",
+                '整日來客數': "{:,.0f}", '客單價': "${:,.0f}",
+                '外送營業額': "${:,.0f}", '外帶營業額': "${:,.0f}", '堂食營業額': "${:,.0f}"
+            }), 
+            use_container_width=True
+        )

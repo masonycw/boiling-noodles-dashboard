@@ -15,6 +15,8 @@ st.set_page_config(
     layout="wide"
 )
 
+# Force Reload Trigger: v2.2
+
 # --- 2. Data Loading (Cached) ---
 @st.cache_data(ttl=300)
 def get_data():
