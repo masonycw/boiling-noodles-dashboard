@@ -5,6 +5,8 @@ import os
 DATA_DIRS = [
     "/home/eats365/data",          # Primary Data Root
     "/home/eats365/upload",        # Fallback Upload
+    "/data",                       # Absolute Data Path (User's SFTP Root?)
+    "/data/交易資料",               # Specific Directory (If not recursive from /data?)
     os.path.join(os.getcwd(), 'data'), # Local Data
     os.getcwd()                    # Local Root
 ]
@@ -15,7 +17,7 @@ DATA_DIRS = [
 COLUMN_MAPPING = {
     # Report Columns
     'order_id': ['單號', '訂單編號', 'Order Number', 'Order No', 'No.'],
-    'date': ['日期', 'Date', 'Time', '交易時間', '付款時間', '發票日期'], # Invoice date also valid
+    'date': ['日期', 'Date', 'Time', '時間', '交易時間', '付款時間', '發票日期'], # Invoice date also valid
     'total_amount': ['總計', 'Total', 'Order Total', '金額', 'Order Total(TWD)'],
     'tax_id': ['統一編號', 'Tax ID', 'Buyer Tax ID', '買受人統編'],
     'source_id': ['來源訂單編號', 'Source ID', 'Source Order ID'],
