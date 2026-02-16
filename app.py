@@ -60,9 +60,13 @@ def load_data(safe_mode=False):
             # Sort files for deterministic order (old -> new)
             files = sorted(os.listdir(path))
             for f in files:
-                if not f.endswith(".csv"): continue
+                # Support CSV and Excel
+                is_csv = f.endswith(".csv")
+                is_excel = f.endswith(".xls") or f.endswith(".xlsx")
                 
-                # If Safe Mode, skip auto-detection and only load legacy names
+                if not (is_csv or is_excel): continue
+                
+                # If Safe Mode, skip auto-detection and only load legacy names (CSV only usually)
                 if safe_mode:
                     if f not in ["history_report.csv", "history_details.csv"]:
                         continue
@@ -70,19 +74,26 @@ def load_data(safe_mode=False):
                 full_p = os.path.join(path, f)
                 
                 try:
-                    # Read header only to classify
-                    # Read full file for now since files aren't huge
-                    temp_df = pd.read_csv(full_p)
-                    temp_df.columns = temp_df.columns.str.strip()
+                    # Load Data based on extension
+                    if is_csv:
+                        temp_df = pd.read_csv(full_p)
+                    else:
+                        temp_df = pd.read_excel(full_p)
+                        
+                    # Standardize columns
+                    temp_df.columns = temp_df.columns.astype(str).str.strip()
                     cols = temp_df.columns.tolist()
                     
                     # Classifier Logic
+                    # Report usually has '單號' and '總計'
                     is_report = '單號' in cols and ('總計' in cols or 'Total' in cols)
+                    # Details usually has 'Item Name'
                     is_details = 'Item Name' in cols or 'Item Quantity' in cols
                     
                     if is_report:
                         # Process Report
-                        temp_df['單號'] = temp_df['單號'].astype(str).str.strip()
+                        if '單號' in temp_df.columns:
+                             temp_df['單號'] = temp_df['單號'].astype(str).str.strip()
                         all_reports.append(temp_df)
                         debug_logs.append(f"Loaded Report: {f} ({len(temp_df)} rows)")
                         
