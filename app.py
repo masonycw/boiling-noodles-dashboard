@@ -38,43 +38,47 @@ TW_HOLIDAYS_SET = set(tw_holidays)
 
 @st.cache_data(ttl=300)
 def load_data(safe_mode=False):
-    # Define search paths in priority order
-    # New structure: /home/eats365/data/交易資料/
-    search_paths = [
-        "/home/eats365/data/交易資料", # 0. New primary data folder
-        "/home/eats365/upload",        # 1. Fallback Upload
-        LOCAL_DATA_DIR,                # 2. Legacy Data
-        os.getcwd(),                   # 3. Local CWD
-        os.path.join(os.getcwd(), 'data', '交易資料')   # 4. Local New Structure
+    # Define ROOT paths to scan recursively
+    # We will look into EVERYTHING under these folders
+    scan_roots = [
+        "/home/eats365/data",          # Primary Data Root
+        "/home/eats365/upload",        # Fallback Upload
+        os.path.join(os.getcwd(), 'data'), # Local Data
+        os.getcwd()                    # Local Root
     ]
     
     all_reports = []
     all_details = []
     debug_logs = []
+    seen_files = set() # Avoid processing same file twice if paths overlap
 
-    # Iterate paths
-    for path in search_paths:
-        if not os.path.exists(path): continue
+    for root_dir in scan_roots:
+        if not os.path.exists(root_dir): continue
         
-        try:
-            # Sort files for deterministic order (old -> new)
-            files = sorted(os.listdir(path))
-            for f in files:
-                # Support CSV and Excel
+        # Walk through directory tree
+        for current_root, dirs, files in os.walk(root_dir):
+            # Skip hidden directories (like .git)
+            if '/.' in current_root: continue
+            
+            # Sort for deterministic order
+            for f in sorted(files):
+                # Extension Check
                 is_csv = f.endswith(".csv")
                 is_excel = f.endswith(".xls") or f.endswith(".xlsx")
                 
                 if not (is_csv or is_excel): continue
                 
-                # If Safe Mode, skip auto-detection and only load legacy names (CSV only usually)
+                full_p = os.path.join(current_root, f)
+                if full_p in seen_files: continue
+                seen_files.add(full_p)
+
+                # Safe Mode: Strict legacy check
                 if safe_mode:
                     if f not in ["history_report.csv", "history_details.csv"]:
                         continue
-
-                full_p = os.path.join(path, f)
                 
                 try:
-                    # Load Data based on extension
+                    # Load Data
                     if is_csv:
                         temp_df = pd.read_csv(full_p)
                     else:
@@ -85,36 +89,28 @@ def load_data(safe_mode=False):
                     cols = temp_df.columns.tolist()
                     
                     # Classifier Logic
-                    # Report usually has '單號' and '總計'
                     is_report = '單號' in cols and ('總計' in cols or 'Total' in cols)
-                    # Details usually has 'Item Name'
                     is_details = 'Item Name' in cols or 'Item Quantity' in cols
                     
                     if is_report:
-                        # Process Report
                         if '單號' in temp_df.columns:
                              temp_df['單號'] = temp_df['單號'].astype(str).str.strip()
                         all_reports.append(temp_df)
-                        debug_logs.append(f"Loaded Report: {f} ({len(temp_df)} rows)")
+                        debug_logs.append(f"Loaded Report: {f} ({len(temp_df)} rows) in {os.path.basename(current_root)}")
                         
                     elif is_details:
-                        # Process Details
                         all_details.append(temp_df)
-                        debug_logs.append(f"Loaded Details: {f} ({len(temp_df)} rows)")
+                        debug_logs.append(f"Loaded Details: {f} ({len(temp_df)} rows) in {os.path.basename(current_root)}")
                         
                     else:
-                        debug_logs.append(f"Skipped {f}: Unknown format (Cols: {cols[:3]}...)")
+                        debug_logs.append(f"Skipped {f}: Unknown columns")
                         
                 except Exception as e:
                     debug_logs.append(f"Error reading {f}: {e}")
-                        
-        except Exception as e:
-             debug_logs.append(f"Error listing {path}: {e}")
 
     # Merge
     if all_reports:
         df_report = pd.concat(all_reports, ignore_index=True)
-        # Simple exact-row deduplication only (safe)
         df_report.drop_duplicates(inplace=True)
         debug_logs.append(f"Merged Report: {len(df_report)} rows")
     else:
