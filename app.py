@@ -45,8 +45,7 @@ def load_data(safe_mode=False):
         "/home/eats365/upload",        # 1. Fallback Upload
         LOCAL_DATA_DIR,                # 2. Legacy Data
         os.getcwd(),                   # 3. Local CWD
-        os.path.join(os.getcwd(), 'data'),             # 4. Local Data
-        os.path.join(os.getcwd(), 'data', '交易資料')   # 5. Local New Structure
+        os.path.join(os.getcwd(), 'data', '交易資料')   # 4. Local New Structure
     ]
     
     all_reports = []
@@ -61,39 +60,43 @@ def load_data(safe_mode=False):
             # Sort files for deterministic order (old -> new)
             files = sorted(os.listdir(path))
             for f in files:
+                if not f.endswith(".csv"): continue
+                
+                # If Safe Mode, skip auto-detection and only load legacy names
+                if safe_mode:
+                    if f not in ["history_report.csv", "history_details.csv"]:
+                        continue
+
                 full_p = os.path.join(path, f)
                 
-                # Report Files (Allow wildcard *.csv again for continuous loading)
-                if "history_report" in f and f.endswith(".csv"):
-                    # Safe Mode: Strict loading only
-                    if safe_mode and f != "history_report.csv":
-                         continue
-                         
-                    try:
-                        temp_df = pd.read_csv(full_p)
-                        # Minimal cleaning: strip column whitespace
-                        temp_df.columns = temp_df.columns.str.strip()
-                        # Ensure types but NO modifying values
-                        if '單號' in temp_df.columns:
-                            temp_df['單號'] = temp_df['單號'].astype(str).str.strip()
-                        
+                try:
+                    # Read header only to classify
+                    # Read full file for now since files aren't huge
+                    temp_df = pd.read_csv(full_p)
+                    temp_df.columns = temp_df.columns.str.strip()
+                    cols = temp_df.columns.tolist()
+                    
+                    # Classifier Logic
+                    is_report = '單號' in cols and ('總計' in cols or 'Total' in cols)
+                    is_details = 'Item Name' in cols or 'Item Quantity' in cols
+                    
+                    if is_report:
+                        # Process Report
+                        temp_df['單號'] = temp_df['單號'].astype(str).str.strip()
                         all_reports.append(temp_df)
                         debug_logs.append(f"Loaded Report: {f} ({len(temp_df)} rows)")
-                    except Exception as e:
-                        debug_logs.append(f"Error reading {f}: {e}")
                         
-                # Details Files
-                if "history_details" in f and f.endswith(".csv"):
-                    if safe_mode and f != "history_details.csv":
-                         continue
-
-                    try:
-                        temp_df = pd.read_csv(full_p)
-                        temp_df.columns = temp_df.columns.str.strip()
+                    elif is_details:
+                        # Process Details
                         all_details.append(temp_df)
                         debug_logs.append(f"Loaded Details: {f} ({len(temp_df)} rows)")
-                    except Exception as e:
-                        debug_logs.append(f"Error reading {f}: {e}")
+                        
+                    else:
+                        debug_logs.append(f"Skipped {f}: Unknown format (Cols: {cols[:3]}...)")
+                        
+                except Exception as e:
+                    debug_logs.append(f"Error reading {f}: {e}")
+                        
         except Exception as e:
              debug_logs.append(f"Error listing {path}: {e}")
 
