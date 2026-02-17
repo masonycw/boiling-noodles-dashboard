@@ -24,9 +24,22 @@ jobs:
           remote_path: '/home/eats365/boiling-noodles-dashboard'
           sftp_only: true
           
-      - name: Notify deployment complete
-        run: |
-          echo "✅ Files deployed successfully via SFTP"
-          echo "⚠️ Note: Streamlit needs to be manually restarted on the server"
-          echo "To restart Streamlit, SSH to the server and run:"
-          echo "  pkill -f 'streamlit run' && nohup streamlit run /home/eats365/boiling-noodles-dashboard/app.py --server.port=8501 --server.address=0.0.0.0 > /home/eats365/boiling-noodles-dashboard/streamlit.log 2>&1 &"
+      - name: Restart Streamlit via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USERNAME }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          port: 22
+          command_timeout: 30m
+          script: |
+            cd /home/eats365/boiling-noodles-dashboard
+            pkill -f "streamlit run" || true
+            sleep 2
+            nohup streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
+            sleep 2
+            if pgrep -f "streamlit run" > /dev/null; then
+              echo "✅ Streamlit is running"
+            else
+              echo "⚠️ Streamlit may not have started"
+            fi
