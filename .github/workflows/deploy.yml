@@ -79,6 +79,19 @@ jobs:
             sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/g' /etc/ssh/sshd_config || echo "Failed to modify sshd_config"
             sudo service ssh restart || sudo service sshd restart || echo "Failed to restart ssh service"
             
+            # CRITICAL: Restart Streamlit Application
+            echo "Restarting Streamlit application..."
+            # Find and kill existing Streamlit process
+            pkill -f "streamlit run" || echo "No existing Streamlit process found"
+            
+            # Wait a moment for the process to fully terminate
+            sleep 2
+            
+            # Start Streamlit in the background (assumes app.py is in the deployment directory)
+            cd ${{ secrets.SFTP_REMOTE_PATH }} || cd /home/eats365/boiling-noodles-dashboard
+            nohup streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > /home/eats365/streamlit.log 2>&1 &
+            
+            echo "Streamlit restart initiated. Check /home/eats365/streamlit.log for details."
             
             ls -al /home/eats365
             echo "Done."
