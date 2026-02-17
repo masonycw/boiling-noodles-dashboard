@@ -13,18 +13,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Deploy via SSH
-        uses: easingthemes/ssh-deploy@main
+      - name: Deploy via SFTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
-          SSH_PRIVATE_KEY: ${{ secrets.SFTP_SSH_KEY }}
-          REMOTE_HOST: ${{ secrets.SFTP_HOST }}
-          REMOTE_USER: ${{ secrets.SFTP_USERNAME }}
-          TARGET: ${{ secrets.SFTP_REMOTE_PATH }}
-          EXCLUDE: "/.git/, /.github/"
-          SCRIPT_AFTER: |
-            echo "=== Restarting Streamlit ==="
-            cd ${{ secrets.SFTP_REMOTE_PATH }}
+          server: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USERNAME }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          protocol: sftp
+          port: 22
+          server-dir: /home/eats365/boiling-noodles-dashboard/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/.github/**
+            **/node_modules/**
+      
+      - name: Restart Streamlit via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USERNAME }}
+          password: ${{ secrets.SFTP_PASSWORD }}
+          port: 22
+          script: |
+            cd /home/eats365/boiling-noodles-dashboard
             pkill -f "streamlit run" || true
             sleep 2
             nohup streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
-            echo "Deployment complete!"
+            echo "Streamlit restarted successfully"
