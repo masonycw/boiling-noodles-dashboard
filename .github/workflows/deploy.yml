@@ -21,11 +21,21 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
+            # Check if directory exists, if not clone the repo
+            if [ ! -d "/home/eats365/boiling-noodles-dashboard" ]; then
+              echo "Directory not found, cloning repository..."
+              cd /home/eats365
+              git clone https://github.com/masonycw/boiling-noodles-dashboard.git
+            fi
+            
             # Navigate to deployment directory
-            cd /home/eats365/boiling-noodles-dashboard || exit 1
+            cd /home/eats365/boiling-noodles-dashboard
             
             # Pull latest code from GitHub
             git pull origin main
+            
+            # Install/update dependencies if requirements.txt changed
+            pip install -r requirements.txt --user || true
             
             # Restart Streamlit
             pkill -f "streamlit run" || true
