@@ -1,4 +1,4 @@
-name: Deploy via SFTP
+name: Deploy to Server
 
 on:
   push:
@@ -8,95 +8,23 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Verify Secrets (Diagnostic)
-        run: |
-          echo "Checking if secrets are set..."
-          if [ -z "${{ secrets.SFTP_SSH_KEY }}" ]; then
-            echo "❌ SFTP_SSH_KEY is NOT set"
-          else
-            echo "✅ SFTP_SSH_KEY is set (length: ${#SFTP_SSH_KEY})"
-          fi
-          
-          if [ -z "${{ secrets.SFTP_HOST }}" ]; then
-            echo "❌ SFTP_HOST is NOT set"
-          else
-            echo "✅ SFTP_HOST is set: ${{ secrets.SFTP_HOST }}"
-          fi
-          
-          if [ -z "${{ secrets.SFTP_USERNAME }}" ]; then
-            echo "❌ SFTP_USERNAME is NOT set"
-          else
-            echo "✅ SFTP_USERNAME is set: ${{ secrets.SFTP_USERNAME }}"
-          fi
-          
-          if [ -z "${{ secrets.SFTP_REMOTE_PATH }}" ]; then
-            echo "❌ SFTP_REMOTE_PATH is NOT set"
-          else
-            echo "✅ SFTP_REMOTE_PATH is set: ${{ secrets.SFTP_REMOTE_PATH }}"
-          fi
-        env:
-          SFTP_SSH_KEY: ${{ secrets.SFTP_SSH_KEY }}
-
-      - name: Deploy to Server
+        uses: actions/checkout@v3
+      
+      - name: Deploy via SSH
         uses: easingthemes/ssh-deploy@main
-        env:
+        with:
           SSH_PRIVATE_KEY: ${{ secrets.SFTP_SSH_KEY }}
-          ARGS: "-rlgoDzvc -i --delete"
-          SOURCE: "/"
           REMOTE_HOST: ${{ secrets.SFTP_HOST }}
           REMOTE_USER: ${{ secrets.SFTP_USERNAME }}
           TARGET: ${{ secrets.SFTP_REMOTE_PATH }}
-          EXCLUDE: "/.git/, /.github/, /node_modules/"
-          SCRIPT_BEFORE: |
-            whoami
-            ls -al
+          EXCLUDE: "/.git/, /.github/"
           SCRIPT_AFTER: |
-            echo "=== Post-Deployment Script ==="
-            echo "Current User: $(whoami)"
-            echo "Current Directory: $(pwd)"
-            
-            # Ensure data directories exist
-            mkdir -p /home/eats365/data
-            mkdir -p /home/eats365/upload
-            
-            # Set permissions (non-sudo, will only work if user owns the directories)
-            chmod 755 /home/eats365/data 2>/dev/null || echo "Could not chmod data (may need sudo)"
-            chmod 755 /home/eats365/upload 2>/dev/null || echo "Could not chmod upload (may need sudo)"
-            
-            # CRITICAL: Restart Streamlit Application
-            echo "=== Restarting Streamlit Application ==="
-            
-            # Kill existing Streamlit process
-            pkill -f "streamlit run" && echo "Killed existing Streamlit process" || echo "No existing Streamlit process found"
-            
-            # Wait for process to terminate
-            sleep 3
-            
-            # Navigate to deployment directory
-            cd ${{ secrets.SFTP_REMOTE_PATH }} || cd /home/eats365/boiling-noodles-dashboard || { echo "Failed to cd to app directory"; exit 1; }
-            
-            echo "Starting Streamlit from: $(pwd)"
-            
-            # Start Streamlit in background
-            nohup streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > /home/eats365/streamlit.log 2>&1 &
-            
-            # Capture the PID
-            STREAMLIT_PID=$!
-            echo "Streamlit started with PID: $STREAMLIT_PID"
-            
-            # Wait a moment and check if it's still running
+            echo "=== Restarting Streamlit ==="
+            cd ${{ secrets.SFTP_REMOTE_PATH }}
+            pkill -f "streamlit run" || true
             sleep 2
-            if ps -p $STREAMLIT_PID > /dev/null; then
-                echo "✅ Streamlit is running successfully"
-            else
-                echo "❌ Streamlit failed to start. Check /home/eats365/streamlit.log"
-                tail -20 /home/eats365/streamlit.log
-                exit 1
-            fi
-            
-            echo "=== Deployment Complete ==="
-            ls -al /home/eats365
+            nohup streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
+            echo "Deployment complete!"
