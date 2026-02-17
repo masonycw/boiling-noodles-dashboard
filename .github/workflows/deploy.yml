@@ -21,25 +21,41 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
+            # Set deployment directory
+            DEPLOY_DIR="/home/eats365/boiling-noodles-dashboard"
+            
             # Check if directory exists, if not clone the repo
-            if [ ! -d "/home/eats365/boiling-noodles-dashboard" ]; then
+            if [ ! -d "$DEPLOY_DIR" ]; then
               echo "Directory not found, cloning repository..."
               cd /home/eats365
+              # Use public HTTPS URL (no authentication required for public repos)
               git clone https://github.com/masonycw/boiling-noodles-dashboard.git
             fi
             
             # Navigate to deployment directory
-            cd /home/eats365/boiling-noodles-dashboard
+            cd "$DEPLOY_DIR"
+            
+            # Configure git to avoid authentication prompts
+            git config --global credential.helper store
             
             # Pull latest code from GitHub
-            git pull origin main
+            git pull origin main || echo "Warning: git pull failed, continuing anyway..."
             
-            # Install/update dependencies if requirements.txt changed
-            pip install -r requirements.txt --user || true
+            # Install/update dependencies if requirements.txt exists
+            if [ -f "requirements.txt" ]; then
+              pip install -r requirements.txt --user || echo "Warning: pip install failed"
+            fi
             
             # Restart Streamlit
+            echo "Restarting Streamlit..."
             pkill -f "streamlit run" || true
             sleep 2
             nohup streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
             
-            echo "✅ Deployment complete and Streamlit restarted"
+            # Verify Streamlit started
+            sleep 2
+            if pgrep -f "streamlit run" > /dev/null; then
+              echo "✅ Deployment complete and Streamlit is running"
+            else
+              echo "⚠️ Warning: Streamlit may not have started. Check streamlit.log"
+            fi
