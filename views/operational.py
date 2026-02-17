@@ -10,7 +10,7 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     # So we ignore passed defaults for interactive control here? 
     # Let's Implement Local Control.
 
-    st.title("📊 營運總覽 v2.3 (Fixes Applied)")
+    st.title("📊 營運總覽 v2.3.1 (Datetime Fix)")
     
     # --- Local Date Filter ---
     # Default to This Month if not passed
@@ -144,8 +144,9 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
         # 1. Daily Revenue Breakdown (Lunch/Dinner)
         # Use Date_Only for grouping
         daily_period = df_rep.groupby(['Date_Only', 'Period'])['total_amount'].sum().reset_index()
-        # Rename back to Date_Parsed for Plotly consistency or use Date_Only
-        daily_period.rename(columns={'Date_Only': 'Date_Parsed'}, inplace=True)
+        # Convert to datetime for Plotly
+        daily_period['Date_Parsed'] = pd.to_datetime(daily_period['Date_Only'])
+        daily_period.drop(columns=['Date_Only'], inplace=True)
         
         # 2. Daily Visitor & Avg Check
         # Need to handle visitor count logic per day
@@ -154,9 +155,9 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
             'people_count': 'sum', # Default report count
             'order_id': 'count'
         }).reset_index()
-        daily_stats.rename(columns={'Date_Only': 'Date_Parsed'}, inplace=True)
-        # Fix: Convert back to datetime for merge/resample compatibility
-        daily_stats['Date_Parsed'] = pd.to_datetime(daily_stats['Date_Parsed'])
+        # Convert to datetime IMMEDIATELY after groupby
+        daily_stats['Date_Parsed'] = pd.to_datetime(daily_stats['Date_Only'])
+        daily_stats.drop(columns=['Date_Only'], inplace=True)
         
         # If details exist, try to improve visitor count accuracy per day
         if has_details and 'Is_Main_Dish' in df_details.columns:
@@ -164,11 +165,12 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
             df_details['Date_Only'] = df_details['Date_Parsed'].dt.date
             
             daily_vis_det = df_details[df_details['Is_Main_Dish']].groupby('Date_Only')['qty'].sum().reset_index()
-            # Rename for merge
-            daily_vis_det.rename(columns={'qty': 'det_qty', 'Date_Only': 'Date_Parsed'}, inplace=True)
+            # Convert to datetime BEFORE merge
+            daily_vis_det['Date_Parsed'] = pd.to_datetime(daily_vis_det['Date_Only'])
+            daily_vis_det.drop(columns=['Date_Only'], inplace=True)
+            daily_vis_det.rename(columns={'qty': 'det_qty'}, inplace=True)
             
-            # Merge
-            # Check dtypes: Date_Parsed in daily_stats is object (date), in daily_vis_det is object (date)
+            # Merge (both are now datetime64[ns])
             daily_stats = daily_stats.merge(daily_vis_det, on='Date_Parsed', how='left')
             daily_stats['det_qty'] = daily_stats['det_qty'].fillna(0)
             
