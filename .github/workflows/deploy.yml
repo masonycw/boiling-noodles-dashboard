@@ -13,72 +13,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Verify Secrets
-        run: |
-          echo "Checking required secrets..."
-          
-          if [ -z "${{ secrets.SFTP_HOST }}" ]; then
-            echo "❌ SFTP_HOST is NOT set"
-            exit 1
-          else
-            echo "✅ SFTP_HOST is set: ${{ secrets.SFTP_HOST }}"
-          fi
-          
-          if [ -z "${{ secrets.SFTP_USERNAME }}" ]; then
-            echo "❌ SFTP_USERNAME is NOT set"
-            exit 1
-          else
-            echo "✅ SFTP_USERNAME is set: ${{ secrets.SFTP_USERNAME }}"
-          fi
-          
-          if [ -z "${{ secrets.SFTP_PASSWORD }}" ]; then
-            echo "❌ SFTP_PASSWORD is NOT set"
-            exit 1
-          else
-            echo "✅ SFTP_PASSWORD is set (length: ${#SFTP_PASSWORD})"
-          fi
-        env:
-          SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
-      
-      - name: Deploy and Restart via SSH
-        uses: appleboy/ssh-action@v1.0.0
+      - name: Deploy files via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
-          host: ${{ secrets.SFTP_HOST }}
           username: ${{ secrets.SFTP_USERNAME }}
+          server: ${{ secrets.SFTP_HOST }}
           password: ${{ secrets.SFTP_PASSWORD }}
           port: 22
-          script: |
-            # Set deployment directory
-            DEPLOY_DIR="/home/eats365/boiling-noodles-dashboard"
-            
-            # Check if directory exists, if not clone the repo
-            if [ ! -d "$DEPLOY_DIR" ]; then
-              echo "Directory not found, cloning repository..."
-              cd /home/eats365
-              git clone https://github.com/masonycw/boiling-noodles-dashboard.git
-            fi
-            
-            # Navigate to deployment directory
-            cd "$DEPLOY_DIR"
-            
-            # Pull latest code from GitHub
-            git pull origin main || echo "Warning: git pull failed, continuing anyway..."
-            
-            # Install/update dependencies if requirements.txt exists
-            if [ -f "requirements.txt" ]; then
-              pip install -r requirements.txt --user || echo "Warning: pip install failed"
-            fi
-            
-            # Restart Streamlit
-            echo "Restarting Streamlit..."
-            pkill -f "streamlit run" || true
-            sleep 2
-            nohup streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
-            
-            # Verify Streamlit started
-            sleep 2
-            if pgrep -f "streamlit run" > /dev/null; then
-              echo "✅ Deployment complete and Streamlit is running"
-            else
-              echo "⚠️ Warning: Streamlit may not have started. Check streamlit.log"
-            fi
+          local_path: './*'
+          remote_path: '/home/eats365/boiling-noodles-dashboard'
+          sftp_only: true
+          
+      - name: Notify deployment complete
+        run: |
+          echo "✅ Files deployed successfully via SFTP"
+          echo "⚠️ Note: Streamlit needs to be manually restarted on the server"
+          echo "To restart Streamlit, SSH to the server and run:"
+          echo "  pkill -f 'streamlit run' && nohup streamlit run /home/eats365/boiling-noodles-dashboard/app.py --server.port=8501 --server.address=0.0.0.0 > /home/eats365/boiling-noodles-dashboard/streamlit.log 2>&1 &"
