@@ -26,72 +26,48 @@ jobs:
             whoami
             ls -al
           SCRIPT_AFTER: |
-            echo "Current User:"
-            whoami
-            echo "Creating directories..."
+            echo "=== Post-Deployment Script ==="
+            echo "Current User: $(whoami)"
+            echo "Current Directory: $(pwd)"
+            
+            # Ensure data directories exist
             mkdir -p /home/eats365/data
             mkdir -p /home/eats365/upload
             
-            # ATTEMPT: Recreate Data Directory Strategy
-            # If the old directory is locked, move it aside and create a fresh one.
-            echo "Checking /home/eats365/data status..."
-            
-            if [ -d "/home/eats365/data" ]; then
-                # Try to write a test file
-                if touch /home/eats365/data/test_write_check 2>/dev/null; then
-                    echo "Write check passed. Permissions seem OK."
-                    rm /home/eats365/data/test_write_check
-                else
-                    echo "Write check FAILED. Directory is locked. Moving to backup..."
-                    TIMESTAMP=$(date +%s)
-                    sudo mv /home/eats365/data /home/eats365/data_backup_$TIMESTAMP || echo "Failed to move locked data dir"
-                fi
-            fi
-            
-            # Ensure Data Dir exists and is fresh/writable
-            if [ ! -d "/home/eats365/data" ]; then
-                echo "Creating fresh data directory..."
-                mkdir -p /home/eats365/data
-                sudo chown eats365:eats365 /home/eats365/data
-                sudo chmod 777 /home/eats365/data
-            else
-                # Fallback force permission again
-                sudo chown -R eats365:eats365 /home/eats365/data
-                sudo chmod -R 777 /home/eats365/data
-            fi
-            
-            # Ensure Upload dir is also open
-            sudo chmod 777 /home/eats365/upload || chmod 777 /home/eats365/upload
-            
-            # CRITICAL: Re-secure SSH directory (Must be strict)
-            echo "Securing .ssh permissions..."
-            # Try sudo first, fallback to direct
-            sudo chmod 700 /home/eats365/.ssh || chmod 700 /home/eats365/.ssh || echo "Failed to secure .ssh"
-            sudo chmod 600 /home/eats365/.ssh/authorized_keys || chmod 600 /home/eats365/.ssh/authorized_keys || echo "Failed to secure authorized_keys"
-
-            # Reset Password for eats365 (Only if sudo works)
-            echo "Resetting password for eats365..."
-            echo "eats365:eats365pass" | sudo chpasswd || echo "Failed to reset password (Requires root)"
-            
-            # Enable Password Authentication
-            echo "Enabling Password Authentication..."
-            sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config || echo "Failed to modify sshd_config"
-            sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/g' /etc/ssh/sshd_config || echo "Failed to modify sshd_config"
-            sudo service ssh restart || sudo service sshd restart || echo "Failed to restart ssh service"
+            # Set permissions (non-sudo, will only work if user owns the directories)
+            chmod 755 /home/eats365/data 2>/dev/null || echo "Could not chmod data (may need sudo)"
+            chmod 755 /home/eats365/upload 2>/dev/null || echo "Could not chmod upload (may need sudo)"
             
             # CRITICAL: Restart Streamlit Application
-            echo "Restarting Streamlit application..."
-            # Find and kill existing Streamlit process
-            pkill -f "streamlit run" || echo "No existing Streamlit process found"
+            echo "=== Restarting Streamlit Application ==="
             
-            # Wait a moment for the process to fully terminate
-            sleep 2
+            # Kill existing Streamlit process
+            pkill -f "streamlit run" && echo "Killed existing Streamlit process" || echo "No existing Streamlit process found"
             
-            # Start Streamlit in the background (assumes app.py is in the deployment directory)
-            cd ${{ secrets.SFTP_REMOTE_PATH }} || cd /home/eats365/boiling-noodles-dashboard
+            # Wait for process to terminate
+            sleep 3
+            
+            # Navigate to deployment directory
+            cd ${{ secrets.SFTP_REMOTE_PATH }} || cd /home/eats365/boiling-noodles-dashboard || { echo "Failed to cd to app directory"; exit 1; }
+            
+            echo "Starting Streamlit from: $(pwd)"
+            
+            # Start Streamlit in background
             nohup streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > /home/eats365/streamlit.log 2>&1 &
             
-            echo "Streamlit restart initiated. Check /home/eats365/streamlit.log for details."
+            # Capture the PID
+            STREAMLIT_PID=$!
+            echo "Streamlit started with PID: $STREAMLIT_PID"
             
+            # Wait a moment and check if it's still running
+            sleep 2
+            if ps -p $STREAMLIT_PID > /dev/null; then
+                echo "✅ Streamlit is running successfully"
+            else
+                echo "❌ Streamlit failed to start. Check /home/eats365/streamlit.log"
+                tail -20 /home/eats365/streamlit.log
+                exit 1
+            fi
+            
+            echo "=== Deployment Complete ==="
             ls -al /home/eats365
-            echo "Done."
