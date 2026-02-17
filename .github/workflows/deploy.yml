@@ -13,6 +13,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
+      - name: Debug SSH Key
+        run: |
+          echo "Checking if SSH_PRIVATE_KEY is set..."
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "❌ SSH_PRIVATE_KEY is NOT set or is empty"
+            exit 1
+          else
+            echo "✅ SSH_PRIVATE_KEY is set (length: ${#SSH_KEY})"
+            echo "First line of key:"
+            echo "${{ secrets.SSH_PRIVATE_KEY }}" | head -n 1
+          fi
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      
       - name: Deploy and Restart via SSH
         uses: appleboy/ssh-action@v1.0.0
         with:
