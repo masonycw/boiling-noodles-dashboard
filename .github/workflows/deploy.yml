@@ -20,9 +20,10 @@ jobs:
           server: ${{ secrets.SFTP_HOST }}
           password: ${{ secrets.SFTP_PASSWORD }}
           port: 22
-          local_path: './*'
-          remote_path: '/home/eats365/boiling-noodles-dashboard'
-          sftp_only: true
+          local_path: './'
+          remote_path: '/home/eats365/boiling-noodles-dashboard/'
+          sftp_only: false
+          delete_remote_files: false
           
       - name: Restart Streamlit via SSH
         uses: appleboy/ssh-action@v1.0.0
