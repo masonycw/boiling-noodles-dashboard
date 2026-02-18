@@ -13,34 +13,58 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Deploy files via SFTP
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          username: ${{ secrets.SFTP_USERNAME }}
-          server: ${{ secrets.SFTP_HOST }}
-          password: ${{ secrets.SFTP_PASSWORD }}
-          port: 22
-          local_path: './'
-          remote_path: '/home/mason_ycw/boiling-noodles-dashboard/'
-          sftp_only: false
-          delete_remote_files: false
+      - name: Deploy via SSH (Manual Setup)
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SFTP_HOST }}
+          SSH_USER: ${{ secrets.SFTP_USERNAME }}
+        run: |
+          mkdir -p ~/.ssh
           
-      - name: Restart Streamlit via SSH
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.SFTP_HOST }}
-          username: ${{ secrets.SFTP_USERNAME }}
-          password: ${{ secrets.SFTP_PASSWORD }}
-          port: 22
-          command_timeout: 30m
-          script: |
-            cd /home/mason_ycw/boiling-noodles-dashboard
-            pkill -f "streamlit run" || true
+          # Add private key to ssh-agent
+          eval $(ssh-agent -s)
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+          
+          # Add host verification to known_hosts to avoid prompt
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          
+          echo "✅ SSH setup complete. Attempting connection..."
+          
+          # Run deployment commands
+          ssh "$SSH_USER@$SSH_HOST" "
+            # Set deployment directory
+            DEPLOY_DIR='/home/mason_ycw/boiling-noodles-dashboard'
+            
+            # Check if directory exists, if not clone
+            if [ ! -d \"\$DEPLOY_DIR\" ]; then
+              echo 'Directory not found, cloning repository...'
+              git clone https://github.com/masonycw/boiling-noodles-dashboard.git \"\$DEPLOY_DIR\"
+            fi
+            
+            cd \"\$DEPLOY_DIR\"
+            
+            # Configure git
+            git config --global credential.helper store
+            
+            # Pull latest changes
+            echo 'Pulling latest code...'
+            git pull origin main
+            
+            # Install dependencies
+            if [ -f 'requirements.txt' ]; then
+              pip install -r requirements.txt --user || echo 'Warning: pip install failed'
+            fi
+            
+            # Restart Streamlit
+            echo 'Restarting Streamlit...'
+            pkill -f 'streamlit run' || true
             sleep 2
             nohup streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
+            
             sleep 2
-            if pgrep -f "streamlit run" > /dev/null; then
-              echo "✅ Streamlit is running"
+            if pgrep -f 'streamlit run' > /dev/null; then
+              echo '✅ Deployment complete and Streamlit is running'
             else
-              echo "⚠️ Streamlit may not have started"
+              echo '⚠️ Warning: Streamlit may not have started'
             fi
+          "
