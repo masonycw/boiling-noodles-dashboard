@@ -74,18 +74,44 @@ jobs:
             # ---------------------------------------------------------
             # Restart Streamlit (Green Light Fix)
             # ---------------------------------------------------------
+            # ---------------------------------------------------------
+            # Restart Streamlit (Aggressive Clean-up)
+            # ---------------------------------------------------------
             echo 'Restarting Streamlit...'
             
-            # 1. Kill old process (using sudo as requested to ensure kill)
+            # Install psmsic for fuser if missing (unlikely but safe)
+            # sudo apt-get install -y psmisc || true
+
+            # 1. Force Kill ports 8501 and 80 (Kill anything listening)
+            echo "Killing processes on ports..."
+            sudo fuser -k 8501/tcp || true
+            sudo fuser -k 80/tcp || true
+            
+            # 2. Also pkill by name just in case
             sudo pkill -f 'streamlit run' || true
-            sleep 2
             
-            # 2. Start new process
-            # User requested port 80 (requires sudo)
-            nohup sudo ./venv/bin/streamlit run app.py --server.port=80 --server.address=0.0.0.0 > streamlit.log 2>&1 &
+            # Wait for ports to clear
+            sleep 3
             
-            # 3. Wait and Exit Success
+            # Debug: Check if ports are free
+            echo "Checking ports..."
+            sudo netstat -tulpn | grep -E '8501|80' || echo "Ports 8501 and 80 are free."
+            
+            # 3. Start new process on Default Port 8501
+            # Reverting to 8501 as it is the standard non-privileged port.
+            # If you need 80, we can change it later, but 8501 is "safest" for now.
+            nohup ./venv/bin/streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
+            
+            # 4. Wait a bit
             sleep 5
-            echo "Streamlit has been restarted successfully."
-            exit 0
+            
+            # 5. Check if it's running
+            if pgrep -f 'streamlit run' > /dev/null; then
+               echo "✅ Startup Successful."
+               exit 0
+            else
+               echo "❌ Failed to start. Checking log:"
+               cat streamlit.log
+               exit 1
+            fi
           "
