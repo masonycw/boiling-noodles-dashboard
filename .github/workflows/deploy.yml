@@ -31,37 +31,39 @@ jobs:
           echo "✅ SSH setup complete. Attempting connection..."
           
           # Run deployment commands
+          # Run deployment commands
           ssh "$SSH_USER@$SSH_HOST" "
             DEPLOY_DIR=~/boiling-noodles-dashboard
             cd \"\$DEPLOY_DIR\"
             
-            # 1. 強制重整程式碼，確保是 GitHub 上的最新版
+            # 1. 更新程式碼
             git fetch --all
             git reset --hard origin/main
             
-            # 2. 啟動虛擬環境並安裝所需套件
+            # 2. 啟動虛擬環境與安裝
             source venv/bin/activate
             pip install -r requirements.txt
             
-            # 3. 重新啟動 Streamlit (關鍵啟動區)
+            # 3. 徹底清理 Port 80 (重點)
+            echo 'Clearing Port 80...'
+            # 使用絕對路徑呼叫已授權免密碼的 fuser
+            sudo /usr/bin/fuser -k 80/tcp || true
+            sudo pkill -9 -f 'streamlit run' || true
+            sleep 3
+            
+            # 4. 啟動 Streamlit
             echo 'Restarting Streamlit on Port 80...'
-            
-            # 試著清除 Port 80 的舊程序，加上 || true 避免沒程序可殺時導致部署失敗
-            sudo fuser -k 80/tcp || true
-            sleep 2
-            
-            # 【重點】使用你授權的「絕對路徑」來啟動，繞過密碼請求
-            # 這裡必須與你在 sudoers.d 設定的路徑完全一致
+            # 使用絕對路徑呼叫已授權免密碼的 python3
             nohup sudo /home/mason_ycw/boiling-noodles-dashboard/venv/bin/python3 -m streamlit run app.py --server.port=80 --server.address=0.0.0.0 > streamlit.log 2>&1 &
             
-            # 4. 驗證是否真的有在 Port 80 跑起來
+            # 5. 最終驗證
             sleep 5
             if sudo netstat -tulpn | grep :80 > /dev/null; then
                echo '✅ 部署成功！滾麵報表已在 Port 80 上線。'
                exit 0
             else
-               echo '❌ 啟動失敗，日誌最後幾行顯示：'
-               tail -n 10 streamlit.log
+               echo '❌ 啟動失敗，日誌最後幾行：'
+               tail -n 15 streamlit.log
                exit 1
             fi
           "
