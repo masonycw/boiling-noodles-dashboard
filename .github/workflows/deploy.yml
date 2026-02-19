@@ -46,9 +46,11 @@ jobs:
             # Configure git
             git config --global credential.helper store
             
-            # Pull latest changes
-            echo 'Pulling latest code...'
-            git pull origin main
+            # Pull latest changes (Force Reset to match Remote)
+            echo 'Fetching and resetting to latest code...'
+            git fetch --all
+            git reset --hard origin/main
+
             
             # ---------------------------------------------------------
             # Virtual Environment Setup (Fix for externally-managed-env)
