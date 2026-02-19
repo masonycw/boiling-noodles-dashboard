@@ -47,22 +47,23 @@ jobs:
             source venv/bin/activate
             pip install -r requirements.txt
             
-            # 3. 清理舊程序 (移除 fuser，改用 pkill)
-            echo 'Clearing Port 8501...'
-            pkill -f 'streamlit run' || true
-            sleep 3
-            pkill -9 -f 'streamlit run' || true
+            # 3. 清理舊程序 (只殺自己的，避免權限報錯導致腳本崩潰)
+            echo 'Clearing user processes on Port 8501...'
+            pkill -u $(whoami) -f 'streamlit run' > /dev/null 2>&1 || true
             sleep 2
             
-            # 檢查 Port 是否真的釋放
+            # 使用 fuser 嘗試清理端口 (轉向 null 忽略錯誤)
+            fuser -k 8501/tcp > /dev/null 2>&1 || true
+            sleep 2
+            
+            # 檢查 Port 8501 是否被 Root 佔用
             if netstat -tulpn | grep :8501 > /dev/null; then
-               echo '⚠️ Warning: Port 8501 is still busy. Trying to kill by port...'
-               # 最後嘗試用 lsof (若有安裝) 或跳過
-               kill \$(lsof -t -i:8501) || true
-               sleep 2
+               echo '⚠️ Warning: Port 8501 is still busy (likely by a Root process).'
+               echo 'The new deployment might fail to bind 8501 if this is not resolved.'
             fi
             
             # 4. 啟動 Streamlit
+
             echo 'Starting Streamlit on Port 8501...'
             nohup ./venv/bin/python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true > streamlit.log 2>&1 &
             
