@@ -1,7 +1,7 @@
 import os
 
 # System Version
-APP_VERSION = "2.3"
+APP_VERSION = "2.3.2"
 
 # --- Paths ---
 # Define ROOT paths to scan recursively

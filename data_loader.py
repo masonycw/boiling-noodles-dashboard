@@ -270,6 +270,15 @@ class UniversalLoader:
         if self.details_data:
             final_details = pd.concat(self.details_data, ignore_index=True)
             final_details.drop_duplicates(inplace=True)
+            
+            # Filter Details: Only keep details for valid Report Orders (Completed)
+            if not final_report.empty and 'order_id' in final_report.columns and 'order_id' in final_details.columns:
+                valid_orders = set(final_report['order_id'].astype(str))
+                initial_count = len(final_details)
+                final_details = final_details[final_details['order_id'].astype(str).isin(valid_orders)]
+                filtered_count = len(final_details)
+                self.log(f"Filtered Details by Status: {initial_count} -> {filtered_count} rows (Removed {initial_count - filtered_count} invalid rows)")
+            
             self.log(f"TOTAL DETAILS ROWS: {len(final_details)}")
 
         return final_report, final_details, self.debug_logs
