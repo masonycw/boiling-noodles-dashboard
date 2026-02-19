@@ -32,44 +32,34 @@ jobs:
           
           # Run deployment commands
           ssh "$SSH_USER@$SSH_HOST" "
-            # 1. 設定並進入正確的資料夾
             DEPLOY_DIR=~/boiling-noodles-dashboard
-            if [ ! -d \"\$DEPLOY_DIR\" ]; then
-              git clone https://github.com/masonycw/boiling-noodles-dashboard.git \"\$DEPLOY_DIR\"
-            fi
             cd \"\$DEPLOY_DIR\"
             
-            # 2. 更新程式碼
+            # 1. 更新程式碼
             git fetch --all
             git reset --hard origin/main
             
-            # 3. 確保虛擬環境存在並安裝套件
-            if [ ! -d 'venv' ]; then
-                python3 -m venv venv
-            fi
+            # 2. 啟動虛擬環境與安裝
             source venv/bin/activate
-            pip install --upgrade pip
             pip install -r requirements.txt
             
-            # 4. 徹底重啟 Streamlit (解決消失與更新問題)
+            # 3. 重新啟動 Streamlit (重點！)
             echo 'Restarting Streamlit on Port 80...'
             
-            # 強制清除 Port 80 的舊程序 (解決你提到的 PID 殘留問題)
+            # 先試著殺掉舊程序 (這裡可能還會問密碼，若失敗也沒關係，後面的 sudo python 會頂上去)
             sudo fuser -k 80/tcp || true
-            sudo pkill -9 -f 'streamlit run' || true
-            sleep 2
             
-            # 使用 sudo 啟動於 Port 80 (GCP 防火牆預設只開 80)
-            # 使用虛擬環境的 python 直接啟動，避免路徑錯誤
+            # 使用你剛才設定「免密碼」的絕對路徑來啟動
+            # 這樣啟動 Port 80 時就不會再卡在密碼視窗了
             nohup sudo \"\$DEPLOY_DIR/venv/bin/python3\" -m streamlit run app.py --server.port=80 --server.address=0.0.0.0 > streamlit.log 2>&1 &
             
-            # 5. 最後驗證
+            # 4. 驗證
             sleep 5
             if sudo netstat -tulpn | grep :80 > /dev/null; then
-               echo '✅ 部署成功！滾麵報表已在 Port 80 更新上線。'
+               echo '✅ 部署成功！滾麵報表已在 Port 80 更新。'
                exit 0
             else
-               echo '❌ 啟動失敗，請檢查 ~/boiling-noodles-dashboard/streamlit.log'
+               echo '❌ 啟動失敗，請檢查 streamlit.log'
                exit 1
             fi
           "
