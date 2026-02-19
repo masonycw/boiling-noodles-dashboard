@@ -6,11 +6,12 @@ from dateutil.relativedelta import relativedelta
 # Import new modules
 # Import new modules
 from data_loader import UniversalLoader
+from config import APP_VERSION
 from views import operational, member, system, sales, prediction
 
 # --- 1. Config ---
 st.set_page_config(
-    page_title="滾麵智慧營運報表 v2.0",
+    page_title=f"滾麵智慧營運報表 v{APP_VERSION}",
     page_icon="🍜",
     layout="wide"
 )
@@ -30,7 +31,7 @@ def get_data():
 
 # --- 3. Main App ---
 def main():
-    st.sidebar.title("🍜 滾麵 Dashboard v2.0")
+    st.sidebar.title(f"🍜 滾麵 Dashboard v{APP_VERSION}")
     
     with st.spinner('數據處理中 (Rebuilding V2)...'):
         df_report, df_details, debug_logs = get_data()
