@@ -43,16 +43,21 @@ jobs:
             source venv/bin/activate
             pip install -r requirements.txt
             
-            # 3. 徹底清理 Port 8501 (回到預設)
+            # 3. 徹底清理 Port 8501
             echo 'Clearing Port 8501...'
-            # 不需要 sudo，殺掉自己的程序即可
-            fuser -k 8501/tcp || true
-            pkill -f 'streamlit run' || true
+            # 只殺掉「目前使用者」的程序，避免 Permission Denied 錯誤
+            fuser -k 8501/tcp > /dev/null 2>&1 || true
+            pkill -u \$(whoami) -f 'streamlit run' || true
             sleep 3
+            
+            # 確保 Port 已釋放
+            if netstat -tulpn | grep :8501 > /dev/null; then
+               echo '⚠️ Warning: Port 8501 is still in use by another user/root.'
+               echo 'Since you verified manual kill, we will try to start anyway (it might fail if port is truly blocked).'
+            fi
             
             # 4. 啟動 Streamlit (Port 8501)
             echo 'Restarting Streamlit on Port 8501...'
-            # 直接使用 venv 內的 python，不需要 sudo
             nohup ./venv/bin/python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
             
             # 5. 最終驗證
