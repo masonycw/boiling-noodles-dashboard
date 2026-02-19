@@ -356,14 +356,51 @@ class UniversalLoader:
             
             # Is_Main_Dish:
             if 'item_name' in df_details.columns:
-                # 1. Must contain Noodle/Rice
-                mask_type = df_details['item_name'].astype(str).str.contains('麵|飯', regex=True, na=False)
-                # 2. Must NOT be a Set Meal (Container) - User Request
-                mask_not_set = ~df_details['item_name'].astype(str).str.contains('套餐', na=False)
-                # 3. Must NOT be a Modifier
+                # 1. Check SKU (Starts with A or B)
+                # User Rule: SKU starts with A or B -> Main Dish
+                # If SKU is missing -> Check Item Name for '麵' or '飯'
+                
+                # Prepare SKU column
+                if 'sku' not in df_details.columns:
+                    df_details['sku'] = ''
+                
+                # Utilize numpy for faster vectorized operations
+                sku_series = df_details['sku'].fillna('').astype(str).str.upper().str.strip()
+                name_series = df_details['item_name'].fillna('').astype(str)
+                
+                # Condition A: SKU starts with 'A' or 'B'
+                cond_sku_match = sku_series.str.startswith(('A', 'B'))
+                
+                # Condition B: SKU is empty AND Name contains '麵' or '飯'
+                # "如果沒有SKU的狀況，看Item Name..." -> Implies fallthrough if SKU is missing/empty.
+                # What if SKU Exists but is 'C'? Then it is NOT a Main Dish (unless it fails first check?).
+                # Strict reading: If SKU exists -> Check A/B. If SKU doesn't exist -> Check Name.
+                # So: (HasSKU & MatchAB) OR (NoSKU & NameMatch)
+                
+                has_sku = sku_series != ''
+                cond_name_match = name_series.str.contains('麵|飯', regex=True, na=False)
+                
+                # Combined Candidate Logic
+                # is_candidate = (has_sku & cond_sku_match) | (~has_sku & cond_name_match)
+                # Wait, User: "主食的判定是SKU為Ａ或B開頭" (Main dish is SKU A or B)
+                # "如果沒有SKU的狀況" (If no SKU situation) -> Check Name.
+                # This implies if SKU is present but NOT A/B, it is NOT a main dish.
+                # Correct Logic:
+                is_candidate = np.where(has_sku, cond_sku_match, cond_name_match)
+
+                # 2. Exclude Combo Items (Item Type)
+                # "Item Type如果是Combo Item則是套餐名稱，不計算在主食"
+                if 'item_type' in df_details.columns:
+                    type_series = df_details['item_type'].fillna('').astype(str)
+                    mask_not_combo = ~type_series.str.contains('Combo Item', case=False, na=False)
+                else:
+                    mask_not_combo = True
+                    
+                # 3. Must NOT be a Modifier (Already computed)
                 mask_not_mod = ~df_details['Is_Modifier']
                 
-                df_details['Is_Main_Dish'] = mask_type & mask_not_set & mask_not_mod
+                # Final Logic
+                df_details['Is_Main_Dish'] = is_candidate & mask_not_combo & mask_not_mod
                 
         return df_report, df_details
 

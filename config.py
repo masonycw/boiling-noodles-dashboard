@@ -42,7 +42,8 @@ COLUMN_MAPPING = {
     'unit_price': ['Unit Price', '單價', 'Price'],
     'item_total': ['Item Total', '小計', 'Subtotal', 'Item Amount(TWD)'],
     'options': ['Item Option', '選項', 'Options', 'Modifier Name', 'Product Note'], 
-    'sku': ['Product SKU', 'SKU', '料號']
+    'sku': ['Product SKU', 'SKU', '料號'],
+    'item_type': ['Item Type', '商品型態', 'ItemType']
 }
 
 # --- Holidays ---
