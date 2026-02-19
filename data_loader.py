@@ -425,16 +425,30 @@ class UniversalLoader:
                 else:
                     mask_not_combo = True
                     
-                # 3. Must NOT be a Modifier (User Rule v2.3.4: Modifier Name must be empty)
-                # REVERTED v2.3.5: User reported undercount (85 vs 143).
-                # It seems valid Main Dishes HAVE modifier attributes in this column.
-                # So we DO NOT exclude based on Modifier Name emptiness.
-                # mask_not_mod = ~df_details['Is_Modifier'] 
+                # 3. Must NOT be a Modifier (User Rule: Modifier Name must be empty)
+                # "Modifier Name必須為空"
+                mask_no_mod = (
+                    df_details['options'].isna() | 
+                    (df_details['options'].astype(str).str.strip() == '')
+                )
                 
-                # Final Logic
-                # Main Dish = (SKU/Name Match) AND (Not Combo)
-                # We trust SKU/Name filter is strong enough to exclude pure add-ons.
-                df_details['Is_Main_Dish'] = is_candidate & mask_not_combo
+                # 4. Logic Implementation
+                # "Product SKU為A or B 為主食"
+                cond_sku_match = sku_series.str.startswith(('A', 'B'))
+                
+                # "（如果沒有sku，則看名稱，有飯或麵，且不是套餐，則為主食）"
+                # Logic: No SKU AND Name Match AND Not Combo
+                cond_no_sku_fallback = (
+                    (sku_series == '') & 
+                    cond_name_match & 
+                    mask_not_combo
+                )
+                
+                # Combined Candidate
+                is_candidate = cond_sku_match | cond_no_sku_fallback
+                
+                # Global Filter: Modifier Name MUST be empty
+                df_details['Is_Main_Dish'] = is_candidate & mask_no_mod
                 
         return df_report, df_details
 
