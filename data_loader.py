@@ -388,11 +388,22 @@ class UniversalLoader:
                 # Correct Logic:
                 is_candidate = np.where(has_sku, cond_sku_match, cond_name_match)
 
-                # 2. Exclude Combo Items (Item Type)
+                # 2. Exclude Combo Items (Item Type OR Order Type)
                 # "Item Type如果是Combo Item則是套餐名稱，不計算在主食"
+                # Fix for mapping conflict: 'Type' might be mapped to 'order_type' in config.
+                
+                combo_indicators = []
                 if 'item_type' in df_details.columns:
-                    type_series = df_details['item_type'].fillna('').astype(str)
-                    mask_not_combo = ~type_series.str.contains('Combo Item', case=False, na=False)
+                    combo_indicators.append(df_details['item_type'])
+                if 'order_type' in df_details.columns:
+                    combo_indicators.append(df_details['order_type'])
+                    
+                if combo_indicators:
+                    # Combine columns to check
+                    combined_type = pd.concat(combo_indicators, axis=1).fillna('').astype(str)
+                    # Check if 'Combo Item' exists in ANY of the columns for each row
+                    is_combo = combined_type.apply(lambda row: row.str.contains('Combo Item', case=False).any(), axis=1)
+                    mask_not_combo = ~is_combo
                 else:
                     mask_not_combo = True
                     
