@@ -181,9 +181,10 @@ class UniversalLoader:
             # Normalize status
             df['status'] = df['status'].astype(str).str.strip().str.lower()
             
-            # Keep only '已完成' or 'completed'
-            valid_statuses = ['已完成', 'completed']
-            df = df[df['status'].isin(valid_statuses)]
+            # Relaxed Filter (v2.3.8): Exclude Cancelled instead of strict Include
+            # This avoids dropping valid orders with statuses like 'Paid', 'Delivered', etc.
+            invalid_statuses = ['已取消', 'cancelled', 'void', 'delete', 'deleted']
+            df = df[~df['status'].isin(invalid_statuses)]
             
         return df
 
