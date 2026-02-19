@@ -50,21 +50,42 @@ jobs:
             echo 'Pulling latest code...'
             git pull origin main
             
-            # Install dependencies
-            if [ -f 'requirements.txt' ]; then
-              pip install -r requirements.txt --user || echo 'Warning: pip install failed'
+            # ---------------------------------------------------------
+            # Virtual Environment Setup (Fix for externally-managed-env)
+            # ---------------------------------------------------------
+            if [ ! -d 'venv' ]; then
+                echo 'Creating virtual environment...'
+                python3 -m venv venv
             fi
             
-            # Restart Streamlit
-            echo 'Restarting Streamlit...'
-            pkill -f 'streamlit run' || true
-            sleep 2
-            nohup streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
+            # Activate venv
+            source venv/bin/activate
             
+            # Install dependencies inside venv
+            echo 'Installing dependencies in venv...'
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            
+            # ---------------------------------------------------------
+            # Restart Streamlit
+            # ---------------------------------------------------------
+            echo 'Restarting Streamlit...'
+            
+            # Kill only processes owned by the current user to avoid permission errors
+            # NOTE: If the previous process was started by root/another user, this will fail to kill it.
+            # You might need to manually kill it once on the server.
+            pkill -u \$(whoami) -f 'streamlit run' || true
             sleep 2
-            if pgrep -f 'streamlit run' > /dev/null; then
+            
+            # Start new instance using venv python
+            nohup ./venv/bin/streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
+            
+            sleep 3
+            if pgrep -u \$(whoami) -f 'streamlit run' > /dev/null; then
               echo '✅ Deployment complete and Streamlit is running'
+              echo 'PID: \$(pgrep -u \$(whoami) -f 'streamlit run')'
             else
-              echo '⚠️ Warning: Streamlit may not have started'
+              echo '⚠️ Warning: Streamlit may not have started. Check streamlit.log'
+              cat streamlit.log
             fi
           "
