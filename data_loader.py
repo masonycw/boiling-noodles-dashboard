@@ -397,10 +397,14 @@ class UniversalLoader:
                     mask_not_combo = True
                     
                 # 3. Must NOT be a Modifier (Already computed)
-                mask_not_mod = ~df_details['Is_Modifier']
+                # mask_not_mod = ~df_details['Is_Modifier'] 
+                # ISSUE: The Is_Modifier logic (options not empty) excludes Main Dishes that have options/notes.
+                # User did not request to exclude based on options. 
+                # The SKU and Name check should be sufficient to identify Main Dishes.
+                # Actual modifiers (if separate rows) likely won't match SKU A/B or Name 麵/飯 (unless they are "Add Noodle").
                 
                 # Final Logic
-                df_details['Is_Main_Dish'] = is_candidate & mask_not_combo & mask_not_mod
+                df_details['Is_Main_Dish'] = is_candidate & mask_not_combo
                 
         return df_report, df_details
 
