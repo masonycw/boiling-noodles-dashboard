@@ -31,7 +31,6 @@ jobs:
           echo "✅ SSH setup complete. Attempting connection..."
           
           # Run deployment commands
-          # Run deployment commands
           ssh "$SSH_USER@$SSH_HOST" "
             DEPLOY_DIR=~/boiling-noodles-dashboard
             cd \"\$DEPLOY_DIR\"
@@ -44,22 +43,22 @@ jobs:
             source venv/bin/activate
             pip install -r requirements.txt
             
-            # 3. 徹底清理 Port 80 (重點)
-            echo 'Clearing Port 80...'
-            # 使用絕對路徑呼叫已授權免密碼的 fuser
-            sudo /usr/bin/fuser -k 80/tcp || true
-            sudo pkill -9 -f 'streamlit run' || true
+            # 3. 徹底清理 Port 8501 (回到預設)
+            echo 'Clearing Port 8501...'
+            # 不需要 sudo，殺掉自己的程序即可
+            fuser -k 8501/tcp || true
+            pkill -f 'streamlit run' || true
             sleep 3
             
-            # 4. 啟動 Streamlit
-            echo 'Restarting Streamlit on Port 80...'
-            # 使用絕對路徑呼叫已授權免密碼的 python3
-            nohup sudo /home/mason_ycw/boiling-noodles-dashboard/venv/bin/python3 -m streamlit run app.py --server.port=80 --server.address=0.0.0.0 > streamlit.log 2>&1 &
+            # 4. 啟動 Streamlit (Port 8501)
+            echo 'Restarting Streamlit on Port 8501...'
+            # 直接使用 venv 內的 python，不需要 sudo
+            nohup ./venv/bin/python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
             
             # 5. 最終驗證
             sleep 5
-            if sudo netstat -tulpn | grep :80 > /dev/null; then
-               echo '✅ 部署成功！滾麵報表已在 Port 80 上線。'
+            if netstat -tulpn | grep :8501 > /dev/null; then
+               echo '✅ 部署成功！滾麵報表已在 Port 8501 上線。'
                exit 0
             else
                echo '❌ 啟動失敗，日誌最後幾行：'
