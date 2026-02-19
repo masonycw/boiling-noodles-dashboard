@@ -63,13 +63,24 @@ jobs:
             fi
             
             # 4. 啟動 Streamlit
-
             echo 'Starting Streamlit on Port 8501...'
-            nohup ./venv/bin/python3 -m streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true > streamlit.log 2>&1 &
+            
+            # 使用最原始的啟動方式 (./venv/bin/streamlit) 
+            # 加上 CORS/XSRF false 以防止瀏覽器連線被擋
+            nohup ./venv/bin/streamlit run app.py \
+              --server.port=8501 \
+              --server.address=0.0.0.0 \
+              --server.headless=true \
+              --server.enableCORS=false \
+              --server.enableXsrfProtection=false \
+              > streamlit.log 2>&1 &
             
             # 5. 最終驗證
             sleep 5
             pgrep -a -f 'streamlit run'
+            
+            echo 'Current listening ports:'
+            netstat -tulpn | grep :8501 || true
             
             if netstat -tulpn | grep :8501 > /dev/null; then
                echo '✅ 部署成功！滾麵報表已在 Port 8501 上線 (v2.3.2)。'
