@@ -35,31 +35,33 @@ jobs:
             DEPLOY_DIR=~/boiling-noodles-dashboard
             cd \"\$DEPLOY_DIR\"
             
-            # 1. 更新程式碼
+            # 1. 強制重整程式碼，確保是 GitHub 上的最新版
             git fetch --all
             git reset --hard origin/main
             
-            # 2. 啟動虛擬環境與安裝
+            # 2. 啟動虛擬環境並安裝所需套件
             source venv/bin/activate
             pip install -r requirements.txt
             
-            # 3. 重新啟動 Streamlit (重點！)
+            # 3. 重新啟動 Streamlit (關鍵啟動區)
             echo 'Restarting Streamlit on Port 80...'
             
-            # 先試著殺掉舊程序 (這裡可能還會問密碼，若失敗也沒關係，後面的 sudo python 會頂上去)
+            # 試著清除 Port 80 的舊程序，加上 || true 避免沒程序可殺時導致部署失敗
             sudo fuser -k 80/tcp || true
+            sleep 2
             
-            # 使用你剛才設定「免密碼」的絕對路徑來啟動
-            # 這樣啟動 Port 80 時就不會再卡在密碼視窗了
-            nohup sudo \"\$DEPLOY_DIR/venv/bin/python3\" -m streamlit run app.py --server.port=80 --server.address=0.0.0.0 > streamlit.log 2>&1 &
+            # 【重點】使用你授權的「絕對路徑」來啟動，繞過密碼請求
+            # 這裡必須與你在 sudoers.d 設定的路徑完全一致
+            nohup sudo /home/mason_ycw/boiling-noodles-dashboard/venv/bin/python3 -m streamlit run app.py --server.port=80 --server.address=0.0.0.0 > streamlit.log 2>&1 &
             
-            # 4. 驗證
+            # 4. 驗證是否真的有在 Port 80 跑起來
             sleep 5
             if sudo netstat -tulpn | grep :80 > /dev/null; then
-               echo '✅ 部署成功！滾麵報表已在 Port 80 更新。'
+               echo '✅ 部署成功！滾麵報表已在 Port 80 上線。'
                exit 0
             else
-               echo '❌ 啟動失敗，請檢查 streamlit.log'
+               echo '❌ 啟動失敗，日誌最後幾行顯示：'
+               tail -n 10 streamlit.log
                exit 1
             fi
           "
