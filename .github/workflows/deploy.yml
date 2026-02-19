@@ -32,88 +32,44 @@ jobs:
           
           # Run deployment commands
           ssh "$SSH_USER@$SSH_HOST" "
-            # Set deployment directory
-            # Set deployment directory
-            # Corrected path based on user feedback (was updating wrong dir)
+            # 1. 設定並進入正確的資料夾
             DEPLOY_DIR=~/boiling-noodles-dashboard
-            
-            # Check if directory exists, if not clone
             if [ ! -d \"\$DEPLOY_DIR\" ]; then
-              echo 'Directory not found, cloning repository...'
               git clone https://github.com/masonycw/boiling-noodles-dashboard.git \"\$DEPLOY_DIR\"
             fi
-            
             cd \"\$DEPLOY_DIR\"
             
-            # Configure git
-            git config --global credential.helper store
-            
-            # Pull latest changes (Force Reset to match Remote)
-            echo 'Fetching and resetting to latest code...'
+            # 2. 更新程式碼
             git fetch --all
             git reset --hard origin/main
             
-            # Debug: Verify version update
-            echo "Current Commit: $(git rev-parse HEAD)"
-            echo "Config Version: $(grep 'APP_VERSION' config.py)"
-            
-            # ---------------------------------------------------------
-            # Virtual Environment Setup (Fix for externally-managed-env)
-            # ---------------------------------------------------------
+            # 3. 確保虛擬環境存在並安裝套件
             if [ ! -d 'venv' ]; then
-                echo 'Creating virtual environment...'
                 python3 -m venv venv
             fi
-            
-            # Activate venv
             source venv/bin/activate
-            
-            # Install dependencies inside venv
-            echo 'Installing dependencies in venv...'
             pip install --upgrade pip
             pip install -r requirements.txt
             
-            # ---------------------------------------------------------
-            # Restart Streamlit (Green Light Fix)
-            # ---------------------------------------------------------
-            # ---------------------------------------------------------
-            # Restart Streamlit (Aggressive Clean-up)
-            # ---------------------------------------------------------
-            echo 'Restarting Streamlit...'
+            # 4. 徹底重啟 Streamlit (解決消失與更新問題)
+            echo 'Restarting Streamlit on Port 80...'
             
-            # Install psmsic for fuser if missing (unlikely but safe)
-            # sudo apt-get install -y psmisc || true
-
-            # 1. Force Kill ports 8501 and 80 (Kill anything listening)
-            echo "Killing processes on ports..."
-            sudo fuser -k 8501/tcp || true
+            # 強制清除 Port 80 的舊程序 (解決你提到的 PID 殘留問題)
             sudo fuser -k 80/tcp || true
+            sudo pkill -9 -f 'streamlit run' || true
+            sleep 2
             
-            # 2. Also pkill by name just in case
-            sudo pkill -f 'streamlit run' || true
+            # 使用 sudo 啟動於 Port 80 (GCP 防火牆預設只開 80)
+            # 使用虛擬環境的 python 直接啟動，避免路徑錯誤
+            nohup sudo \"\$DEPLOY_DIR/venv/bin/python3\" -m streamlit run app.py --server.port=80 --server.address=0.0.0.0 > streamlit.log 2>&1 &
             
-            # Wait for ports to clear
-            sleep 3
-            
-            # Debug: Check if ports are free
-            echo "Checking ports..."
-            sudo netstat -tulpn | grep -E '8501|80' || echo "Ports 8501 and 80 are free."
-            
-            # 3. Start new process on Default Port 8501
-            # Reverting to 8501 as it is the standard non-privileged port.
-            # If you need 80, we can change it later, but 8501 is "safest" for now.
-            nohup ./venv/bin/streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
-            
-            # 4. Wait a bit
+            # 5. 最後驗證
             sleep 5
-            
-            # 5. Check if it's running
-            if pgrep -f 'streamlit run' > /dev/null; then
-               echo "✅ Startup Successful."
+            if sudo netstat -tulpn | grep :80 > /dev/null; then
+               echo '✅ 部署成功！滾麵報表已在 Port 80 更新上線。'
                exit 0
             else
-               echo "❌ Failed to start. Checking log:"
-               cat streamlit.log
+               echo '❌ 啟動失敗，請檢查 ~/boiling-noodles-dashboard/streamlit.log'
                exit 1
             fi
           "
