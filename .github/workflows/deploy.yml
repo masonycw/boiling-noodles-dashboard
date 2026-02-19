@@ -33,7 +33,9 @@ jobs:
           # Run deployment commands
           ssh "$SSH_USER@$SSH_HOST" "
             # Set deployment directory
-            DEPLOY_DIR='/home/mason_ycw/boiling-noodles-dashboard'
+            # Set deployment directory
+            # Corrected path based on user feedback (was updating wrong dir)
+            DEPLOY_DIR=~/boiling-noodles-dashboard
             
             # Check if directory exists, if not clone
             if [ ! -d \"\$DEPLOY_DIR\" ]; then
