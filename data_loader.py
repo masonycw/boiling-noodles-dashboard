@@ -201,6 +201,15 @@ class UniversalLoader:
         if 'qty' in df.columns:
             df['qty'] = pd.to_numeric(df['qty'], errors='coerce').fillna(0)
             
+        # Filter Item Status (Void/Cancelled items in valid orders)
+        if 'status' in df.columns:
+            # Normalize
+            df['status'] = df['status'].astype(str).str.strip().str.lower()
+            # Defines invalid statuses
+            invalid_statuses = ['已取消', 'cancelled', 'void', '已退菜', '退菜']
+            # Drop rows with invalid status
+            df = df[~df['status'].isin(invalid_statuses)]
+            
         return df
         
     def _clean_invoice(self, df):
