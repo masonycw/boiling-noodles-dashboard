@@ -50,7 +50,10 @@ jobs:
             echo 'Fetching and resetting to latest code...'
             git fetch --all
             git reset --hard origin/main
-
+            
+            # Debug: Verify version update
+            echo "Current Commit: $(git rev-parse HEAD)"
+            echo "Config Version: $(grep 'APP_VERSION' config.py)"
             
             # ---------------------------------------------------------
             # Virtual Environment Setup (Fix for externally-managed-env)
@@ -69,21 +72,17 @@ jobs:
             pip install -r requirements.txt
             
             # ---------------------------------------------------------
-            # Restart Streamlit
-            # ---------------------------------------------------------
-            # ---------------------------------------------------------
             # Restart Streamlit (Green Light Fix)
             # ---------------------------------------------------------
             echo 'Restarting Streamlit...'
             
-            # 1. Kill old process (allow failure if none exists)
-            # Using -u $(whoami) to ensure we only kill our own processes
-            pkill -u $(whoami) -f 'streamlit run' || true
+            # 1. Kill old process (using sudo as requested to ensure kill)
+            sudo pkill -f 'streamlit run' || true
             sleep 2
             
             # 2. Start new process
-            nohup ./venv/bin/streamlit run app.py --server.port=80 --server.address=0.0.0.0 > streamlit.log 2>&1 &
-
+            nohup ./venv/bin/streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
+            
             # 3. Wait and Exit Success
             sleep 5
             echo "Streamlit has been restarted successfully."
