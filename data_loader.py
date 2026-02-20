@@ -165,12 +165,24 @@ class UniversalLoader:
 
     def _clean_report(self, df):
         """Standardizes types for Report data."""
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+            
         if 'order_id' in df.columns:
             df['order_id'] = df['order_id'].astype(str).str.strip()
             df = df[df['order_id'] != 'nan']
-        
-        if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+            
+            # Fix for POS daily reset order numbers (e.g. '111', '121' repeating every day in undefined report)
+            # If date exists, and order_id is short/purely numeric, prefix it with the date to make it unique across days.
+            if 'date' in df.columns:
+                def make_unique_id(row):
+                    oid = str(row['order_id'])
+                    dt = row['date']
+                    if pd.notna(dt) and oid.isdigit() and len(oid) <= 4:
+                        return f"{dt.strftime('%Y%m%d')}-{oid}"
+                    return oid
+                
+                df['order_id'] = df.apply(make_unique_id, axis=1)
         
         if 'total_amount' in df.columns:
             df['total_amount'] = self._to_numeric(df['total_amount'])
@@ -192,9 +204,23 @@ class UniversalLoader:
 
     def _clean_details(self, df):
         """Standardizes types for Details data."""
+        if 'date' in df.columns:
+             df['date'] = pd.to_datetime(df['date'], errors='coerce')
+
         if 'order_id' in df.columns:
             df['order_id'] = df['order_id'].astype(str).str.strip()
             df = df[df['order_id'] != 'nan']
+
+            # Match report composite key logic
+            if 'date' in df.columns:
+                def make_unique_id(row):
+                    oid = str(row['order_id'])
+                    dt = row['date']
+                    if pd.notna(dt) and oid.isdigit() and len(oid) <= 4:
+                        return f"{dt.strftime('%Y%m%d')}-{oid}"
+                    return oid
+                
+                df['order_id'] = df.apply(make_unique_id, axis=1)
 
         if 'item_total' in df.columns:
             df['item_total'] = self._to_numeric(df['item_total'])
