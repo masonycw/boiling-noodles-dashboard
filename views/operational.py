@@ -13,18 +13,9 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     st.title("📊 營運總覽 v2.3.1 (Datetime Fix)")
     
     # --- Local Date Filter ---
-    # Default to This Month if not passed
-    if start_date is None:
-        today = pd.Timestamp.now().date()
-        start_date = pd.Timestamp(today.replace(day=1))
-        end_date = pd.Timestamp(today)
-    
-    c_d1, c_d2 = st.columns([1, 3])
-    with c_d1:
-        date_range = st.date_input("選擇日期區間", [start_date, end_date])
-        if len(date_range) > 0: start_date = pd.to_datetime(date_range[0])
-        if len(date_range) > 1: end_date = pd.to_datetime(date_range[1])
-        else: end_date = start_date
+    from .utils import render_date_filter
+    start_date, end_date = render_date_filter("ops")
+        
         
     st.divider()
 

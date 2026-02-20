@@ -116,18 +116,19 @@ def render_crm_analysis(df_report):
     # Valid Members only
     df = df_report.dropna(subset=[col_id]).copy()
     
-    # Date Filter for Analysis Period
     st.sidebar.markdown("---")
     st.sidebar.subheader("CRM 分析區間")
-    start_date = st.sidebar.date_input("開始日期", pd.Timestamp.now().date() - timedelta(days=30))
-    end_date = st.sidebar.date_input("結束日期", pd.Timestamp.now().date())
-    start_ts = pd.Timestamp(start_date)
-    end_ts = pd.Timestamp(end_date) + timedelta(days=1) - timedelta(seconds=1) # End of day
+    from .utils import render_date_filter
+    with st.sidebar:
+        s_date, e_date = render_date_filter("crm")
+    
+    start_ts = pd.Timestamp(s_date)
+    end_ts = pd.Timestamp(e_date) + timedelta(days=1) - timedelta(seconds=1) # End of day
     
     # 1. Identify "New Customers" in this period
     # Algorithm:
-    # A customer is "New" if their FIRST visit ever is within [start, end].
-    # A customer is "Returning" if they visited in [start, end] AND their first visit was BEFORE start.
+    # A customer is "New" if their FIRST visit ever is within [start_ts, end_ts].
+    # A customer is "Returning" if they visited in [start_ts, end_ts] AND their first visit was BEFORE start_ts.
     
     # Calculate First Visit for ALL members
     member_first_visit = df.groupby(col_id)['Date_Parsed'].min().reset_index()
@@ -154,26 +155,70 @@ def render_crm_analysis(df_report):
     # Stats
     type_counts = active_status['User_Type'].value_counts()
     
+    # Merge back to transactions for revenue
+    period_txs = period_txs.merge(active_status[[col_id, 'User_Type']], on=col_id, how='left')
+    
+    rev_by_type = period_txs.groupby('User_Type').agg(
+        Total_Revenue=('total_amount', 'sum'),
+        Tx_Count=('order_id', 'nunique')
+    ).reset_index()
+    
+    # Metrics Strip
+    total_active = len(active_status)
+    new_active = type_counts.get('新客 (New)', 0)
+    ret_active = type_counts.get('舊客 (Returning)', 0)
+    
+    new_rev = rev_by_type.loc[rev_by_type['User_Type'] == '新客 (New)', 'Total_Revenue'].sum()
+    ret_rev = rev_by_type.loc[rev_by_type['User_Type'] == '舊客 (Returning)', 'Total_Revenue'].sum()
+    
+    new_txs = rev_by_type.loc[rev_by_type['User_Type'] == '新客 (New)', 'Tx_Count'].sum()
+    ret_txs = rev_by_type.loc[rev_by_type['User_Type'] == '舊客 (Returning)', 'Tx_Count'].sum()
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("👥 總活躍會員", f"{total_active:,.0f} 人")
+    m2.metric("🆕 新會員數", f"{new_active:,.0f} 人", f"{new_active/total_active:.1%}" if total_active else "0%")
+    m3.metric("💸 新客營收貢獻", f"${new_rev:,.0f}", f"{new_rev/(new_rev+ret_rev):.1%}" if (new_rev+ret_rev) else "0%")
+    m4.metric("💰 舊客營收貢獻", f"${ret_rev:,.0f}", f"{ret_rev/(new_rev+ret_rev):.1%}" if (new_rev+ret_rev) else "0%")
+    
+    st.divider()
+
     c1, c2 = st.columns(2)
     with c1:
-        st.subheader("👥 客群分佈")
-        fig = px.pie(values=type_counts.values, names=type_counts.index, title="新舊客佔比", hole=0.4)
+        st.subheader("👥 客群人數分佈")
+        fig = px.pie(values=type_counts.values, names=type_counts.index, title="期間來訪人數佔比", hole=0.4)
         st.plotly_chart(fig, use_container_width=True)
         
     with c2:
-        st.subheader("💰 營收貢獻")
-        # Sum revenue by type
-        # Merge back to transactions
-        period_txs = period_txs.merge(active_status[[col_id, 'User_Type']], on=col_id, how='left')
-        rev_by_type = period_txs.groupby('User_Type')['total_amount'].sum().reset_index()
-        fig2 = px.bar(rev_by_type, x='User_Type', y='total_amount', title="新舊客營收貢獻", text='total_amount')
+        st.subheader("💳 平均客單價 (Avg Check by Type)")
+        avg_df = pd.DataFrame([
+            {'User_Type': '新客 (New)', 'Avg_Spend': new_rev / new_txs if new_txs else 0},
+            {'User_Type': '舊客 (Returning)', 'Avg_Spend': ret_rev / ret_txs if ret_txs else 0}
+        ])
+        fig2 = px.bar(avg_df, x='User_Type', y='Avg_Spend', title="平均客單價比較", text_auto='.0f', color='User_Type')
         st.plotly_chart(fig2, use_container_width=True)
         
+    st.divider()
+    
+    # Time Series: New vs Returning over time
+    st.subheader("📈 新舊客每日來店趨勢")
+    
+    period_txs['Date_Only'] = period_txs['Date_Parsed'].dt.date
+    daily_type = period_txs.groupby(['Date_Only', 'User_Type'])['order_id'].nunique().reset_index()
+    daily_type.rename(columns={'order_id': 'Visits'}, inplace=True)
+    
+    fig_time = px.bar(daily_type, x='Date_Only', y='Visits', color='User_Type', title="每日客群來訪數 (交易筆數)", barmode='stack')
+    st.plotly_chart(fig_time, use_container_width=True)
+
     st.divider()
     
     # Retention / Frequency
     st.subheader("📊 期間回訪頻率 (Period Frequency)")
     freq = period_txs.groupby(col_id)['order_id'].count().reset_index()
     freq['Frequency'] = pd.cut(freq['order_id'], bins=[0, 1, 2, 5, 100], labels=['1次', '2次', '3-5次', '6次+'])
-    freq_counts = freq['Frequency'].value_counts().sort_index()
-    st.bar_chart(freq_counts)
+    
+    # Split frequency by User Type to see if new users ever come back twice in the same period
+    freq = freq.merge(active_status[[col_id, 'User_Type']], on=col_id, how='left')
+    freq_summary = freq.groupby(['User_Type', 'Frequency']).size().reset_index(name='Count')
+    
+    fig_freq = px.bar(freq_summary, x='Frequency', y='Count', color='User_Type', barmode='group', title="期間內消費次數分佈")
+    st.plotly_chart(fig_freq, use_container_width=True)

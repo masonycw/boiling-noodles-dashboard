@@ -82,13 +82,9 @@ def main():
         # Better: Add date picker in this block for Sales View.
         
         st.subheader("📅 銷售分析區間")
-        d_range = st.date_input("選擇日期", [date.today().replace(day=1), date.today()], key='sales_date')
-        if len(d_range) == 2:
-            s_date = pd.to_datetime(d_range[0])
-            e_date = pd.to_datetime(d_range[1])
-            sales.render_sales_view(df_details, s_date, e_date)
-        else:
-            st.info("請選擇完整日期區間")
+        from views.utils import render_date_filter
+        s_date, e_date = render_date_filter("sales")
+        sales.render_sales_view(df_details, s_date, e_date)
             
     elif view_mode == "📈 營業額預測":
         prediction.render_prediction_view(df_report)
