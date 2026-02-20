@@ -33,7 +33,7 @@ def render_sales_view(df_details, start_date, end_date):
     df_real['Date_Only'] = df_real['Date_Parsed'].dt.date
 
     # 2. Controls
-    c1, c2, c3 = st.columns([1, 1, 2])
+    c1, c2 = st.columns([1, 2])
     with c1:
         grouping = st.radio("圖表單位", ["天 (Daily)", "週 (Weekly)", "4週 (Monthly)"])
         freq = 'D'
@@ -41,64 +41,54 @@ def render_sales_view(df_details, start_date, end_date):
         elif grouping == "4週 (Monthly)": freq = 'M'
     
     with c2:
-        top_n = st.number_input("顯示前 N 名商品走勢", min_value=1, max_value=20, value=5)
-
-    with c3:
+        # Category Select
+        categories = []
+        if 'category' in df_real.columns:
+            categories = df_real['category'].dropna().unique().tolist()
+        selected_cats = st.multiselect("選擇比較的商品類別 (Category)", options=categories)
+        
         # Multi-select for specific products
-        all_items = df_real['item_name'].dropna().unique().tolist()
-        selected_items = st.multiselect("特定商品篩選 (留空顯示全部)", options=all_items)
-        if selected_items:
-            df_real = df_real[df_real['item_name'].isin(selected_items)]
+        if selected_cats:
+            available_items = df_real[df_real['category'].isin(selected_cats)]['item_name'].dropna().unique().tolist()
+        else:
+            available_items = df_real['item_name'].dropna().unique().tolist()
+        selected_items = st.multiselect("特定商品篩選 (留空顯示該類別全部)", options=available_items)
+
+    # Filter by category and items
+    if selected_cats:
+        df_real = df_real[df_real['category'].isin(selected_cats)]
+    if selected_items:
+        df_real = df_real[df_real['item_name'].isin(selected_items)]
+
+    if df_real.empty:
+        st.warning("篩選後無銷售資料")
+        return
 
     st.divider()
 
-    # 3. Overall Metrics
+    # 3. Overall Metrics (now reflects filtered items)
     total_qty = df_real['qty'].sum()
     total_sales = df_real['item_total'].sum()
     
     m1, m2 = st.columns(2)
     m1.metric("📦 總銷售數量 (Items)", f"{total_qty:,.0f}")
     m2.metric("💰 總銷售額 (Sales)", f"${total_sales:,.0f}")
-    
-    # 4. Top Products Ranking (Overall period)
-    st.subheader("🏆 熱銷商品排行榜 (Top Items)")
-    top_items = df_real.groupby('item_name').agg({'qty': 'sum', 'item_total': 'sum'}).reset_index()
-    top_items = top_items.sort_values('qty', ascending=False)
-    
-    col_chart, col_pie = st.columns([2, 1])
-    with col_chart:
-        fig_bar = px.bar(top_items.head(15), x='qty', y='item_name', orientation='h', title="Top 15 熱銷數量", text='qty')
-        fig_bar.update_layout(yaxis={'categoryorder':'total ascending'})
-        st.plotly_chart(fig_bar, use_container_width=True)
-    with col_pie:
-        if 'category' in df_real.columns and df_real['category'].notna().any():
-            cat_sales = df_real.groupby('category')['qty'].sum().reset_index()
-            fig_pie = px.pie(cat_sales, values='qty', names='category', title="商品類別銷量佔比", hole=0.4)
-            st.plotly_chart(fig_pie, use_container_width=True)
 
     st.divider()
 
-    # 5. Time Series Trend
+    # 4. Time Series Trend
     st.subheader(f"📈 歷史走勢 ({grouping})")
     
-    # Identify top N items to feature individually, group others
-    if not selected_items:
-        top_n_names = top_items.head(top_n)['item_name'].tolist()
-        df_real['item_group'] = np.where(df_real['item_name'].isin(top_n_names), df_real['item_name'], '其他 (Others)')
-    else:
-        df_real['item_group'] = df_real['item_name']
-
-    # Resample by date & item_group
-    # Need to set Date_Parsed as datetime64 index for resample to work
+    # Resample by date & item_name
     df_real['Date_Parsed'] = pd.to_datetime(df_real['Date_Parsed'])
-    trend_df = df_real.set_index('Date_Parsed').groupby('item_group').resample(freq)['qty'].sum().reset_index()
+    trend_df = df_real.set_index('Date_Parsed').groupby('item_name').resample(freq)['qty'].sum().reset_index()
 
-    fig_line = px.line(trend_df, x='Date_Parsed', y='qty', color='item_group', markers=True, title="商品銷售趨勢")
+    fig_line = px.line(trend_df, x='Date_Parsed', y='qty', color='item_name', markers=True, title="商品銷售趨勢")
     st.plotly_chart(fig_line, use_container_width=True)
 
     st.divider()
 
-    # 6. Detailed Data Pivot Table
+    # 5. Detailed Data Pivot Table
     st.subheader("📋 期間商品銷售矩陣 (Sales Matrix)")
     
     # Resample everything strictly to frequency to create columns
@@ -115,8 +105,14 @@ def render_sales_view(df_details, start_date, end_date):
     pivot_table['Total'] = pivot_table.sum(axis=1)
     pivot_table = pivot_table.sort_values('Total', ascending=False)
     
-    # Add Item Total Sales / Avg Price from overall period
-    info = df_real.groupby('item_name').agg({'item_total': 'sum', 'unit_price': 'mean'}).rename(columns={'item_total': '總銷售額', 'unit_price': '平均單價'})
+    # Fix unit_price KeyError by recalculating from totals
+    info = df_real.groupby('item_name').agg(
+        總銷售額=('item_total', 'sum'),
+        QTY=('qty', 'sum')
+    )
+    info['平均單價'] = (info['總銷售額'] / info['QTY'].replace(0, 1)).round(0)
+    info = info.drop(columns=['QTY'])
+    
     pivot_table = pivot_table.join(info)
 
     # Reorder columns slightly to put Info at front, then date columns, then Total

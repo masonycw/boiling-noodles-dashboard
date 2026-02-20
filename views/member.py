@@ -108,6 +108,13 @@ def render_member_search(df_report, df_details):
 def render_crm_analysis(df_report):
     st.title("🆕 新舊客分析 (New vs Returning)")
     
+    with st.expander("ℹ️ 新客與舊客定義說明"):
+        st.markdown("""
+        * **新客 (New)**：在您選擇的區間內，該會員發生了「歷史以來的第 1 次」消費。
+        * **舊客 (Returning)**：在您選擇的區間內有消費，但他的「歷史第 1 次」消費發生在這個區間之前。
+        * *(本分析只會將這段時間有買過東西的活躍會員進行拆解。)*
+        """)
+    
     col_id = 'Member_ID'
     if col_id not in df_report.columns:
         st.error("缺少 Member_ID，無法進行分析")
@@ -222,3 +229,55 @@ def render_crm_analysis(df_report):
     
     fig_freq = px.bar(freq_summary, x='Frequency', y='Count', color='User_Type', barmode='group', title="期間內消費次數分佈")
     st.plotly_chart(fig_freq, use_container_width=True)
+
+    st.divider()
+    
+    # RFM Analysis
+    st.subheader("🎯 RFM 會員價值分析 (全歷史資料)")
+    st.caption("基於系統內截至目前的歷史交易資料，計算活躍會員的 R (最近一次消費)、F (消費頻率)、M (累積消費總額)。")
+    
+    # RFM uses data up to end_ts
+    historical_txs = df[df['Date_Parsed'] <= end_ts].copy()
+    
+    if not historical_txs.empty:
+        # Calculate R, F, M
+        last_date = historical_txs['Date_Parsed'].max()
+        rfm = historical_txs.groupby(col_id).agg(
+            Last_Purchase=('Date_Parsed', 'max'),
+            Frequency=('order_id', 'nunique'),
+            Monetary=('total_amount', 'sum')
+        ).reset_index()
+        
+        # Calculate Recency in days
+        rfm['Recency'] = (last_date - rfm['Last_Purchase']).dt.days
+        
+        # Simple Segmentation based on Frequency & Recency
+        def segment_rfm(row):
+            if row['Frequency'] >= 5 and row['Recency'] <= 30:
+                return "🌟 VVIP (高頻活躍)"
+            elif row['Frequency'] >= 2 and row['Recency'] <= 60:
+                return "⭐ 忠誠客 (穩定回訪)"
+            elif row['Frequency'] == 1 and row['Recency'] <= 30:
+                return "👋 近期新客"
+            elif row['Frequency'] >= 2 and row['Recency'] > 60:
+                return "💤 沉睡客 (曾回訪但很久沒來)"
+            else:
+                return "📉 流失單次客 (只來一次且很久沒來)"
+                
+        rfm['Segment'] = rfm.apply(segment_rfm, axis=1)
+        
+        seg_counts = rfm['Segment'].value_counts().reset_index()
+        seg_counts.columns = ['會員價值分群', '人數']
+        
+        # Avg M per segment
+        seg_m = rfm.groupby('Segment')['Monetary'].mean().reset_index()
+        seg_counts = seg_counts.merge(seg_m, left_on='會員價值分群', right_on='Segment')
+        
+        col_rfm1, col_rfm2 = st.columns([1, 1])
+        with col_rfm1:
+            fig_rfm = px.pie(seg_counts, names='會員價值分群', values='人數', title=" RFM 會員分群佔比", hole=0.3)
+            st.plotly_chart(fig_rfm, use_container_width=True)
+            
+        with col_rfm2:
+            fig_rfm2 = px.bar(seg_counts, x='會員價值分群', y='Monetary', title="各群體平均終身貢獻 (LTV)", text_auto='.0f')
+            st.plotly_chart(fig_rfm2, use_container_width=True)
