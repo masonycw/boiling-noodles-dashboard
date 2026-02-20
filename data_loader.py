@@ -135,6 +135,8 @@ class UniversalLoader:
         
         if new_cols:
             df.rename(columns=new_cols, inplace=True)
+            # Remove duplicated columns (keep first) to prevent DataFrame string accessor errors
+            df = df.loc[:, ~df.columns.duplicated()].copy()
         return df
 
     def _is_report(self, df):
@@ -248,7 +250,10 @@ class UniversalLoader:
         # 2. Consolidate Type 1 (Report - Master)
         if self.report_data:
             final_report = pd.concat(self.report_data, ignore_index=True)
-            final_report.drop_duplicates(inplace=True)
+            if 'order_id' in final_report.columns:
+                final_report.drop_duplicates(subset=['order_id'], keep='last', inplace=True)
+            else:
+                final_report.drop_duplicates(inplace=True)
             self.log(f"Initial REPORT Rows: {len(final_report)}")
             
             # --- JOIN STRATEGY: Enrich Report with Invoice Info ---
@@ -279,7 +284,8 @@ class UniversalLoader:
         # 3. Consolidate Type 3 (Details)
         if self.details_data:
             final_details = pd.concat(self.details_data, ignore_index=True)
-            final_details.drop_duplicates(inplace=True)
+            # DO NOT drop_duplicates on details! Valid receipts can have identical item lines 
+            # (e.g., ordering the same dish twice but POS outputs two lines).
             
             # Filter Details: Only keep details for valid Report Orders (Completed)
             if not final_report.empty and 'order_id' in final_report.columns and 'order_id' in final_details.columns:
