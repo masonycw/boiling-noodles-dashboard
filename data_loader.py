@@ -429,8 +429,8 @@ class UniversalLoader:
                 df_details['category'] = sku_series.apply(get_sku_category)
                 
                 # Is_Main_Dish Definition
-                # Rule: SKU starts with A, B, or S
-                cond_sku_match = sku_series.str.startswith(('A', 'B', 'S'))
+                # Rule: SKU starts with A or B (Combos 'S' are not main dishes themselves to avoid double counting)
+                cond_sku_match = sku_series.str.startswith(('A', 'B'))
                 
                 # Fallback if no SKU (legacy data support): contains 麵 or 飯 but is not a combo item
                 name_series = df_details['item_name'].fillna('').astype(str)

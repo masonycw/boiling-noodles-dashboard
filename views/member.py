@@ -148,6 +148,8 @@ def render_crm_analysis(df_report, df_details):
     # Map back to period transactions to determine type
     period_txs = period_txs.merge(member_first_visit, on=col_id, how='left')
     
+    period_txs['Date_Only'] = period_txs['Date_Parsed'].dt.date
+    
     def determine_type(row):
         if row[col_id] == '非會員':
             return '非會員 (Non-member)'
@@ -160,12 +162,21 @@ def render_crm_analysis(df_report, df_details):
         
     period_txs['User_Type'] = period_txs.apply(determine_type, axis=1)
     
+    # Create Visit_ID to deduplicate same-day member visits
+    def get_visit_id(row):
+        if row['User_Type'] == '非會員 (Non-member)':
+            return str(row['order_id'])
+        else:
+            return f"{row[col_id]}_{row['Date_Only']}"
+            
+    period_txs['Visit_ID'] = period_txs.apply(get_visit_id, axis=1)
+    
     # Stats
-    type_counts = period_txs.groupby('User_Type')['order_id'].nunique()
+    type_counts = period_txs.groupby('User_Type')['Visit_ID'].nunique()
     
     rev_by_type = period_txs.groupby('User_Type').agg(
         Total_Revenue=('total_amount', 'sum'),
-        Tx_Count=('order_id', 'nunique')
+        Tx_Count=('Visit_ID', 'nunique')
     ).reset_index()
     
     # Map safely
@@ -182,13 +193,14 @@ def render_crm_analysis(df_report, df_details):
     non_txs = get_stat(rev_by_type, '非會員 (Non-member)', 'Tx_Count')
     
     total_rev = period_txs['total_amount'].sum()
-    total_txs = period_txs['order_id'].nunique()
+    total_txs = period_txs['Visit_ID'].nunique()
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("👥 總交易筆數", f"{total_txs:,.0f} 筆")
+    m1.metric("👥 總來店客組 (Visit_ID)", f"{total_txs:,.0f} 組")
     m2.metric("🆕 新客營收佔比", f"${new_rev:,.0f}", f"{new_rev/total_rev:.1%}" if total_rev else "0%")
     m3.metric("🤝 舊客營收佔比", f"${ret_rev:,.0f}", f"{ret_rev/total_rev:.1%}" if total_rev else "0%")
     m4.metric("❓ 非會員營收佔比", f"${non_rev:,.0f}", f"{non_rev/total_rev:.1%}" if total_rev else "0%")
+    
     total_active = new_txs + ret_txs # Approximation or actual if 1 tx per member average? No, let's use actual:
     member_txs = period_txs[period_txs['User_Type'] != '非會員 (Non-member)']
     total_active = member_txs[col_id].nunique() if not member_txs.empty else 0
@@ -205,7 +217,7 @@ def render_crm_analysis(df_report, df_details):
 
     c1, c2 = st.columns(2)
     with c1:
-        st.subheader("👥 客群人數/筆數分佈")
+        st.subheader("👥 客群筆數分佈 (同日同名為一筆)")
         fig = px.pie(values=type_counts.values, names=type_counts.index, title="期間來訪佔比 (含非會員)", hole=0.4)
         st.plotly_chart(fig, use_container_width=True)
         
@@ -257,11 +269,10 @@ def render_crm_analysis(df_report, df_details):
     # Time Series: New vs Returning over time
     st.subheader("📈 日常客群來店趨勢")
     
-    period_txs['Date_Only'] = period_txs['Date_Parsed'].dt.date
-    daily_type = period_txs.groupby(['Date_Only', 'User_Type'])['order_id'].nunique().reset_index()
-    daily_type.rename(columns={'order_id': 'Visits'}, inplace=True)
+    daily_type = period_txs.groupby(['Date_Only', 'User_Type'])['Visit_ID'].nunique().reset_index()
+    daily_type.rename(columns={'Visit_ID': 'Visits'}, inplace=True)
     
-    fig_time = px.bar(daily_type, x='Date_Only', y='Visits', color='User_Type', title="每日客群來訪數 (交易筆數)", barmode='stack')
+    fig_time = px.bar(daily_type, x='Date_Only', y='Visits', color='User_Type', title="每日客群來訪數 (同日視為 1 筆)", barmode='stack')
     st.plotly_chart(fig_time, use_container_width=True)
 
     st.divider()
@@ -269,8 +280,8 @@ def render_crm_analysis(df_report, df_details):
     # Retention / Frequency
     st.subheader("📊 期間回訪頻率 (僅限會員)")
     member_only_txs = period_txs[period_txs['User_Type'] != '非會員 (Non-member)']
-    freq = member_only_txs.groupby(col_id)['order_id'].nunique().reset_index()
-    freq['Frequency'] = pd.cut(freq['order_id'], bins=[0, 1, 2, 5, 100], labels=['1次', '2次', '3-5次', '6次+'])
+    freq = member_only_txs.groupby(col_id)['Visit_ID'].nunique().reset_index()
+    freq['Frequency'] = pd.cut(freq['Visit_ID'], bins=[0, 1, 2, 5, 100], labels=['1次', '2次', '3-5次', '6次+'])
     
     # Split frequency by User Type to see if new users ever come back twice in the same period
     user_type_map = member_only_txs[[col_id, 'User_Type']].drop_duplicates()
