@@ -42,7 +42,7 @@ COLUMN_MAPPING = {
 
     # Details Columns
     'item_name': ['Item Name', '商品名稱', 'Product Name'],
-    'category': ['Category', '商品類別', 'Product Category'],
+    'category': ['Category', '商品類別', 'Product Category', 'Product Type'],
     'qty': ['Item Quantity', '數量', 'Qty', 'Quantity'],
     'unit_price': ['Unit Price', '單價', 'Price'],
     'item_total': ['Item Total', '小計', 'Subtotal', 'Item Amount(TWD)'],

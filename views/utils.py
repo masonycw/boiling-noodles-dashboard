@@ -26,6 +26,15 @@ def get_date_range_shortcut(shortcut_name):
     elif shortcut_name == "近6個月 (Last 6 Months)":
         end = today
         start = end - relativedelta(months=6)
+    elif "年" in shortcut_name and "月" in shortcut_name:
+        # e.g., "2026年01月"
+        try:
+            year = int(shortcut_name[:4])
+            month = int(shortcut_name[5:7])
+            start = date(year, month, 1)
+            end = start + relativedelta(months=1) - timedelta(days=1)
+        except ValueError:
+            return None, None
     else: # 自訂 (Custom)
         return None, None
         
@@ -34,46 +43,43 @@ def get_date_range_shortcut(shortcut_name):
 def render_date_filter(key_prefix):
     """Renders a date filter with shortcuts and returns (start_date, end_date) as datetime objects."""
     
-    start_key = f"{key_prefix}_start"
-    end_key = f"{key_prefix}_end"
-    
-    if start_key not in st.session_state:
-        today = date.today()
-        st.session_state[start_key] = today.replace(day=1)
-        st.session_state[end_key] = today
+    # Generate past 6 months dynamically (e.g. 2026年01月)
+    today = date.today()
+    past_months = []
+    for i in range(1, 7):
+        target_month = today.replace(day=1) - relativedelta(months=i)
+        past_months.append(target_month.strftime("%Y年%m月"))
 
-    def set_shortcut(shortcut):
-        s, e = get_date_range_shortcut(shortcut)
-        if s and e:
-            st.session_state[start_key] = s
-            st.session_state[end_key] = e
-            
     shortcuts = [
+        "自訂 (Custom)", 
         "這個月 (This Month)", 
         "上個月 (Last Month)", 
         "近4週 (Last 4 Weeks)", 
         "近2個月 (Last 2 Months)", 
         "近6個月 (Last 6 Months)"
-    ]
+    ] + past_months
     
-    d_range = st.date_input(
-        "選擇日期區間", 
-        value=(st.session_state[start_key], st.session_state[end_key]), 
-        key=f"{key_prefix}_date_input"
-    )
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        shortcut = st.selectbox("📅 快速選擇區間", shortcuts, key=f"{key_prefix}_shortcut")
     
-    if len(d_range) == 2:
-        st.session_state[start_key] = d_range[0]
-        st.session_state[end_key] = d_range[1]
-    elif len(d_range) == 1:
-        st.session_state[start_key] = d_range[0]
-        st.session_state[end_key] = d_range[0]
-        
-    st.caption("快速選擇區間")
-    cols = st.columns(len(shortcuts))
-    for i, sc in enumerate(shortcuts):
-        label = sc.split(" ")[0]
-        cols[i].button(label, on_click=set_shortcut, args=(sc,), key=f"{key_prefix}_btn_{i}")
-        
-    return pd.to_datetime(st.session_state[start_key]), pd.to_datetime(st.session_state[end_key])
+    start_shortcut, end_shortcut = get_date_range_shortcut(shortcut)
+    
+    with col2:
+        if start_shortcut and end_shortcut:
+            # Use shortcut dates, show them disabled
+            d_range = st.date_input("選擇日期", value=(start_shortcut, end_shortcut), key=f"{key_prefix}_date_disabled", disabled=True)
+            s_date, e_date = start_shortcut, end_shortcut
+        else:
+            # Custom date input
+            default_val = (today.replace(day=1), today)
+            d_range = st.date_input("選擇日期", value=default_val, key=f"{key_prefix}_date_custom")
+            if len(d_range) == 2:
+                s_date, e_date = d_range[0], d_range[1]
+            elif len(d_range) == 1:
+                s_date, e_date = d_range[0], d_range[0]
+            else:
+                s_date, e_date = today, today
+                
+    return pd.to_datetime(s_date), pd.to_datetime(e_date)
 

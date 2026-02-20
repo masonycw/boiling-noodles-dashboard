@@ -123,11 +123,10 @@ def render_crm_analysis(df_report):
     # Valid Members only
     df = df_report.dropna(subset=[col_id]).copy()
     
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("CRM 分析區間")
+    st.divider()
+    st.subheader("🗓️ CRM 分析區間")
     from .utils import render_date_filter
-    with st.sidebar:
-        s_date, e_date = render_date_filter("crm")
+    s_date, e_date = render_date_filter("crm")
     
     start_ts = pd.Timestamp(s_date)
     end_ts = pd.Timestamp(e_date) + timedelta(days=1) - timedelta(seconds=1) # End of day
