@@ -92,21 +92,21 @@ def render_sales_view(df_details, start_date, end_date):
     st.subheader("📋 期間商品銷售矩陣 (Sales Matrix)")
     
     # Resample everything strictly to frequency to create columns
-    # Include 'category' in the grouping to keep it after resampling
-    df_pivot_prep = df_real.set_index('Date_Parsed').groupby(['category', 'item_name']).resample(freq)['qty'].sum().reset_index()
+    # Include 'category' and 'sku' in the grouping to keep it after resampling
+    df_pivot_prep = df_real.set_index('Date_Parsed').groupby(['category', 'sku', 'item_name']).resample(freq)['qty'].sum().reset_index()
     
     if freq == 'D':
         df_pivot_prep['PeriodLabel'] = df_pivot_prep['Date_Parsed'].dt.strftime('%m-%d')
     else:
         df_pivot_prep['PeriodLabel'] = df_pivot_prep['Date_Parsed'].dt.strftime('%m-%d')
         
-    pivot_table = pd.pivot_table(df_pivot_prep, values='qty', index=['category', 'item_name'], columns='PeriodLabel', fill_value=0)
+    pivot_table = pd.pivot_table(df_pivot_prep, values='qty', index=['category', 'sku', 'item_name'], columns='PeriodLabel', fill_value=0)
     
     # Add Total Column
     pivot_table['Total'] = pivot_table.sum(axis=1)
     
-    # Sort first by Category, then by Total descending
-    pivot_table = pivot_table.sort_values(by=['category', 'Total'], ascending=[True, False]).reset_index()
+    # Sort first by SKU (alphanumeric ascending), then by Total descending if SKUs duplicate
+    pivot_table = pivot_table.sort_values(by=['sku', 'Total'], ascending=[True, False]).reset_index()
     pivot_table = pivot_table.set_index('item_name') # Remove default range index
     
     # Fix unit_price KeyError by recalculating from totals
@@ -120,11 +120,11 @@ def render_sales_view(df_details, start_date, end_date):
     pivot_table = pivot_table.join(info)
 
     # Clean up display columns
-    pivot_table = pivot_table.rename(columns={'category': '商品類別'})
+    pivot_table = pivot_table.rename(columns={'category': '商品類別', 'sku': 'SKU'})
 
-    # Reorder columns slightly to put Category, Info at front, then date columns, then Total
-    date_cols = [c for c in pivot_table.columns if c not in ['Total', '總銷售額', '平均單價', '商品類別']]
-    final_cols = ['商品類別', '平均單價', '總銷售額'] + date_cols + ['Total']
+    # Reorder columns slightly to put Category, SKU, Info at front, then date columns, then Total
+    date_cols = [c for c in pivot_table.columns if c not in ['Total', '總銷售額', '平均單價', '商品類別', 'SKU']]
+    final_cols = ['商品類別', 'SKU', '平均單價', '總銷售額'] + date_cols + ['Total']
 
     # Set up column formatting mapping
     format_mapping = {'平均單價': '${:,.0f}', '總銷售額': '${:,.0f}'}

@@ -105,23 +105,23 @@ def render_member_search(df_report, df_details):
         else:
             st.warning("查無資料")
 
-def render_crm_analysis(df_report):
+def render_crm_analysis(df_report, df_details):
     st.title("🆕 新舊客分析 (New vs Returning)")
     
-    with st.expander("ℹ️ 新客與舊客定義說明"):
+    with st.expander("ℹ️ 新舊客與非會員定義說明"):
         st.markdown("""
         * **新客 (New)**：在您選擇的區間內，該會員發生了「歷史以來的第 1 次」消費。
         * **舊客 (Returning)**：在您選擇的區間內有消費，但他的「歷史第 1 次」消費發生在這個區間之前。
-        * *(本分析只會將這段時間有買過東西的活躍會員進行拆解。)*
+        * **非會員 (Non-member)**：本次交易未綁定會員電話或載具。
         """)
     
     col_id = 'Member_ID'
     if col_id not in df_report.columns:
-        st.error("缺少 Member_ID，無法進行分析")
-        return
+        df_report[col_id] = None
         
-    # Valid Members only
-    df = df_report.dropna(subset=[col_id]).copy()
+    df = df_report.copy()
+    # Treat NaN as non-member
+    df[col_id] = df[col_id].fillna('非會員')
     
     st.divider()
     st.subheader("🗓️ CRM 分析區間")
@@ -131,57 +131,72 @@ def render_crm_analysis(df_report):
     start_ts = pd.Timestamp(s_date)
     end_ts = pd.Timestamp(e_date) + timedelta(days=1) - timedelta(seconds=1) # End of day
     
-    # 1. Identify "New Customers" in this period
-    # Algorithm:
-    # A customer is "New" if their FIRST visit ever is within [start_ts, end_ts].
-    # A customer is "Returning" if they visited in [start_ts, end_ts] AND their first visit was BEFORE start_ts.
-    
-    # Calculate First Visit for ALL members
-    member_first_visit = df.groupby(col_id)['Date_Parsed'].min().reset_index()
-    member_first_visit.columns = [col_id, 'First_Visit_Date']
-    
-    # Filter transactions within period
     period_txs = df[(df['Date_Parsed'] >= start_ts) & (df['Date_Parsed'] <= end_ts)].copy()
     
     if period_txs.empty:
         st.warning("此區間無交易資料")
         return
         
-    # Get active members in period
-    active_mids = period_txs[col_id].unique()
+    # Process Members
+    member_mask = df[col_id] != '非會員'
+    df_members = df[member_mask]
     
-    # Join with First Visit
-    active_status = member_first_visit[member_first_visit[col_id].isin(active_mids)].copy()
+    # Calculate First Visit for ALL valid members
+    member_first_visit = df_members.groupby(col_id)['Date_Parsed'].min().reset_index()
+    member_first_visit.columns = [col_id, 'First_Visit_Date']
     
-    # Determine Type
-    active_status['User_Type'] = active_status['First_Visit_Date'].apply(
-        lambda x: '新客 (New)' if x >= start_ts else '舊客 (Returning)'
-    )
+    # Map back to period transactions to determine type
+    period_txs = period_txs.merge(member_first_visit, on=col_id, how='left')
+    
+    def determine_type(row):
+        if row[col_id] == '非會員':
+            return '非會員 (Non-member)'
+        if pd.isna(row['First_Visit_Date']):
+            # Should not happen given we only merge members that exist, but failsafe
+            return '非會員 (Non-member)'
+        if row['First_Visit_Date'] >= start_ts:
+            return '新客 (New)'
+        return '舊客 (Returning)'
+        
+    period_txs['User_Type'] = period_txs.apply(determine_type, axis=1)
     
     # Stats
-    type_counts = active_status['User_Type'].value_counts()
-    
-    # Merge back to transactions for revenue
-    period_txs = period_txs.merge(active_status[[col_id, 'User_Type']], on=col_id, how='left')
+    type_counts = period_txs.groupby('User_Type')['order_id'].nunique()
     
     rev_by_type = period_txs.groupby('User_Type').agg(
         Total_Revenue=('total_amount', 'sum'),
         Tx_Count=('order_id', 'nunique')
     ).reset_index()
     
-    # Metrics Strip
-    total_active = len(active_status)
-    new_active = type_counts.get('新客 (New)', 0)
-    ret_active = type_counts.get('舊客 (Returning)', 0)
+    # Map safely
+    def get_stat(df, c, v):
+        res = df.loc[df['User_Type'] == c, v]
+        return res.values[0] if not res.empty else 0
+        
+    new_rev = get_stat(rev_by_type, '新客 (New)', 'Total_Revenue')
+    ret_rev = get_stat(rev_by_type, '舊客 (Returning)', 'Total_Revenue')
+    non_rev = get_stat(rev_by_type, '非會員 (Non-member)', 'Total_Revenue')
     
-    new_rev = rev_by_type.loc[rev_by_type['User_Type'] == '新客 (New)', 'Total_Revenue'].sum()
-    ret_rev = rev_by_type.loc[rev_by_type['User_Type'] == '舊客 (Returning)', 'Total_Revenue'].sum()
+    new_txs = get_stat(rev_by_type, '新客 (New)', 'Tx_Count')
+    ret_txs = get_stat(rev_by_type, '舊客 (Returning)', 'Tx_Count')
+    non_txs = get_stat(rev_by_type, '非會員 (Non-member)', 'Tx_Count')
     
-    new_txs = rev_by_type.loc[rev_by_type['User_Type'] == '新客 (New)', 'Tx_Count'].sum()
-    ret_txs = rev_by_type.loc[rev_by_type['User_Type'] == '舊客 (Returning)', 'Tx_Count'].sum()
+    total_rev = period_txs['total_amount'].sum()
+    total_txs = period_txs['order_id'].nunique()
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("👥 總活躍會員", f"{total_active:,.0f} 人")
+    m1.metric("👥 總交易筆數", f"{total_txs:,.0f} 筆")
+    m2.metric("🆕 新客營收佔比", f"${new_rev:,.0f}", f"{new_rev/total_rev:.1%}" if total_rev else "0%")
+    m3.metric("🤝 舊客營收佔比", f"${ret_rev:,.0f}", f"{ret_rev/total_rev:.1%}" if total_rev else "0%")
+    m4.metric("❓ 非會員營收佔比", f"${non_rev:,.0f}", f"{non_rev/total_rev:.1%}" if total_rev else "0%")
+    total_active = new_txs + ret_txs # Approximation or actual if 1 tx per member average? No, let's use actual:
+    member_txs = period_txs[period_txs['User_Type'] != '非會員 (Non-member)']
+    total_active = member_txs[col_id].nunique() if not member_txs.empty else 0
+    new_active = type_counts.get('新客 (New)', 0)
+    ret_active = type_counts.get('舊客 (Returning)', 0)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("👤 總活躍會員", f"{total_active:,.0f} 人")
     m2.metric("🆕 新會員數", f"{new_active:,.0f} 人", f"{new_active/total_active:.1%}" if total_active else "0%")
     m3.metric("💸 新客營收貢獻", f"${new_rev:,.0f}", f"{new_rev/(new_rev+ret_rev):.1%}" if (new_rev+ret_rev) else "0%")
     m4.metric("💰 舊客營收貢獻", f"${ret_rev:,.0f}", f"{ret_rev/(new_rev+ret_rev):.1%}" if (new_rev+ret_rev) else "0%")
@@ -190,23 +205,57 @@ def render_crm_analysis(df_report):
 
     c1, c2 = st.columns(2)
     with c1:
-        st.subheader("👥 客群人數分佈")
-        fig = px.pie(values=type_counts.values, names=type_counts.index, title="期間來訪人數佔比", hole=0.4)
+        st.subheader("👥 客群人數/筆數分佈")
+        fig = px.pie(values=type_counts.values, names=type_counts.index, title="期間來訪佔比 (含非會員)", hole=0.4)
         st.plotly_chart(fig, use_container_width=True)
         
     with c2:
         st.subheader("💳 平均客單價 (Avg Check by Type)")
         avg_df = pd.DataFrame([
             {'User_Type': '新客 (New)', 'Avg_Spend': new_rev / new_txs if new_txs else 0},
-            {'User_Type': '舊客 (Returning)', 'Avg_Spend': ret_rev / ret_txs if ret_txs else 0}
+            {'User_Type': '舊客 (Returning)', 'Avg_Spend': ret_rev / ret_txs if ret_txs else 0},
+            {'User_Type': '非會員 (Non-member)', 'Avg_Spend': non_rev / non_txs if non_txs else 0}
         ])
         fig2 = px.bar(avg_df, x='User_Type', y='Avg_Spend', title="平均客單價比較", text_auto='.0f', color='User_Type')
         st.plotly_chart(fig2, use_container_width=True)
         
     st.divider()
     
+    # Popular Items Section
+    st.subheader("🏆 各類客群熱門餐點分析")
+    st.caption("依據主食銷量排序 (顯示 Top 5)")
+    
+    # Merge User_Type into details
+    if not df_details.empty and not period_txs.empty:
+        # Get mapping of order_id to User_Type
+        order_type_map = period_txs[['order_id', 'User_Type']].drop_duplicates()
+        curr_details = df_details[
+            (df_details['Date_Parsed'] >= start_ts) & 
+            (df_details['Date_Parsed'] <= end_ts) & 
+            (df_details['Is_Main_Dish'] == True)
+        ].merge(order_type_map, on='order_id', how='inner')
+        
+        if not curr_details.empty:
+            types_to_show = ['新客 (New)', '舊客 (Returning)', '非會員 (Non-member)']
+            cols = st.columns(3)
+            
+            for i, u_type in enumerate(types_to_show):
+                with cols[i]:
+                    st.markdown(f"**{u_type}**")
+                    df_u = curr_details[curr_details['User_Type'] == u_type]
+                    if not df_u.empty:
+                        top_items = df_u.groupby('item_name')['qty'].sum().reset_index().sort_values('qty', ascending=False).head(5)
+                        # Minimalist bar chart
+                        st.dataframe(top_items.rename(columns={'item_name': '餐點', 'qty': '數量'}).set_index('餐點'), use_container_width=True)
+                    else:
+                        st.caption("無資料")
+    else:
+        st.info("無法載入明細資料進行熱門商品分析。")
+        
+    st.divider()
+    
     # Time Series: New vs Returning over time
-    st.subheader("📈 新舊客每日來店趨勢")
+    st.subheader("📈 日常客群來店趨勢")
     
     period_txs['Date_Only'] = period_txs['Date_Parsed'].dt.date
     daily_type = period_txs.groupby(['Date_Only', 'User_Type'])['order_id'].nunique().reset_index()
@@ -218,12 +267,14 @@ def render_crm_analysis(df_report):
     st.divider()
     
     # Retention / Frequency
-    st.subheader("📊 期間回訪頻率 (Period Frequency)")
-    freq = period_txs.groupby(col_id)['order_id'].count().reset_index()
+    st.subheader("📊 期間回訪頻率 (僅限會員)")
+    member_only_txs = period_txs[period_txs['User_Type'] != '非會員 (Non-member)']
+    freq = member_only_txs.groupby(col_id)['order_id'].nunique().reset_index()
     freq['Frequency'] = pd.cut(freq['order_id'], bins=[0, 1, 2, 5, 100], labels=['1次', '2次', '3-5次', '6次+'])
     
     # Split frequency by User Type to see if new users ever come back twice in the same period
-    freq = freq.merge(active_status[[col_id, 'User_Type']], on=col_id, how='left')
+    user_type_map = member_only_txs[[col_id, 'User_Type']].drop_duplicates()
+    freq = freq.merge(user_type_map, on=col_id, how='left')
     freq_summary = freq.groupby(['User_Type', 'Frequency']).size().reset_index(name='Count')
     
     fig_freq = px.bar(freq_summary, x='Frequency', y='Count', color='User_Type', barmode='group', title="期間內消費次數分佈")
@@ -235,8 +286,8 @@ def render_crm_analysis(df_report):
     st.subheader("🎯 RFM 會員價值分析 (全歷史資料)")
     st.caption("基於系統內截至目前的歷史交易資料，計算活躍會員的 R (最近一次消費)、F (消費頻率)、M (累積消費總額)。")
     
-    # RFM uses data up to end_ts
-    historical_txs = df[df['Date_Parsed'] <= end_ts].copy()
+    # RFM uses data up to end_ts, EXCLUDING non-members
+    historical_txs = df[(df['Date_Parsed'] <= end_ts) & (df[col_id] != '非會員')].copy()
     
     if not historical_txs.empty:
         # Calculate R, F, M

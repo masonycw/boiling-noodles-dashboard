@@ -93,7 +93,7 @@ def main():
         member.render_member_search(df_report, df_details)
         
     elif view_mode == "🆕 新舊客分析":
-        member.render_crm_analysis(df_report)
+        member.render_crm_analysis(df_report, df_details)
         
     elif view_mode == "🔧 系統檢查":
         system.render_system_check(debug_logs, df_report, df_details)
