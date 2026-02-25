@@ -81,5 +81,5 @@ def render_date_filter(key_prefix):
             else:
                 s_date, e_date = today, today
                 
-    return pd.to_datetime(s_date), pd.to_datetime(e_date)
+    return pd.to_datetime(s_date), pd.to_datetime(e_date) + pd.Timedelta(days=1, seconds=-1)
 
