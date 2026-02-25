@@ -129,7 +129,7 @@ def render_crm_analysis(df_report, df_details):
     s_date, e_date = render_date_filter("crm")
     
     start_ts = pd.Timestamp(s_date)
-    end_ts = pd.Timestamp(e_date) + timedelta(days=1) - timedelta(seconds=1) # End of day
+    end_ts = pd.Timestamp(e_date)
     
     period_txs = df[(df['Date_Parsed'] >= start_ts) & (df['Date_Parsed'] <= end_ts)].copy()
     
