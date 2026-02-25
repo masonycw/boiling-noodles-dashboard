@@ -179,7 +179,8 @@ class UniversalLoader:
                     oid = str(row['order_id'])
                     dt = row['date']
                     if pd.notna(dt) and oid.isdigit() and len(oid) <= 4:
-                        return f"{dt.strftime('%Y%m%d')}-{oid}"
+                        # Append hour and minute to prevent collision on same day (e.g., POS mid-day reset)
+                        return f"{dt.strftime('%Y%m%d')}-{oid}-{dt.strftime('%H%M')}"
                     return oid
                 
                 df['order_id'] = df.apply(make_unique_id, axis=1)
@@ -217,7 +218,8 @@ class UniversalLoader:
                     oid = str(row['order_id'])
                     dt = row['date']
                     if pd.notna(dt) and oid.isdigit() and len(oid) <= 4:
-                        return f"{dt.strftime('%Y%m%d')}-{oid}"
+                        # Append hour and minute to prevent collision on same day (e.g., POS mid-day reset)
+                        return f"{dt.strftime('%Y%m%d')}-{oid}-{dt.strftime('%H%M')}"
                     return oid
                 
                 df['order_id'] = df.apply(make_unique_id, axis=1)
