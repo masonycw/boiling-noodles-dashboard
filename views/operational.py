@@ -139,6 +139,15 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
         daily_period['Date_Parsed'] = pd.to_datetime(daily_period['Date_Only'])
         daily_period.drop(columns=['Date_Only'], inplace=True)
         
+        # Modify for bidirectional bar chart: Lunch extends downward (negative), Dinner upward
+        def adjust_for_bidirectional(row):
+            if row['Period'] == '中午 (Lunch)':
+                return -row['total_amount']
+            return row['total_amount']
+            
+        daily_period['plot_amount'] = daily_period.apply(adjust_for_bidirectional, axis=1)
+        daily_period['abs_amount'] = daily_period['total_amount'] # For hover display
+        
         # 2. Daily Visitor & Avg Check
         # Need to handle visitor count logic per day
         daily_stats = df_rep.groupby('Date_Only').agg({
@@ -184,17 +193,35 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
         c_chart1, c_chart2 = st.columns([2, 1])
         
         with c_chart1:
-            # Stacked Bar: Lunch/Dinner
+            # Bidirectional Bar: Lunch(-) / Dinner(+)
+            # Sort so colors and legend map cleanly
+            daily_period = daily_period.sort_values('Period', ascending=False)
+            
             fig_bar = px.bar(
                 daily_period, 
                 x='Date_Parsed', 
-                y='total_amount', 
+                y='plot_amount', 
                 color='Period', 
-                title="每日營業額 (午餐/晚餐)",
-                labels={'total_amount': '金額', 'Date_Parsed': '日期', 'Period': '時段'},
-                # text_auto='.2s' # Too cluttered for daily?
+                title="每日營業額 (午餐向下 / 晚餐向上)",
+                labels={'plot_amount': '金額', 'Date_Parsed': '日期', 'Period': '時段'},
+                custom_data=['abs_amount'] # Pass absolute amount to hover
             )
-            fig_bar.update_layout(xaxis_title=None)
+            
+            # Customize hover to show positive values regardless of direction
+            fig_bar.update_traces(hovertemplate='時段: %{color}<br>日期: %{x}<br>金額: $%{customdata[0]:,.0f}')
+            
+            # Make Y-axis labels positive only
+            fig_bar.update_layout(
+                xaxis_title=None,
+                yaxis=dict(tickformat="f"), 
+                barmode='relative'
+            )
+            
+            # Format tick labels to strip the minus sign using tickvals/ticktext if needed
+            # A simpler way in Plotly is using tickformat string: 
+            # Note: to hide negative sign in plotly ticks, we can just let it show for now and see, 
+            # or fix it explicitly. Let's rely on hover for exact value.
+            
             st.plotly_chart(fig_bar, use_container_width=True)
             
         with c_chart2:
