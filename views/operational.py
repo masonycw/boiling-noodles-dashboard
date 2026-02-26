@@ -96,7 +96,11 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
             if 'Order_Category' not in df_rep.columns:
                 df_rep['Order_Category'] = '內用 (Dine-in)'
                 
+            # Stacked bars per category
             resampled = df_rep.groupby(['Order_Category', pd.Grouper(key='Date_Parsed', freq=ov_freq)])['total_amount'].sum().reset_index()
+            # Total revenue line
+            total_resampled = df_rep.groupby(pd.Grouper(key='Date_Parsed', freq=ov_freq))['total_amount'].sum().reset_index()
+            
             fig = px.bar(
                 resampled, 
                 x='Date_Parsed', 
@@ -105,7 +109,20 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
                 title=f"營業額 ({ov_int})",
                 labels={'total_amount': '金額', 'Date_Parsed': '日期', 'Order_Category': '點餐類型'}
             )
-            fig.update_layout(xaxis_title=None)
+            
+            import plotly.graph_objects as go
+            fig.add_trace(go.Scatter(
+                x=total_resampled['Date_Parsed'],
+                y=total_resampled['total_amount'],
+                mode='lines+markers+text',
+                name='全日總營業額',
+                text=total_resampled['total_amount'].apply(lambda x: f"${x:,.0f}" if x > 0 else ""),
+                textposition='top center',
+                line=dict(color='rgba(0,0,0,0.6)', width=2, dash='dot'),
+                marker=dict(size=6, color='black')
+            ))
+            
+            fig.update_layout(xaxis_title=None, hovermode="x unified")
             st.plotly_chart(fig, use_container_width=True)
             
     with col_R:
