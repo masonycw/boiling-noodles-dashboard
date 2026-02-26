@@ -297,6 +297,17 @@ def render_crm_analysis(df_report, df_details):
     st.subheader("🎯 區間內客群細節 (RFM Scatter Plot)")
     st.caption("基於您選擇的日期區間，計算活躍會員的 R (最近一次消費距今)、F (區間內來店次數)、M (區間內累積消費)。")
     
+    with st.expander("ℹ️ RFM 客群定義說明"):
+        st.markdown("""
+        * 🟢 **Champions (主力常客)**：區間內來店 ≥ 3 次，且近期有回訪。
+        * 🟠 **Potential (潛力新星)**：區間內來店 2 次，且近期有回訪。
+        * 🔴 **New (新客)**：區間內來店 1 次，且近期才來訪。
+        * 🩵 **At Risk (流失預警)**：區間內來店 ≥ 2 次，但近期未再回訪。
+        * 🔵 **One-time (一次客)**：區間內只來店 1 次，且近期未再回訪。
+        
+        > 💡 **「近期回訪」基準天數**：若您的查詢區間大於 28 天，判定標準為「區間天數的一半」；若查詢區間較短，則固定以距今「14 天內」為界。
+        """)
+    
     interval_txs = period_txs[period_txs[col_id] != '非會員'].copy()
     
     if not interval_txs.empty:
