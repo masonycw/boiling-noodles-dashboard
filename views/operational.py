@@ -93,8 +93,19 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     with col_L:
         st.subheader("📈 營業額趨勢")
         if not df_rep.empty:
-            resampled = df_rep.set_index('Date_Parsed').resample(ov_freq)['total_amount'].sum().reset_index()
-            fig = px.bar(resampled, x='Date_Parsed', y='total_amount', title=f"營業額 ({ov_int})")
+            if 'Order_Category' not in df_rep.columns:
+                df_rep['Order_Category'] = '內用 (Dine-in)'
+                
+            resampled = df_rep.groupby(['Order_Category', pd.Grouper(key='Date_Parsed', freq=ov_freq)])['total_amount'].sum().reset_index()
+            fig = px.bar(
+                resampled, 
+                x='Date_Parsed', 
+                y='total_amount', 
+                color='Order_Category',
+                title=f"營業額 ({ov_int})",
+                labels={'total_amount': '金額', 'Date_Parsed': '日期', 'Order_Category': '點餐類型'}
+            )
+            fig.update_layout(xaxis_title=None)
             st.plotly_chart(fig, use_container_width=True)
             
     with col_R:
