@@ -39,6 +39,7 @@ COLUMN_MAPPING = {
     
     'status': ['狀態', 'Status', 'Order Status', '發票狀態', 'Overall Status'],
     'order_type': ['單類型', 'Order Type', 'Type'],
+    'payment_method': ['付款方式', 'Payment Method', 'PaymentType', '結帳方式'],
 
     # Details Columns
     'item_name': ['Item Name', '商品名稱', 'Product Name'],
