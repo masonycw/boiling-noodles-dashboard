@@ -294,38 +294,67 @@ def render_crm_analysis(df_report, df_details):
     st.divider()
     
     # RFM Analysis
-    st.subheader("🎯 RFM 會員價值分析 (全歷史資料)")
-    st.caption("基於系統內截至目前的歷史交易資料，計算活躍會員的 R (最近一次消費)、F (消費頻率)、M (累積消費總額)。")
+    st.subheader("🎯 區間內客群細節 (RFM Scatter Plot)")
+    st.caption("基於您選擇的日期區間，計算活躍會員的 R (最近一次消費距今)、F (區間內來店次數)、M (區間內累積消費)。")
     
-    # RFM uses data up to end_ts, EXCLUDING non-members
-    historical_txs = df[(df['Date_Parsed'] <= end_ts) & (df[col_id] != '非會員')].copy()
+    interval_txs = period_txs[period_txs[col_id] != '非會員'].copy()
     
-    if not historical_txs.empty:
+    if not interval_txs.empty:
         # Calculate R, F, M
-        last_date = historical_txs['Date_Parsed'].max()
-        rfm = historical_txs.groupby(col_id).agg(
+        rfm = interval_txs.groupby(col_id).agg(
             Last_Purchase=('Date_Parsed', 'max'),
-            Frequency=('order_id', 'nunique'),
+            Frequency=('Visit_ID', 'nunique'),
             Monetary=('total_amount', 'sum')
         ).reset_index()
         
-        # Calculate Recency in days
-        rfm['Recency'] = (last_date - rfm['Last_Purchase']).dt.days
+        # Calculate Recency in days (against the end of the selected period)
+        rfm['Recency'] = (pd.Timestamp(end_ts.date()) - pd.to_datetime(rfm['Last_Purchase']).dt.normalize()).dt.days
+        rfm['Recency'] = rfm['Recency'].clip(lower=0)
         
-        # Simple Segmentation based on Frequency & Recency
+        interval_days = max((end_ts.date() - start_ts.date()).days, 1)
+        r_thresh = interval_days / 2 if interval_days >= 28 else 14
+        
         def segment_rfm(row):
-            if row['Frequency'] >= 5 and row['Recency'] <= 30:
-                return "🌟 VVIP (高頻活躍)"
-            elif row['Frequency'] >= 2 and row['Recency'] <= 60:
-                return "⭐ 忠誠客 (穩定回訪)"
-            elif row['Frequency'] == 1 and row['Recency'] <= 30:
-                return "👋 近期新客"
-            elif row['Frequency'] >= 2 and row['Recency'] > 60:
-                return "💤 沉睡客 (曾回訪但很久沒來)"
+            f = row['Frequency']
+            r = row['Recency']
+            
+            if f >= 3:
+                return "Champions (主力常客)" if r <= r_thresh else "At Risk (流失預警)"
+            elif f == 2:
+                return "Potential (潛力新星)" if r <= r_thresh else "At Risk (流失預警)"
             else:
-                return "📉 流失單次客 (只來一次且很久沒來)"
+                return "New (新客)" if r <= r_thresh else "One-time (一次客)"
                 
         rfm['Segment'] = rfm.apply(segment_rfm, axis=1)
+        
+        color_map = {
+            "Champions (主力常客)": "#7FCCB5",
+            "Potential (潛力新星)": "#FDD1C9",
+            "New (新客)": "#FF7B72",
+            "At Risk (流失預警)": "#A5D8FF",
+            "One-time (一次客)": "#5B96DB"
+        }
+        cat_order = list(color_map.keys())
+        
+        fig_scatter = px.scatter(
+            rfm, 
+            x='Recency', 
+            y='Frequency', 
+            size='Monetary', 
+            color='Segment', 
+            hover_name=col_id,
+            category_orders={"Segment": cat_order},
+            color_discrete_map=color_map,
+            title="RFM 分佈 (X=天數未訪, Y=消費次數, 大小=消費額)",
+            labels={
+                'Recency': 'Recency (天數未訪 - 越小越好)',
+                'Frequency': 'Frequency (來店次數)'
+            },
+            size_max=30
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        
+        st.divider()
         
         seg_counts = rfm['Segment'].value_counts().reset_index()
         seg_counts.columns = ['會員價值分群', '人數']
@@ -336,9 +365,20 @@ def render_crm_analysis(df_report, df_details):
         
         col_rfm1, col_rfm2 = st.columns([1, 1])
         with col_rfm1:
-            fig_rfm = px.pie(seg_counts, names='會員價值分群', values='人數', title=" RFM 會員分群佔比", hole=0.3)
+            fig_rfm = px.pie(
+                seg_counts, names='會員價值分群', values='人數', 
+                title="區間 RFM 會員分群佔比", hole=0.3,
+                color='會員價值分群', color_discrete_map=color_map,
+                category_orders={"會員價值分群": cat_order}
+            )
             st.plotly_chart(fig_rfm, use_container_width=True)
             
         with col_rfm2:
-            fig_rfm2 = px.bar(seg_counts, x='會員價值分群', y='Monetary', title="各群體平均終身貢獻 (LTV)", text_auto='.0f')
+            fig_rfm2 = px.bar(
+                seg_counts, x='會員價值分群', y='Monetary', 
+                title="各群體平均區間貢獻 ($)", text_auto='.0f',
+                color='會員價值分群', color_discrete_map=color_map,
+                category_orders={"會員價值分群": cat_order}
+            )
+            fig_rfm2.update_layout(showlegend=False)
             st.plotly_chart(fig_rfm2, use_container_width=True)
