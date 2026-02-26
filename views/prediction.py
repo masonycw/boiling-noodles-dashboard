@@ -29,11 +29,13 @@ def render_prediction_view(df_report):
 
     # Latest date in data
     max_date = daily_rev['Date_Only'].max()
-    if pd.isna(max_date):
+    min_date = daily_rev['Date_Only'].min()
+    if pd.isna(max_date) or pd.isna(min_date):
         return
         
-    # Get holidays for the relevant years (e.g. current year and next year)
-    tw_holidays = holidays.country_holidays('TW', years=[max_date.year, max_date.year + 1])
+    # Get holidays for the relevant years (all history to next year)
+    years_needed = list(range(min_date.year, max_date.year + 2))
+    tw_holidays = holidays.country_holidays('TW', years=years_needed)
 
     # Mark past days as holiday or weekday
     daily_rev['Is_Holiday'] = daily_rev['Date_Only'].apply(lambda d: is_holiday_tw(d, tw_holidays))
@@ -41,8 +43,13 @@ def render_prediction_view(df_report):
     # UI Controls
     c1, c2 = st.columns([1, 2])
     with c1:
-        ref_window = st.selectbox("預測參考基準 (Reference Period)", ["過去2週 (Past 2 Weeks)", "過去4週 (Past 4 Weeks)"])
-        days_lookback = 14 if "2週" in ref_window else 28
+        ref_window = st.selectbox("預測參考基準 (Reference Period)", ["過去2週 (Past 2 Weeks)", "過去4週 (Past 4 Weeks)", "過去1個月 (Past 1 Month)"])
+        if "2週" in ref_window:
+            days_lookback = 14
+        elif "4週" in ref_window:
+            days_lookback = 28
+        else:
+            days_lookback = 30
         
     # Calculate Past Averages
     start_ref_date = max_date - pd.Timedelta(days=days_lookback - 1)
@@ -61,6 +68,49 @@ def render_prediction_view(df_report):
     col_h.metric(f"🎌 假日平均營業額 ({ref_window})", f"${avg_hol_rev:,.0f}")
     
     st.caption("* 假日定義：包含週末 (六、日) 以及國定假日")
+    st.divider()
+    
+    # --- Historical Trend Chart ---
+    st.subheader("📊 歷史平均營業額走勢 (Historical Averages Trend)")
+    st.caption("觀察過去不同時間點的「滾動平均營業額」。長短期趨勢可由最上方的「參考基準」控制調整。")
+    
+    from .utils import render_date_filter
+    s_date, e_date = render_date_filter("pred_hist")
+    
+    # Create complete date range bridging any gaps, to allow proper rolling across days without data
+    full_date_range = pd.date_range(start=min_date, end=max_date).date
+    dense_df = pd.DataFrame({'Date_Only': full_date_range})
+    dense_df = dense_df.merge(daily_rev, on='Date_Only', how='left')
+    
+    dense_df['Is_Holiday'] = dense_df['Date_Only'].apply(lambda d: is_holiday_tw(d, tw_holidays))
+    dense_df['total_amount'] = dense_df['total_amount'].fillna(0)
+    
+    # Only average days that have > 0 revenue
+    dense_df['valid_wd_rev'] = dense_df['total_amount'].where((~dense_df['Is_Holiday']) & (dense_df['total_amount'] > 0), np.nan)
+    dense_df['valid_hol_rev'] = dense_df['total_amount'].where((dense_df['Is_Holiday']) & (dense_df['total_amount'] > 0), np.nan)
+    
+    # Rolling averages
+    dense_df['平日平均 (Weekday Avg)'] = dense_df['valid_wd_rev'].rolling(window=days_lookback, min_periods=1).mean()
+    dense_df['假日平均 (Holiday Avg)'] = dense_df['valid_hol_rev'].rolling(window=days_lookback, min_periods=1).mean()
+    
+    # Filter for the plotting interval
+    mask = (dense_df['Date_Only'] >= s_date.date()) & (dense_df['Date_Only'] <= e_date.date())
+    chart_df = dense_df[mask].copy()
+    
+    if not chart_df.empty:
+        melted = chart_df.melt(id_vars=['Date_Only'], value_vars=['平日平均 (Weekday Avg)', '假日平均 (Holiday Avg)'], 
+                               var_name='Type', value_name='Average_Revenue')
+        
+        fig_trend = px.line(melted, x='Date_Only', y='Average_Revenue', color='Type', 
+                            title=f"過去 {days_lookback} 天為基準的滾動平均走勢",
+                            labels={'Date_Only': '日期', 'Average_Revenue': '平均營業額 ($)'},
+                            color_discrete_map={'平日平均 (Weekday Avg)': '#636EFA', '假日平均 (Holiday Avg)': '#EF553B'})
+        fig_trend.update_yaxes(rangemode="tozero")
+        fig_trend.update_layout(legend_title_text='', hovermode="x unified")
+        st.plotly_chart(fig_trend, use_container_width=True)
+    else:
+        st.info("所選區間內無歷史資料可供顯示。")
+        
     st.divider()
     
     # Prepare Future 12 Months Projection

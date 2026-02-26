@@ -26,6 +26,12 @@ def get_date_range_shortcut(shortcut_name):
     elif shortcut_name == "近6個月 (Last 6 Months)":
         end = today
         start = end - relativedelta(months=6)
+    elif shortcut_name == "近12個月 (Last 12 Months)":
+        end = today
+        start = end - relativedelta(months=12)
+    elif shortcut_name == "所有歷史資料 (All Time)":
+        end = today
+        start = date(2000, 1, 1) # Will be clipped by dataframe
     elif "年" in shortcut_name and "月" in shortcut_name:
         # e.g., "2026年01月"
         try:
@@ -56,7 +62,9 @@ def render_date_filter(key_prefix):
         "上個月 (Last Month)", 
         "近4週 (Last 4 Weeks)", 
         "近2個月 (Last 2 Months)", 
-        "近6個月 (Last 6 Months)"
+        "近6個月 (Last 6 Months)",
+        "近12個月 (Last 12 Months)",
+        "所有歷史資料 (All Time)"
     ] + past_months
     
     col1, col2 = st.columns([1, 2])
