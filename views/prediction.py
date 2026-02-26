@@ -48,8 +48,8 @@ def render_prediction_view(df_report):
     start_ref_date = max_date - pd.Timedelta(days=days_lookback - 1)
     ref_df = daily_rev[(daily_rev['Date_Only'] >= start_ref_date) & (daily_rev['Date_Only'] <= max_date)]
     
-    past_wd = ref_df[~ref_df['Is_Holiday']]
-    past_hol = ref_df[ref_df['Is_Holiday']]
+    past_wd = ref_df[(~ref_df['Is_Holiday']) & (ref_df['total_amount'] > 0)]
+    past_hol = ref_df[(ref_df['Is_Holiday']) & (ref_df['total_amount'] > 0)]
     
     avg_wd_rev = past_wd['total_amount'].mean() if len(past_wd) > 0 else 0
     avg_hol_rev = past_hol['total_amount'].mean() if len(past_hol) > 0 else 0

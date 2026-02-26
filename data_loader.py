@@ -364,7 +364,7 @@ class UniversalLoader:
             if 'carrier_id' not in df_report.columns: df_report['carrier_id'] = None
             
             def get_member_id(row):
-                p = str(row.get('member_phone', '')).strip()
+                p = str(row.get('member_phone', '')).strip().replace(' ', '')
                 c = str(row.get('carrier_id', '')).strip()
                 n = str(row.get('customer_name', '')).strip()
                 
