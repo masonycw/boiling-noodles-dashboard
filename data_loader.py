@@ -362,18 +362,35 @@ class UniversalLoader:
             # Ensure columns exist
             if 'member_phone' not in df_report.columns: df_report['member_phone'] = None
             if 'carrier_id' not in df_report.columns: df_report['carrier_id'] = None
+            if 'customer_name' not in df_report.columns: df_report['customer_name'] = None
+            
+            # 1. Identify Highly-Shared Phones (Platform Phones)
+            # Clean phones temporarily for counting
+            temp_phones = df_report['member_phone'].astype(str).str.strip().str.replace(' ', '')
+            valid_mask = (temp_phones.str.len() >= 6) & (~temp_phones.str.contains(r'\*')) & (temp_phones != 'nan')
+            
+            # Count distinct customer names per phone
+            name_counts = df_report[valid_mask].groupby(temp_phones[valid_mask])['customer_name'].nunique()
+            shared_phones_auto = set(name_counts[name_counts >= 10].index)
+            
+            # Add known hardcoded platforms
+            known_platforms = {'55941277', '77519126'}
+            platform_phones = shared_phones_auto.union(known_platforms)
             
             def get_member_id(row):
                 p = str(row.get('member_phone', '')).strip().replace(' ', '')
                 c = str(row.get('carrier_id', '')).strip()
                 n = str(row.get('customer_name', '')).strip()
                 
-                # UberEats Exception
-                if '5594' in p and '1277' in p:
-                    if len(n) > 0 and n != 'nan': return f"UE_{n}"
-                    p = ''
                 # Hidden Phone Exception (e.g., ******)
-                elif '*' in p:
+                if '*' in p:
+                    p = ''
+                    
+                # Platform Phone Exception (e.g., UberEats)
+                is_platform = (p in platform_phones) or any(k in p for k in known_platforms)
+                
+                if is_platform:
+                    if len(n) > 0 and n != 'nan': return f"UE_{n}"
                     p = ''
                 
                 if len(p) > 6 and p != 'nan': return p # Valid Phone
