@@ -32,7 +32,7 @@ class UniversalLoader:
                 if '/.' in current_root: continue 
 
                 for f in sorted(files):
-                    if not f.endswith(".csv"): continue
+                    if not (f.endswith(".csv") or f.endswith(".json") or f.endswith(".txt")): continue
                     
                     full_path = os.path.join(current_root, f)
                     if full_path in self.seen_files: continue
@@ -44,7 +44,12 @@ class UniversalLoader:
 
     def _process_file(self, file_path):
         try:
-            # Attempt 1: Standard Load with BOM support
+            # Handle JSON files separately
+            if file_path.endswith('.json') or ('OperationReport' in file_path and file_path.endswith('.txt')):
+                self._process_json_file(file_path)
+                return
+
+            # Attempt 1: Standard Load with BOM support for CSV
             df = pd.read_csv(file_path, encoding='utf-8-sig')
             
             # Smart Header Detection
@@ -279,10 +284,19 @@ class UniversalLoader:
         if self.report_data:
             final_report = pd.concat(self.report_data, ignore_index=True)
             if 'order_id' in final_report.columns:
-                final_report.drop_duplicates(subset=['order_id'], keep='last', inplace=True)
+                # Deduplicate Report Data: JSON has priority.
+                # Sort so 'data_source' == 'json' comes first (alphabetically, 'csv' comes before 'json', so we use ascending=False)
+                # Wait, default data_source is missing for CSV, let's fill it
+                if 'data_source' not in final_report.columns:
+                     final_report['data_source'] = 'csv'
+                else:
+                     final_report['data_source'] = final_report['data_source'].fillna('csv')
+                     
+                final_report.sort_values(by=['order_id', 'data_source'], ascending=[True, False], inplace=True)
+                final_report.drop_duplicates(subset=['order_id'], keep='first', inplace=True)
             else:
                 final_report.drop_duplicates(inplace=True)
-            self.log(f"Initial REPORT Rows: {len(final_report)}")
+            self.log(f"Initial REPORT Rows (Deduplicated with JSON priority): {len(final_report)}")
             
             # --- JOIN STRATEGY: Enrich Report with Invoice Info ---
             if not invoice_lookup.empty and 'invoice_id' in final_report.columns and 'invoice_id' in invoice_lookup.columns:
@@ -320,12 +334,145 @@ class UniversalLoader:
                 valid_orders = set(final_report['order_id'].astype(str))
                 initial_count = len(final_details)
                 final_details = final_details[final_details['order_id'].astype(str).isin(valid_orders)]
+                
+                # Deduplicate details if they appear in both JSON and CSV
+                if 'data_source' not in final_details.columns:
+                     final_details['data_source'] = 'csv'
+                else:
+                     final_details['data_source'] = final_details['data_source'].fillna('csv')
+                
+                # To deduplicate details effectively, we must deduplicate the "CSV" lines if JSON lines are present for the same order_id
+                # So we drop ALL CSV rows where order_id exists in JSON details.
+                json_order_ids = set(final_details[final_details['data_source'] == 'json']['order_id'].astype(str))
+                # Keep row if it's JSON, OR if it's CSV and the order is NOT in json_order_ids
+                mask = (final_details['data_source'] == 'json') | (~final_details['order_id'].astype(str).isin(json_order_ids))
+                final_details = final_details[mask]
+
                 filtered_count = len(final_details)
-                self.log(f"Filtered Details by Status: {initial_count} -> {filtered_count} rows (Removed {initial_count - filtered_count} invalid rows)")
+                self.log(f"Filtered Details by Status & JSON Deduplication: {initial_count} -> {filtered_count} rows (Removed {initial_count - filtered_count} rows)")
             
             self.log(f"TOTAL DETAILS ROWS: {len(final_details)}")
 
         return final_report, final_details, self.debug_logs
+
+    def _process_json_file(self, file_path):
+        import json
+        from datetime import datetime
+        import pytz
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            orders = data.get('pay_load', {}).get('data', [])
+            if not orders:
+                self.log(f"⚠️ JSON {os.path.basename(file_path)} has no orders.")
+                return
+
+            report_list = []
+            details_list = []
+            tz = pytz.timezone('Asia/Taipei')
+
+            for order in orders:
+                # 1. REPORT DATA
+                order_id = order.get('short_code', '')
+                if not order_id:
+                    order_id = order.get('id', '')[-6:]
+                    
+                timestamp_ms = order.get('created_at')
+                date_str = pd.NaT
+                if timestamp_ms:
+                    dt = datetime.fromtimestamp(timestamp_ms / 1000.0, tz)
+                    date_str = dt.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Apply composite logic to match CSV: YYYYMMDD-oid-HHMM
+                    if str(order_id).isdigit() and len(str(order_id)) <= 4:
+                        order_id = f"{dt.strftime('%Y%m%d')}-{order_id}-{dt.strftime('%H%M')}"
+
+                total_price = order.get('total_price', 0)
+                status = order.get('status', '')
+
+                # order type mapping
+                o_type_raw = order.get('type', '')
+                if o_type_raw == 'dine_in': o_type = '內用'
+                elif o_type_raw == 'takeout': o_type = '外帶'
+                elif o_type_raw == 'delivery': o_type = '外送'
+                elif o_type_raw == 'pick_up': o_type = '自取' # Assuming pick up is takeout
+                else: o_type = o_type_raw
+                    
+                people_count = order.get('party_size', 0)
+
+                # Payment Info
+                payments = order.get('payments', [])
+                payment_method = payments[0].get('name', '') if payments else ''
+
+                # Membership / Customer Info
+                ship_info = order.get('shipping_information', {})
+                receiver = ship_info.get('receiver', {}) if isinstance(ship_info, dict) else {}
+                member_phone = receiver.get('phone_number', '')  # Could be empty
+                customer_name = receiver.get('first_name', '')   # Could be empty
+                
+                # Invoice info
+                invoice_list = order.get('invoice_list', [])
+                invoice_number = invoice_list[0].get('invoice_number', '') if invoice_list else ''
+                
+                report_row = {
+                    'order_id': order_id,
+                    'date': date_str,
+                    'total_amount': total_price,
+                    'status': status,
+                    'order_type': o_type,
+                    'people_count': people_count,
+                    'payment_method': payment_method,
+                    'member_phone': member_phone,
+                    'customer_name': customer_name,
+                    'invoice_id': invoice_number,
+                    'data_source': 'json'
+                }
+                report_list.append(report_row)
+                
+                # 2. DETAILS DATA
+                items = order.get('line_items', [])
+                for item in items:
+                    item_name = item.get('product_name', {}).get('default', '')
+                    sku = item.get('product_code', '')
+                    qty = item.get('quantity', 0)
+                    unit_price = item.get('price', 0)
+                    item_total = item.get('price_total', 0)
+                    
+                    mods = item.get('modifiers', [])
+                    options = ', '.join([m.get('value_name', {}).get('zh_TW', '') for m in mods if isinstance(m, dict)])
+                    
+                    is_combo = item.get('is_combo', False)
+                    item_type_str = 'Combo Item' if is_combo else 'Normal'
+                    
+                    details_row = {
+                        'order_id': order_id,
+                        'date': date_str,
+                        'status': status,
+                        'item_name': item_name,
+                        'sku': sku,
+                        'qty': qty,
+                        'unit_price': unit_price,
+                        'item_total': item_total,
+                        'options': options,
+                        'item_type': item_type_str,
+                        'data_source': 'json'
+                    }
+                    details_list.append(details_row)
+
+            if report_list:
+                df_r = pd.DataFrame(report_list)
+                self.report_data.append(df_r)
+                self.log(f"✅ Loaded REPORT (JSON API): {os.path.basename(file_path)} ({len(df_r)} rows)")
+                
+            if details_list:
+                df_d = pd.DataFrame(details_list)
+                self.details_data.append(df_d)
+                self.log(f"✅ Loaded DETAILS (JSON API): {os.path.basename(file_path)} ({len(df_d)} rows)")
+
+        except Exception as e:
+            self.log(f"❌ Error processing JSON {os.path.basename(file_path)}: {e}")
 
 
     def enrich_data(self, df_report, df_details):
