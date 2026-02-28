@@ -1,10 +1,31 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import timedelta
 
-def render_member_search(df_report, df_details):
+def render_member_search(df_report, df_details, latest_dates=None):
     st.title("👥 會員消費紀錄查詢")
+    
+    # Show Data Freshness Info
+    if latest_dates is None:
+        latest_dates = {}
+        
+    json_date = latest_dates.get('json', '無資料')
+    csv_rep_date = latest_dates.get('csv_report', '無資料')
+    csv_det_date = latest_dates.get('csv_details', '無資料')
+    inv_date = latest_dates.get('invoice', '無資料')
+
+    st.info(f"**最新系統資料範圍提示**\n\n"
+            f"📡 **Eats365 API (JSON)**: `{json_date}` ｜ "
+            f"📊 **營業日報表 (CSV)**: `{csv_rep_date}`\n\n"
+            f"🛒 **交易明細 (CSV)**: `{csv_det_date}` ｜ "
+            f"🧾 **發票明細 (CSV)**: `{inv_date}`\n\n"
+            f"*(會員搜尋結果極度依賴歷史紀錄，請確認上面所有手動 CSV 檔案都已上傳更新至最新日期)*")
+
+
     
     col_id = 'Member_ID'
     col_name = 'customer_name'
@@ -105,9 +126,26 @@ def render_member_search(df_report, df_details):
         else:
             st.warning("查無資料")
 
-def render_crm_analysis(df_report, df_details):
+def render_crm_analysis(df_report, df_details, latest_dates=None):
     st.title("🆕 新舊客分析 (New vs Returning)")
     
+    # Show Data Freshness Info
+    if latest_dates is None:
+        latest_dates = {}
+        
+    json_date = latest_dates.get('json', '無資料')
+    csv_rep_date = latest_dates.get('csv_report', '無資料')
+    csv_det_date = latest_dates.get('csv_details', '無資料')
+    inv_date = latest_dates.get('invoice', '無資料')
+
+    st.info(f"**最新系統資料範圍提示**\n\n"
+            f"📡 **Eats365 API (JSON)**: `{json_date}` ｜ "
+            f"📊 **營業日報表 (CSV)**: `{csv_rep_date}`\n\n"
+            f"🛒 **交易明細 (CSV)**: `{csv_det_date}` ｜ "
+            f"🧾 **發票明細 (CSV)**: `{inv_date}`\n\n"
+            f"*(新舊客與會員判定極度依賴歷史紀錄，請確認上面所有手動 CSV 檔案都已上傳更新至最新日期)*")
+
+
     with st.expander("ℹ️ 新舊客與非會員定義說明"):
         st.markdown("""
         * **新客 (New)**：在您選擇的區間內，該會員發生了「歷史以來的第 1 次」消費。
@@ -124,9 +162,10 @@ def render_crm_analysis(df_report, df_details):
     df[col_id] = df[col_id].fillna('非會員')
     
     st.divider()
-    st.subheader("🗓️ CRM 分析區間")
+    
+    st.subheader("🗓️ 單期綜合分析區間")
     from .utils import render_date_filter
-    s_date, e_date = render_date_filter("crm")
+    s_date, e_date = render_date_filter("crm_tab1")
     
     start_ts = pd.Timestamp(s_date)
     end_ts = pd.Timestamp(e_date)
@@ -196,10 +235,10 @@ def render_crm_analysis(df_report, df_details):
     total_txs = period_txs['Visit_ID'].nunique()
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("👥 總來店客組 (Visit_ID)", f"{total_txs:,.0f} 組")
-    m2.metric("🆕 新客營收佔比", f"${new_rev:,.0f}", f"{new_rev/total_rev:.1%}" if total_rev else "0%")
-    m3.metric("🤝 舊客營收佔比", f"${ret_rev:,.0f}", f"{ret_rev/total_rev:.1%}" if total_rev else "0%")
-    m4.metric("❓ 非會員營收佔比", f"${non_rev:,.0f}", f"{non_rev/total_rev:.1%}" if total_rev else "0%")
+    m1.metric("👥 總來店客組 (Visit_ID)", f"{total_txs:,.0f} 組", help="根據訂單ID或會員每日計算的不重複來訪數")
+    m2.metric("🆕 新客營收佔比", f"${new_rev:,.0f}", delta=f"佔比 {new_rev/total_rev:.1%}" if total_rev else "佔比 0%", delta_color="off", help="新客營收佔「全店總營收」(含非會員) 的比例")
+    m3.metric("🤝 舊客營收佔比", f"${ret_rev:,.0f}", delta=f"佔比 {ret_rev/total_rev:.1%}" if total_rev else "佔比 0%", delta_color="off", help="舊客營收佔「全店總營收」(含非會員) 的比例")
+    m4.metric("❓ 非會員營收佔比", f"${non_rev:,.0f}", delta=f"佔比 {non_rev/total_rev:.1%}" if total_rev else "佔比 0%", delta_color="off", help="非會員營收佔「全店總營收」的比例")
     
     total_active = new_txs + ret_txs # Approximation or actual if 1 tx per member average? No, let's use actual:
     member_txs = period_txs[period_txs['User_Type'] != '非會員 (Non-member)']
@@ -208,10 +247,10 @@ def render_crm_analysis(df_report, df_details):
     ret_active = type_counts.get('舊客 (Returning)', 0)
 
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("👤 總活躍會員", f"{total_active:,.0f} 人")
-    m2.metric("🆕 新會員數", f"{new_active:,.0f} 人", f"{new_active/total_active:.1%}" if total_active else "0%")
-    m3.metric("💸 新客營收貢獻", f"${new_rev:,.0f}", f"{new_rev/(new_rev+ret_rev):.1%}" if (new_rev+ret_rev) else "0%")
-    m4.metric("💰 舊客營收貢獻", f"${ret_rev:,.0f}", f"{ret_rev/(new_rev+ret_rev):.1%}" if (new_rev+ret_rev) else "0%")
+    m1.metric("👤 總活躍會員", f"{total_active:,.0f} 人", help="區間內有消費紀錄的獨立會員數")
+    m2.metric("🆕 新會員數", f"{new_active:,.0f} 人", delta=f"佔比 {new_active/total_active:.1%}" if total_active else "佔比 0%", delta_color="off", help="區間內發生歷史首次消費的獨立會員數")
+    m3.metric("💸 新客會員內貢獻", f"${new_rev:,.0f}", delta=f"佔比 {new_rev/(new_rev+ret_rev):.1%}" if (new_rev+ret_rev) else "佔比 0%", delta_color="off", help="新客營收佔「所有會員總營收」(排除非會員) 的比例")
+    m4.metric("💰 舊客會員內貢獻", f"${ret_rev:,.0f}", delta=f"佔比 {ret_rev/(new_rev+ret_rev):.1%}" if (new_rev+ret_rev) else "佔比 0%", delta_color="off", help="舊客營收佔「所有會員總營收」(排除非會員) 的比例")
     
     st.divider()
 
@@ -275,6 +314,11 @@ def render_crm_analysis(df_report, df_details):
     fig_time = px.bar(daily_type, x='Date_Only', y='Visits', color='User_Type', title="每日客群來訪數 (同日視為 1 筆)", barmode='stack')
     st.plotly_chart(fig_time, use_container_width=True)
 
+    ###################################################################
+    #                     (Code moved to bottom of file)
+    ###################################################################
+
+        
     st.divider()
     
     # Retention / Frequency
@@ -312,11 +356,22 @@ def render_crm_analysis(df_report, df_details):
     
     if not interval_txs.empty:
         # Calculate R, F, M
+        # Calculate R, F, M
         rfm = interval_txs.groupby(col_id).agg(
             Last_Purchase=('Date_Parsed', 'max'),
             Frequency=('Visit_ID', 'nunique'),
             Monetary=('total_amount', 'sum')
         ).reset_index()
+        
+        # Merge Global First Visit Date to show how "old" the customer is
+        global_first = df_report[df_report[col_id] != '非會員'].groupby(col_id)['Date_Parsed'].min().reset_index(name='First_Visit_Global')
+        rfm = rfm.merge(global_first, on=col_id, how='left')
+        rfm['Days_Since_First_Visit'] = (pd.Timestamp(end_ts.date()) - pd.to_datetime(rfm['First_Visit_Global']).dt.normalize()).dt.days
+        rfm['First_Visit_Str'] = pd.to_datetime(rfm['First_Visit_Global']).dt.strftime('%Y-%m-%d')
+        
+        # Merge Global Frequency to show all-time visits
+        global_freq = df_report[df_report[col_id] != '非會員'].groupby(col_id)['order_id'].nunique().reset_index(name='Frequency_Global')
+        rfm = rfm.merge(global_freq, on=col_id, how='left')
         
         # Calculate Recency in days (against the end of the selected period)
         rfm['Recency'] = (pd.Timestamp(end_ts.date()) - pd.to_datetime(rfm['Last_Purchase']).dt.normalize()).dt.days
@@ -354,12 +409,24 @@ def render_crm_analysis(df_report, df_details):
             size='Monetary', 
             color='Segment', 
             hover_name=col_id,
+            hover_data={
+                'First_Visit_Str': True,
+                'Days_Since_First_Visit': True,
+                'Frequency_Global': True,
+                'Recency': True, 
+                'Frequency': True,
+                'Segment': False, 
+                'First_Visit_Global': False
+            },
             category_orders={"Segment": cat_order},
             color_discrete_map=color_map,
             title="RFM 分佈 (X=天數未訪, Y=消費次數, 大小=消費額)",
             labels={
                 'Recency': 'Recency (天數未訪 - 越小越好)',
-                'Frequency': 'Frequency (來店次數)'
+                'Frequency': 'Frequency (區間來訪次數)',
+                'First_Visit_Str': '歷史首訪日',
+                'Days_Since_First_Visit': '成為會員天數',
+                'Frequency_Global': '歷史總來訪次數'
             },
             size_max=30
         )
@@ -393,3 +460,149 @@ def render_crm_analysis(df_report, df_details):
             )
             fig_rfm2.update_layout(showlegend=False)
             st.plotly_chart(fig_rfm2, use_container_width=True)
+
+    ###################################################################
+    #                     Rolling Trend Section
+    ###################################################################
+    st.divider()
+    
+    st.subheader("🗓️ 長期走勢觀察區間")
+    from .utils import render_date_filter
+    s_date_t2, e_date_t2 = render_date_filter("crm_trend")
+    
+    start_ts_t2 = pd.Timestamp(s_date_t2)
+    end_ts_t2 = pd.Timestamp(e_date_t2)
+    
+    # Historical Rolling Trend (Excluding Closures)
+    st.subheader("📊 歷史客群營收走勢 (過去 28 營業日移動總和平滑)")
+    st.caption("自動排除店休與無營收日，每一點代表「包含當日在內的過去 28 個實際營業日」的客群營收**總和**。")
+    
+    df['Date_Only'] = df['Date_Parsed'].dt.date
+    daily_total = df.groupby('Date_Only')['total_amount'].sum().reset_index()
+    active_days = daily_total[daily_total['total_amount'] > 0]['Date_Only'].sort_values().unique()
+    
+    if len(active_days) > 0:
+        temp_df = df.copy()
+        
+        temp_members = temp_df[temp_df[col_id] != '非會員']
+        global_first = temp_members.groupby(col_id)['Date_Parsed'].min().reset_index()
+        global_first.columns = [col_id, 'Global_First_Visit']
+        
+        temp_df = temp_df.merge(global_first, on=col_id, how='left')
+        
+        def assign_global_type(row):
+            if row[col_id] == '非會員': return '非會員 (Non-member)'
+            if pd.isna(row['Global_First_Visit']): return '非會員 (Non-member)'
+            if row['Date_Only'] == row['Global_First_Visit'].date(): return '新客 (New)'
+            return '舊客 (Returning)'
+            
+        temp_df['Global_Type'] = temp_df.apply(assign_global_type, axis=1)
+        
+        daily_rev = temp_df.groupby(['Date_Only', 'Global_Type'])['total_amount'].sum().unstack(fill_value=0).reset_index()
+        
+        for c in ['新客 (New)', '舊客 (Returning)', '非會員 (Non-member)']:
+            if c not in daily_rev.columns: daily_rev[c] = 0
+            
+        daily_rev = daily_rev[daily_rev['Date_Only'].isin(active_days)].sort_values('Date_Only')
+        
+        rolling_df = daily_rev.copy()
+        rolling_df['新客營收總和 (28日)'] = rolling_df['新客 (New)'].rolling(window=28, min_periods=1).sum()
+        rolling_df['舊客營收總和 (28日)'] = rolling_df['舊客 (Returning)'].rolling(window=28, min_periods=1).sum()
+        rolling_df['非會員營收總和 (28日)'] = rolling_df['非會員 (Non-member)'].rolling(window=28, min_periods=1).sum()
+        
+        # Calculate Percentage Shares ONLY based on Member Revenue (Total = New + Returning)
+        rolling_df['純會員總和 (28日)'] = rolling_df['新客營收總和 (28日)'] + rolling_df['舊客營收總和 (28日)']
+        rolling_df['會員總和_Safe'] = rolling_df['純會員總和 (28日)'].replace(0, np.nan)
+        
+        rolling_df['新客會員內貢獻 (28日)'] = rolling_df['新客營收總和 (28日)'] / rolling_df['會員總和_Safe']
+        rolling_df['舊客會員內貢獻 (28日)'] = rolling_df['舊客營收總和 (28日)'] / rolling_df['會員總和_Safe']
+        
+        mask_period = (pd.to_datetime(rolling_df['Date_Only']) >= start_ts_t2) & (pd.to_datetime(rolling_df['Date_Only']) <= end_ts_t2)
+        plot_df = rolling_df.loc[mask_period].copy()
+        
+        if not plot_df.empty:
+            recent_stats = rolling_df[pd.to_datetime(rolling_df['Date_Only']) <= end_ts_t2]
+            
+            if not recent_stats.empty:
+                latest_row = recent_stats.iloc[-1]
+                latest_date_str = latest_row['Date_Only'].strftime('%Y-%m-%d')
+                
+                n_rev28 = latest_row['新客營收總和 (28日)']
+                r_rev28 = latest_row['舊客營收總和 (28日)']
+                nm_rev28 = latest_row['非會員營收總和 (28日)']
+                total_rev28 = n_rev28 + r_rev28 + nm_rev28
+                member_rev28 = n_rev28 + r_rev28
+                
+                idx = np.where(active_days == latest_row['Date_Only'])[0]
+                if len(idx) > 0:
+                    end_idx = idx[0]
+                    start_idx = max(0, end_idx - 27)
+                    window_days = active_days[start_idx : end_idx + 1]
+                    t2_txs = df[(df['Date_Parsed'].dt.date.isin(window_days)) & (df[col_id] != '非會員')]
+                    unique_members_28d = t2_txs[col_id].nunique()
+                else:
+                    unique_members_28d = 0
+                
+                st.markdown(f"**📌 基準日狀態快照** (以 `{latest_date_str}` 往前推算 28 實際營業日)")
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("👤 28營業日總活躍會員", f"{unique_members_28d:,.0f} 人")
+                m2.metric("🆕 新客營收貢獻 (28日)", f"${n_rev28:,.0f}", f"佔總營收 {n_rev28/total_rev28:.1%}" if total_rev28 else "0%", delta_color="off")
+                m3.metric("🤝 舊客營收貢獻 (28日)", f"${r_rev28:,.0f}", f"佔總營收 {r_rev28/total_rev28:.1%}" if total_rev28 else "0%", delta_color="off")
+                m4.metric("❓ 非會員營收佔比 (28日)", f"${nm_rev28:,.0f}", f"佔總營收 {nm_rev28/total_rev28:.1%}" if total_rev28 else "0%", delta_color="off")
+                
+            st.divider()    
+            
+            st.divider()    
+            
+            # Create figure with secondary y-axis
+            fig_rolling = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            color_map = {
+                '新客營收總和 (28日)': '#FF7B72',
+                '舊客營收總和 (28日)': '#7FCCB5',
+                '非會員營收總和 (28日)': '#C9D1D9',
+                '舊客會員內貢獻 (28日)': '#7FCCB5' # We will use a different style for this line
+            }
+            
+            # --- Primary Y-Axis (Absolute Revenue) ---
+            val_vars_abs = ['新客營收總和 (28日)', '舊客營收總和 (28日)', '非會員營收總和 (28日)']
+            for col in val_vars_abs:
+                fig_rolling.add_trace(
+                    go.Scatter(
+                        x=plot_df['Date_Only'], 
+                        y=plot_df[col], 
+                        name=col,
+                        line=dict(color=color_map[col], width=3),
+                        hovertemplate='<b>日期</b>: %{x}<br><b>' + col + '</b>: %{y:$,.0f}<extra></extra>'
+                    ),
+                    secondary_y=False,
+                )
+                
+            # --- Secondary Y-Axis (Percentage Share) ---
+            fig_rolling.add_trace(
+                go.Scatter(
+                    x=plot_df['Date_Only'], 
+                    y=plot_df['舊客會員內貢獻 (28日)'], 
+                    name='舊客會員內貢獻佔比 (28日)',
+                    line=dict(color='#F2C94C', width=3, dash='dot'), # Distinct Yellow/Gold dotted line for percentage
+                    hovertemplate='<b>日期</b>: %{x}<br><b>舊客佔比</b>: %{y:.1%}<extra></extra>'
+                ),
+                secondary_y=True,
+            )
+            
+            # --- Layout Configuration ---
+            fig_rolling.update_layout(
+                title="客群 28 營業日滾動總營收與舊客佔比趨勢",
+                hovermode="x unified", # Shows all tooltip data at once for the given x-axis hovered date
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            
+            # Set y-axes titles/formatting
+            fig_rolling.update_yaxes(title_text="28營業日總營收", secondary_y=False)
+            fig_rolling.update_yaxes(title_text="舊客會員內貢獻佔比", tickformat='.1%', secondary_y=True, range=[0, 1.05]) # Fix max to 105% context so the line doesn't hit the absolute top
+            
+            st.plotly_chart(fig_rolling, use_container_width=True)
+        else:
+            st.info("該區間並無足夠的營業日可以顯示趨勢。")
+    else:
+        st.info("資料庫中無大於 0 的營業日紀錄。")
