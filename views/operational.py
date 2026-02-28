@@ -287,8 +287,8 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
         )
         fig_dual.update_yaxes(title_text="來客數 (人)", secondary_y=False)
         fig_dual.update_yaxes(title_text="客單價 ($)", secondary_y=True)
-        
-        st.plotly_chart(fig_dual, use_container_width=True)
+        with st.expander("📊 點擊展開：查看詳細來客數與客單價雙軸走勢圖 (較耗資源)", expanded=False):
+            st.plotly_chart(fig_dual, use_container_width=True)
 
     st.divider()
     

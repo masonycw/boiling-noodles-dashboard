@@ -427,10 +427,10 @@ def render_crm_analysis(df_report, df_details, latest_dates=None):
                 'First_Visit_Str': '歷史首訪日',
                 'Days_Since_First_Visit': '成為會員天數',
                 'Frequency_Global': '歷史總來訪次數'
-            },
             size_max=30
         )
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        with st.expander("📊 點擊展開：查看 RFM 會員分佈散佈圖 (較耗資源)", expanded=False):
+            st.plotly_chart(fig_scatter, use_container_width=True)
         
         st.divider()
         
@@ -601,7 +601,8 @@ def render_crm_analysis(df_report, df_details, latest_dates=None):
             fig_rolling.update_yaxes(title_text="28營業日總營收", secondary_y=False)
             fig_rolling.update_yaxes(title_text="舊客會員內貢獻佔比", tickformat='.1%', secondary_y=True, range=[0, 1.05]) # Fix max to 105% context so the line doesn't hit the absolute top
             
-            st.plotly_chart(fig_rolling, use_container_width=True)
+            with st.expander("📊 點擊展開：查看詳細滾動趨勢圖表 (較耗資源)", expanded=False):
+                st.plotly_chart(fig_rolling, use_container_width=True)
         else:
             st.info("該區間並無足夠的營業日可以顯示趨勢。")
     else:
