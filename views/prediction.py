@@ -15,11 +15,26 @@ def is_holiday_tw(dt, tw_holidays):
     return False
 
 def is_cny_closed_day(dt, tw_holidays):
-    """Returns True if the date is Chinese New Year's Eve through Day 3."""
+    """Returns True if the date is Chinese New Year's Eve through Day 3, handling multiple holiday naming conventions."""
     name = tw_holidays.get(dt)
-    if name and ("Chinese New Year's Eve" in name or "Chinese New Year" in name) and "observed" not in name:
-        return True
-    return False
+    if not name:
+        return False
+        
+    if isinstance(name, list):
+        name = ", ".join(name)
+        
+    name = name.lower()
+    
+    # Ignore makeup days / observed days
+    if "observed" in name or "adjusted" in name or "補假" in name or "補行" in name:
+        return False
+        
+    cny_keywords = [
+        "chinese new year", "spring festival", "lunar new year",
+        "農曆除夕", "春節", "除夕", "初一", "初二", "初三"
+    ]
+    
+    return any(keyword in name for keyword in cny_keywords)
 
 def render_prediction_view(df_report):
     st.title("📈 營業額預測 (Revenue Prediction)")
