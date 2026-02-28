@@ -43,6 +43,11 @@ class UniversalLoader:
                         newest_raw_mtime = mtime
                     raw_files_to_process.append(full_path)
                     
+        # Include data_loader.py modification time to auto-invalidate if code changes
+        loader_mtime = os.path.getmtime(__file__)
+        if loader_mtime > newest_raw_mtime:
+            newest_raw_mtime = loader_mtime
+                    
         # 2. Check Parquet Cache validity
         if os.path.exists(report_cache) and os.path.exists(details_cache):
             cache_mtime = min(os.path.getmtime(report_cache), os.path.getmtime(details_cache))
@@ -75,9 +80,14 @@ class UniversalLoader:
         
         # --- Save Cache ---
         try:
-            # Parquet requires uniform column types (no mixed int/str). Cast all to string to be safe.
-            df_report_pq = df_report.astype(str)
-            df_details_pq = df_details.astype(str)
+            # Parquet requires uniform column types. Cast ONLY object columns to string to preserve numeric types.
+            df_report_pq = df_report.copy()
+            for col in df_report_pq.select_dtypes(include=['object']).columns:
+                df_report_pq[col] = df_report_pq[col].astype(str)
+                
+            df_details_pq = df_details.copy()
+            for col in df_details_pq.select_dtypes(include=['object']).columns:
+                df_details_pq[col] = df_details_pq[col].astype(str)
             
             df_report_pq.to_parquet(report_cache, engine='pyarrow', index=False)
             df_details_pq.to_parquet(details_cache, engine='pyarrow', index=False)
