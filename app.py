@@ -16,7 +16,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Force Reload Trigger: v2.3.1 (Fix Datetime Merge Error)
+# Force Reload Trigger: v2.4 (Version bump)
 
 # --- 2. Data Loading (Cached) ---
 @st.cache_data(ttl=300)

@@ -10,7 +10,7 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     # So we ignore passed defaults for interactive control here? 
     # Let's Implement Local Control.
 
-    st.title("📊 營運總覽 v2.3.1 (Datetime Fix)")
+    st.title("📊 營運總覽")
     
     # --- Local Date Filter ---
     from .utils import render_date_filter
