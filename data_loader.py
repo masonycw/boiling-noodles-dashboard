@@ -270,10 +270,22 @@ class UniversalLoader:
         final_report = pd.DataFrame()
         final_details = pd.DataFrame()
         invoice_lookup = pd.DataFrame()
+        self.latest_dates = {
+            'json': '無資料',
+            'csv_report': '無資料',
+            'csv_details': '無資料',
+            'invoice': '無資料'
+        }
 
         # 1. Consolidate Type 2 (Invoice)
         if self.invoice_data:
             invoice_lookup = pd.concat(self.invoice_data, ignore_index=True)
+            if 'date' in invoice_lookup.columns:
+                invoice_lookup['date'] = pd.to_datetime(invoice_lookup['date'], errors='coerce')
+                max_dt = invoice_lookup['date'].max()
+                if pd.notna(max_dt):
+                    self.latest_dates['invoice'] = max_dt.strftime('%Y-%m-%d')
+                    
             # Deduplicate Invoice Data (One row per Invoice ID)
             # If duplicates, keep last (or first?)
             if 'invoice_id' in invoice_lookup.columns:
@@ -283,20 +295,64 @@ class UniversalLoader:
         # 2. Consolidate Type 1 (Report - Master)
         if self.report_data:
             final_report = pd.concat(self.report_data, ignore_index=True)
+            if 'data_source' not in final_report.columns:
+                 final_report['data_source'] = 'csv'
+            else:
+                 final_report['data_source'] = final_report['data_source'].fillna('csv')
+                 
+            # Compute max dates BEFORE deduplication
+            if 'date' in final_report.columns:
+                temp_date = pd.to_datetime(final_report['date'], errors='coerce')
+                final_report['_temp_date'] = temp_date
+                
+                j_df = final_report[final_report['data_source'] == 'json']
+                if not j_df.empty:
+                    m = j_df['_temp_date'].max()
+                    if pd.notna(m): self.latest_dates['json'] = m.strftime('%Y-%m-%d')
+                    
+                c_df = final_report[final_report['data_source'] == 'csv']
+                if not c_df.empty:
+                    m = c_df['_temp_date'].max()
+                    if pd.notna(m): self.latest_dates['csv_report'] = m.strftime('%Y-%m-%d')
+                    
+                final_report.drop(columns=['_temp_date'], inplace=True)
+                 
             if 'order_id' in final_report.columns:
                 # Deduplicate Report Data: JSON has priority.
-                # Sort so 'data_source' == 'json' comes first (alphabetically, 'csv' comes before 'json', so we use ascending=False)
-                # Wait, default data_source is missing for CSV, let's fill it
-                if 'data_source' not in final_report.columns:
-                     final_report['data_source'] = 'csv'
-                else:
-                     final_report['data_source'] = final_report['data_source'].fillna('csv')
-                     
+                # Sort so 'data_source' == 'json' comes first
                 final_report.sort_values(by=['order_id', 'data_source'], ascending=[True, False], inplace=True)
+                
+                # --- PRESERVE CSV MEMBER DATA ---
+                # Before dropping the CSV row, we need to save the manual member info (phone, name).
+                # JSON data often lacks these if they were manually keyed into the POS note or CRM later.
+                cols_to_preserve = ['order_id']
+                if 'member_phone' in final_report.columns: cols_to_preserve.append('member_phone')
+                if 'customer_name' in final_report.columns: cols_to_preserve.append('customer_name')
+                
+                csv_members = pd.DataFrame()
+                if len(cols_to_preserve) > 1:
+                    csv_members = final_report[final_report['data_source'] == 'csv'][cols_to_preserve].copy()
+                    # Drop empty/nan rows to create a clean lookup table
+                    csv_members = csv_members.replace({'': pd.NA, 'nan': pd.NA}).dropna(subset=[c for c in cols_to_preserve if c != 'order_id'], how='all')
+                    csv_members.drop_duplicates(subset=['order_id'], keep='first', inplace=True)
+                
+                # Perform Deduplication
                 final_report.drop_duplicates(subset=['order_id'], keep='first', inplace=True)
+                
+                # --- APPLY CSV MEMBER DATA ---
+                # Back-fill the surviving JSON row with the preserved CSV member data
+                if not csv_members.empty:
+                    final_report = pd.merge(final_report, csv_members, on='order_id', how='left', suffixes=('', '_csv'))
+                    if 'member_phone' in final_report.columns and 'member_phone_csv' in final_report.columns:
+                        final_report['member_phone'] = final_report['member_phone'].replace({'': pd.NA, 'nan': pd.NA}).fillna(final_report['member_phone_csv'])
+                        final_report.drop(columns=['member_phone_csv'], inplace=True)
+                    if 'customer_name' in final_report.columns and 'customer_name_csv' in final_report.columns:
+                        final_report['customer_name'] = final_report['customer_name'].replace({'': pd.NA, 'nan': pd.NA}).fillna(final_report['customer_name_csv'])
+                        final_report.drop(columns=['customer_name_csv'], inplace=True)
+                        
             else:
                 final_report.drop_duplicates(inplace=True)
-            self.log(f"Initial REPORT Rows (Deduplicated with JSON priority): {len(final_report)}")
+            self.log(f"Initial REPORT Rows (Deduplicated with JSON priority & CRM Preserved): {len(final_report)}")
             
             # --- JOIN STRATEGY: Enrich Report with Invoice Info ---
             if not invoice_lookup.empty and 'invoice_id' in final_report.columns and 'invoice_id' in invoice_lookup.columns:
@@ -326,6 +382,21 @@ class UniversalLoader:
         # 3. Consolidate Type 3 (Details)
         if self.details_data:
             final_details = pd.concat(self.details_data, ignore_index=True)
+            
+            if 'data_source' not in final_details.columns:
+                 final_details['data_source'] = 'csv'
+            else:
+                 final_details['data_source'] = final_details['data_source'].fillna('csv')
+                 
+            # Extract Max Date before dropping CSV rows
+            if 'date' in final_details.columns:
+                c_df = final_details[final_details['data_source'] == 'csv'].copy()
+                if not c_df.empty:
+                    c_df['temp_date'] = pd.to_datetime(c_df['date'], errors='coerce')
+                    m = c_df['temp_date'].max()
+                    if pd.notna(m):
+                        self.latest_dates['csv_details'] = m.strftime('%Y-%m-%d')
+            
             # DO NOT drop_duplicates on details! Valid receipts can have identical item lines 
             # (e.g., ordering the same dish twice but POS outputs two lines).
             
@@ -334,12 +405,6 @@ class UniversalLoader:
                 valid_orders = set(final_report['order_id'].astype(str))
                 initial_count = len(final_details)
                 final_details = final_details[final_details['order_id'].astype(str).isin(valid_orders)]
-                
-                # Deduplicate details if they appear in both JSON and CSV
-                if 'data_source' not in final_details.columns:
-                     final_details['data_source'] = 'csv'
-                else:
-                     final_details['data_source'] = final_details['data_source'].fillna('csv')
                 
                 # To deduplicate details effectively, we must deduplicate the "CSV" lines if JSON lines are present for the same order_id
                 # So we drop ALL CSV rows where order_id exists in JSON details.
@@ -374,6 +439,11 @@ class UniversalLoader:
             tz = pytz.timezone('Asia/Taipei')
 
             for order in orders:
+                # Only process COMPLETED orders to match CSV behavior
+                # This filters out 'PROCESSING' (incomplete) or other states
+                if order.get('status') != 'COMPLETED':
+                    continue
+                    
                 # 1. REPORT DATA
                 order_id = order.get('short_code', '')
                 if not order_id:
@@ -460,6 +530,30 @@ class UniversalLoader:
                         'data_source': 'json'
                     }
                     details_list.append(details_row)
+                    
+                    # Also extract bundled sub-items (for combos)
+                    for b_item in item.get('bundled', []):
+                        b_name = b_item.get('product_name', {}).get('default', '') or b_item.get('product_name', {}).get('zh_TW', '')
+                        b_sku = b_item.get('product_code', '')
+                        b_qty = b_item.get('quantity', 0)
+                        
+                        b_mods = b_item.get('modifiers', [])
+                        b_opts = ', '.join([m.get('value_name', {}).get('zh_TW', '') for m in b_mods if isinstance(m, dict)])
+                        
+                        b_details_row = {
+                            'order_id': order_id,
+                            'date': date_str,
+                            'status': status,
+                            'item_name': b_name,
+                            'sku': b_sku,
+                            'qty': b_qty * qty,  # Multiply by parent combo quantity
+                            'unit_price': b_item.get('price', 0),
+                            'item_total': b_item.get('price_total', 0),
+                            'options': b_opts,
+                            'item_type': 'Combo Item', # Sub-items are part of the combo
+                            'data_source': 'json'
+                        }
+                        details_list.append(b_details_row)
 
             if report_list:
                 df_r = pd.DataFrame(report_list)
@@ -524,6 +618,62 @@ class UniversalLoader:
             known_platforms = {'55941277', '77519126'}
             platform_phones = shared_phones_auto.union(known_platforms)
             
+            # --- Carrier ID to Phone Mapping (Strategy B) ---
+            # 1. Extract valid, non-platform, non-hidden phones with carrier IDs
+            valid_phone_mask = (
+                (temp_phones.str.len() > 6) & 
+                (~temp_phones.str.contains(r'\*')) & 
+                (temp_phones != 'nan') &
+                (~temp_phones.isin(platform_phones)) &
+                (~temp_phones.apply(lambda p: any(k in p for k in known_platforms)))
+            )
+            
+            valid_carrier_mask = (
+                df_report['carrier_id'].astype(str).str.len() > 4
+            ) & (df_report['carrier_id'].astype(str) != 'nan')
+            
+            carrier_df = df_report[valid_phone_mask & valid_carrier_mask].copy()
+            
+            if not carrier_df.empty:
+                # 2. Calculate Frequency (distinct dates), Recency (max date), Monetary (sum amount)
+                carrier_df['date_only'] = carrier_df['Date_Parsed'].dt.date
+                carrier_stats = carrier_df.groupby(['carrier_id', 'member_phone', 'customer_name']).agg(
+                    Frequency=('date_only', 'nunique'),
+                    Recency=('Date_Parsed', 'max'),
+                    Monetary=('total_amount', 'sum')
+                ).reset_index()
+                
+                # Sort descending: Highest freq -> Most recent -> Highest amount
+                carrier_stats = carrier_stats.sort_values(
+                    by=['carrier_id', 'Frequency', 'Recency', 'Monetary'],
+                    ascending=[True, False, False, False]
+                )
+                
+                # Drop duplicates to keep the #1 Ranked phone per carrier
+                best_carriers = carrier_stats.drop_duplicates(subset=['carrier_id'], keep='first')
+                
+                # 3. Create mapping dictionaries
+                carrier_to_phone = dict(zip(best_carriers['carrier_id'], best_carriers['member_phone']))
+                carrier_to_name = dict(zip(best_carriers['carrier_id'], best_carriers['customer_name']))
+                
+                # 4. Apply mapping to rows with carrier but NO valid phone
+                # Identify rows needing backfill (missing, empty, nan, or hidden)
+                needs_backfill = (
+                    (~valid_phone_mask) & valid_carrier_mask & 
+                    (~temp_phones.isin(platform_phones)) & 
+                    (~temp_phones.apply(lambda p: any(k in p for k in known_platforms)))
+                )
+                
+                # Map values
+                mapped_phones = df_report.loc[needs_backfill, 'carrier_id'].map(carrier_to_phone)
+                mapped_names = df_report.loc[needs_backfill, 'carrier_id'].map(carrier_to_name)
+                
+                # Replace explicitly, ignore existing invalid values if map exists
+                df_report.loc[needs_backfill & mapped_phones.notna(), 'member_phone'] = mapped_phones
+                df_report.loc[needs_backfill & mapped_names.notna(), 'customer_name'] = mapped_names
+                
+            # --- End Carrier Mapping ---
+            
             def get_member_id(row):
                 p = str(row.get('member_phone', '')).strip().replace(' ', '')
                 c = str(row.get('carrier_id', '')).strip()
@@ -540,8 +690,8 @@ class UniversalLoader:
                     if len(n) > 0 and n != 'nan': return f"UE_{n}"
                     p = ''
                 
-                if len(p) > 6 and p != 'nan': return p # Valid Phone
-                if len(c) > 4 and c != 'nan': return c # Valid Carrier
+                if len(p) > 6 and p != 'nan': return f"CRM_{p}" # Valid Phone
+                if len(c) > 4 and c != 'nan': return f"Carrier_{c}" # Valid Carrier
                 return None # Non-member
                 
             df_report['Member_ID'] = df_report.apply(get_member_id, axis=1)
@@ -580,8 +730,11 @@ class UniversalLoader:
             # 2. Exclude rows where Modifier Name (options) is NOT Empty
             
             if 'options' in df_details.columns:
-                # If options has content, it's a modifier row
+                # If options has content, it's a modifier row (for CSV).
+                # For JSON, options are nested within the actual items, so having options doesn't make it a modifier row.
+                mask_csv = (df_details.get('data_source', '') != 'json')
                 df_details['Is_Modifier'] = (
+                    mask_csv &
                     df_details['options'].notna() & 
                     (df_details['options'].astype(str).str.strip() != '')
                 )
@@ -639,14 +792,46 @@ class UniversalLoader:
                 cond_no_sku_fallback = (sku_series == '') & cond_name_match & mask_not_combo
                 
                 # Must NOT be a Modifier
+                # For CSV, modifier rows often have 'options' filled. For JSON, 'options' are just attributes of the main dish.
+                mask_json = (df_details.get('data_source', '') == 'json')
                 mask_no_mod = (
+                    mask_json |
                     df_details['options'].isna() | 
                     (df_details['options'].astype(str).str.strip() == '')
                 )
                 
                 # Global Filter
                 df_details['Is_Main_Dish'] = (cond_sku_match | cond_no_sku_fallback) & mask_no_mod
+
+            # --- 3. Post-Enrichment Cross-Updates ---
+            # Update people_count in df_report based on actual Main Dishes in df_details
+            # Especially crucial for JSON orders and Delivery/Takeout where party_size is hardcoded to 1
+            if 'Is_Main_Dish' in df_details.columns and 'order_id' in df_report.columns:
+                # Count main dishes per order
+                main_dish_counts = df_details[df_details['Is_Main_Dish']].groupby('order_id')['qty'].sum().reset_index()
+                main_dish_counts = main_dish_counts.rename(columns={'qty': 'calculated_people'})
                 
+                # Merge into report
+                df_report = df_report.merge(main_dish_counts, on='order_id', how='left')
+                df_report['calculated_people'] = df_report['calculated_people'].fillna(0)
+                
+                # Logic: If calculated people > current people_count OR it's a JSON order, use calculated
+                # (except if calculated is 0, keep at least 1 if original was >= 1)
+                def fix_people_count(row):
+                    orig = pd.to_numeric(row.get('people_count', 0), errors='coerce')
+                    if pd.isna(orig): orig = 0
+                    calc = row.get('calculated_people', 0)
+                    
+                    # For JSON or Takeout/Delivery, mostly trust the main dish count
+                    if row.get('data_source') == 'json' or row.get('order_type') in ['外送', '外帶', '自取']:
+                        return max(calc, 1) if calc > 0 else max(orig, 1)
+                    
+                    # For normal Dine-in CSVs, if calculated > orig, trust calculated
+                    return max(orig, calc)
+                    
+                df_report['people_count'] = df_report.apply(fix_people_count, axis=1)
+                df_report.drop(columns=['calculated_people'], inplace=True)
+
         return df_report, df_details
 
     def _get_day_type(self, dt):

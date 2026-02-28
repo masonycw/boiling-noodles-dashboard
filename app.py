@@ -27,14 +27,15 @@ def get_data():
     # Enrich Data (Business Logic)
     df_report, df_details = loader.enrich_data(df_report, df_details)
     
-    return df_report, df_details, logs
+    latest_dates = getattr(loader, 'latest_dates', {})
+    return df_report, df_details, logs, latest_dates
 
 # --- 3. Main App ---
 def main():
     st.sidebar.title(f"🍜 滾麵 Dashboard v{APP_VERSION}")
     
     with st.spinner('數據處理中 (Rebuilding V2)...'):
-        df_report, df_details, debug_logs = get_data()
+        df_report, df_details, debug_logs, latest_dates = get_data()
 
     if df_report.empty:
         st.warning("尚未載入資料")
@@ -90,10 +91,10 @@ def main():
         prediction.render_prediction_view(df_report)
         
     elif view_mode == "👥 會員查詢":
-        member.render_member_search(df_report, df_details)
+        member.render_member_search(df_report, df_details, latest_dates)
         
     elif view_mode == "🆕 新舊客分析":
-        member.render_crm_analysis(df_report, df_details)
+        member.render_crm_analysis(df_report, df_details, latest_dates)
         
     elif view_mode == "🔧 系統檢查":
         system.render_system_check(debug_logs, df_report, df_details)
