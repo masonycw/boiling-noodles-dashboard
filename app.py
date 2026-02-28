@@ -84,7 +84,7 @@ def main():
         
         st.subheader("📅 銷售分析區間")
         from views.utils import render_date_filter
-        s_date, e_date = render_date_filter("sales")
+        s_date, e_date = render_date_filter("sales", "近2週 (Last 2 Weeks)")
         sales.render_sales_view(df_details, s_date, e_date)
             
     elif view_mode == "📈 營業額預測":

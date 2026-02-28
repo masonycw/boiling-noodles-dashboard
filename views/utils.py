@@ -17,6 +17,9 @@ def get_date_range_shortcut(shortcut_name):
         first_day_this_month = today.replace(day=1)
         end = first_day_this_month - timedelta(days=1)
         start = end.replace(day=1)
+    elif shortcut_name == "近2週 (Last 2 Weeks)":
+        end = today
+        start = end - timedelta(days=14)
     elif shortcut_name == "近4週 (Last 4 Weeks)":
         end = today
         start = end - timedelta(days=28)
@@ -46,7 +49,7 @@ def get_date_range_shortcut(shortcut_name):
         
     return start, end
 
-def render_date_filter(key_prefix):
+def render_date_filter(key_prefix, default_shortcut="這個月 (This Month)"):
     """Renders a date filter with shortcuts and returns (start_date, end_date) as datetime objects."""
     
     # Generate past 6 months dynamically (e.g. 2026年01月)
@@ -61,6 +64,7 @@ def render_date_filter(key_prefix):
         "自訂 (Custom)", 
         "這個月 (This Month)", 
         "上個月 (Last Month)", 
+        "近2週 (Last 2 Weeks)",
         "近4週 (Last 4 Weeks)", 
         "近6個月 (Last 6 Months)",
         "近12個月 (Last 12 Months)",
@@ -69,7 +73,8 @@ def render_date_filter(key_prefix):
     
     col1, col2 = st.columns([1, 2])
     with col1:
-        shortcut = st.selectbox("📅 快速選擇區間", shortcuts, key=f"{key_prefix}_shortcut")
+        default_idx = shortcuts.index(default_shortcut) if default_shortcut in shortcuts else 0
+        shortcut = st.selectbox("📅 快速選擇區間", shortcuts, index=default_idx, key=f"{key_prefix}_shortcut")
     
     start_shortcut, end_shortcut = get_date_range_shortcut(shortcut)
     

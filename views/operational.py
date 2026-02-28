@@ -14,9 +14,9 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
     
     # --- Local Date Filter ---
     from .utils import render_date_filter
-    start_date, end_date = render_date_filter("ops")
-        
-        
+    start_date, end_date = render_date_filter("ops", "近2週 (Last 2 Weeks)")
+    
+    # Filter Data      
     st.divider()
 
     # Filter Data

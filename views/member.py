@@ -165,7 +165,7 @@ def render_crm_analysis(df_report, df_details, latest_dates=None):
     
     st.subheader("🗓️ 單期綜合分析區間")
     from .utils import render_date_filter
-    s_date, e_date = render_date_filter("crm_tab1")
+    s_date, e_date = render_date_filter("crm_tab1", "這個月 (This Month)")
     
     start_ts = pd.Timestamp(s_date)
     end_ts = pd.Timestamp(e_date)
@@ -469,7 +469,7 @@ def render_crm_analysis(df_report, df_details, latest_dates=None):
     
     st.subheader("🗓️ 長期走勢觀察區間")
     from .utils import render_date_filter
-    s_date_t2, e_date_t2 = render_date_filter("crm_trend")
+    s_date_t2, e_date_t2 = render_date_filter("crm_trend", "這個月 (This Month)")
     
     start_ts_t2 = pd.Timestamp(s_date_t2)
     end_ts_t2 = pd.Timestamp(e_date_t2)
