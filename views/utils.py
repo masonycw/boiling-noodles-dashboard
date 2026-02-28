@@ -20,9 +20,9 @@ def get_date_range_shortcut(shortcut_name):
     elif shortcut_name == "近4週 (Last 4 Weeks)":
         end = today
         start = end - timedelta(days=28)
-    elif shortcut_name == "近2個月 (Last 2 Months)":
+    elif shortcut_name == "近3個月 (Last 3 Months)":
         end = today
-        start = end - relativedelta(months=2)
+        start = end - relativedelta(months=3)
     elif shortcut_name == "近6個月 (Last 6 Months)":
         end = today
         start = end - relativedelta(months=6)
@@ -57,11 +57,11 @@ def render_date_filter(key_prefix):
         past_months.append(target_month.strftime("%Y年%m月"))
 
     shortcuts = [
+        "近3個月 (Last 3 Months)", 
         "自訂 (Custom)", 
         "這個月 (This Month)", 
         "上個月 (Last Month)", 
         "近4週 (Last 4 Weeks)", 
-        "近2個月 (Last 2 Months)", 
         "近6個月 (Last 6 Months)",
         "近12個月 (Last 12 Months)",
         "所有歷史資料 (All Time)"
@@ -80,7 +80,8 @@ def render_date_filter(key_prefix):
             s_date, e_date = start_shortcut, end_shortcut
         else:
             # Custom date input
-            default_val = (today.replace(day=1), today)
+            default_start = today - relativedelta(months=3)
+            default_val = (default_start, today)
             d_range = st.date_input("選擇日期", value=default_val, key=f"{key_prefix}_date_custom")
             if len(d_range) == 2:
                 s_date, e_date = d_range[0], d_range[1]

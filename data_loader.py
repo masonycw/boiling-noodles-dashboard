@@ -16,31 +16,76 @@ class UniversalLoader:
         print(message) 
 
     def scan_and_load(self):
-        """Scans and loads files, classifying them into 3 types."""
-        self.report_data = []
-        self.invoice_data = []
-        self.details_data = []
-        self.debug_logs = []
-        self.seen_files = set()
-
+        """Scans raw files or loads from instant Parquet cache if available and valid."""
+        # --- Cache Validation Logic ---
+        cache_dir = os.path.join(os.getcwd(), 'cache')
+        os.makedirs(cache_dir, exist_ok=True)
+        report_cache = os.path.join(cache_dir, 'df_report.parquet')
+        details_cache = os.path.join(cache_dir, 'df_details.parquet')
+        
+        # 1. Find the newest raw data file modification time
+        newest_raw_mtime = 0
+        raw_files_to_process = []
+        
         for root_dir in config.DATA_DIRS:
             if not os.path.exists(root_dir):
                 self.log(f"Skipping missing directory: {root_dir}")
                 continue
-
+                
             for current_root, dirs, files in os.walk(root_dir):
-                if '/.' in current_root: continue 
-
-                for f in sorted(files):
+                if '/.' in current_root: continue
+                for f in files:
                     if not (f.endswith(".csv") or f.endswith(".json") or f.endswith(".txt")): continue
                     
                     full_path = os.path.join(current_root, f)
-                    if full_path in self.seen_files: continue
-                    self.seen_files.add(full_path)
+                    mtime = os.path.getmtime(full_path)
+                    if mtime > newest_raw_mtime:
+                        newest_raw_mtime = mtime
+                    raw_files_to_process.append(full_path)
+                    
+        # 2. Check Parquet Cache validity
+        if os.path.exists(report_cache) and os.path.exists(details_cache):
+            cache_mtime = min(os.path.getmtime(report_cache), os.path.getmtime(details_cache))
+            
+            if cache_mtime >= newest_raw_mtime:
+                self.log("⚡ [Parquet Cache Hit] Raw files unchanged. Loading binary cache instantly...")
+                try:
+                    df_report = pd.read_parquet(report_cache)
+                    df_details = pd.read_parquet(details_cache)
+                    self.log(f"⚡ Successfully loaded {len(df_report)} report rows and {len(df_details)} details from Parquet.")
+                    return df_report, df_details, self.debug_logs
+                except Exception as e:
+                    self.log(f"⚠️ Failed to load Parquet cache: {e}. Reverting to raw scan.")
+        
+        self.log("🔄 [Cache Miss or Invalid] Processing raw files from scratch...")
+        
+        # --- Raw Parsing Logic (Fallback / Cache Rebuild) ---
+        self.report_data = []
+        self.invoice_data = []
+        self.details_data = []
+        self.seen_files = set()
 
-                    self._process_file(full_path)
+        for full_path in raw_files_to_process:
+            if full_path in self.seen_files: continue
+            self.seen_files.add(full_path)
+            self._process_file(full_path)
 
-        return self._merge_data()
+        # Merge raw data
+        df_report, df_details, logs = self._merge_data()
+        
+        # --- Save Cache ---
+        try:
+            # Parquet requires uniform column types (no mixed int/str). Cast all to string to be safe.
+            df_report_pq = df_report.astype(str)
+            df_details_pq = df_details.astype(str)
+            
+            df_report_pq.to_parquet(report_cache, engine='pyarrow', index=False)
+            df_details_pq.to_parquet(details_cache, engine='pyarrow', index=False)
+            self.log("💾 [Cache Saved] Parquet cache rebuilt successfully.")
+        except Exception as e:
+            self.log(f"⚠️ Failed to save Parquet cache: {e}")
+            
+        return df_report, df_details, logs
 
     def _process_file(self, file_path):
         try:
