@@ -427,6 +427,7 @@ def render_crm_analysis(df_report, df_details, latest_dates=None):
                 'First_Visit_Str': '歷史首訪日',
                 'Days_Since_First_Visit': '成為會員天數',
                 'Frequency_Global': '歷史總來訪次數'
+            },
             size_max=30
         )
         with st.expander("📊 點擊展開：查看 RFM 會員分佈散佈圖 (較耗資源)", expanded=False):
