@@ -14,6 +14,13 @@ def is_holiday_tw(dt, tw_holidays):
         return True
     return False
 
+def is_cny_closed_day(dt, tw_holidays):
+    """Returns True if the date is Chinese New Year's Eve through Day 3."""
+    name = tw_holidays.get(dt)
+    if name and ("Chinese New Year's Eve" in name or "Chinese New Year" in name) and "observed" not in name:
+        return True
+    return False
+
 def render_prediction_view(df_report):
     st.title("📈 營業額預測 (Revenue Prediction)")
 
@@ -68,6 +75,7 @@ def render_prediction_view(df_report):
     col_h.metric(f"🎌 假日平均營業額 ({ref_window})", f"${avg_hol_rev:,.0f}")
     
     st.caption("* 假日定義：包含週末 (六、日) 以及國定假日")
+    st.caption("* 注意：預測邏輯已自動扣除每年除夕至初三之春節店休日，該四日預測營業額將視為 $0。")
     st.divider()
     
     # --- Historical Trend Chart ---
@@ -142,7 +150,9 @@ def render_prediction_view(df_report):
         hol_count = 0
         
         for d in dates_in_month:
-            if is_holiday_tw(d, tw_holidays):
+            if is_cny_closed_day(d, tw_holidays):
+                continue # Store is closed, exclude from multiplier completely
+            elif is_holiday_tw(d, tw_holidays):
                 hol_count += 1
             else:
                 wd_count += 1
