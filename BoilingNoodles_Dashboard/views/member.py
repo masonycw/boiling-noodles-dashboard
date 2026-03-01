@@ -525,7 +525,8 @@ def render_crm_analysis(df_report, df_details, df_crm, latest_dates=None):
                 if len(idx) > 0:
                     end_idx = idx[0]
                     start_idx = max(0, end_idx - 27)
-                    t2_txs = df_crm[(df_crm['Date_Parsed'].dt.date.isin(window_days)) & (df_crm['User_Type'] != '非會員 (Non-member)')]
+                    window_days_crm = active_days[start_idx : end_idx + 1]
+                    t2_txs = df_crm[(df_crm['Date_Parsed'].dt.date.isin(window_days_crm)) & (df_crm['User_Type'] != '非會員 (Non-member)')]
                     unique_members_28d = t2_txs['Active_Members'].sum()
                 else:
                     unique_members_28d = 0
