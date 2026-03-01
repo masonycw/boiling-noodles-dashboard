@@ -32,7 +32,7 @@ jobs:
           
           # Run deployment commands
           ssh "$SSH_USER@$SSH_HOST" "
-            DEPLOY_DIR=~/boiling-noodles-dashboard
+            DEPLOY_DIR=~/boiling-noodles-dashboard/BoilingNoodles_Dashboard
             cd \"\$DEPLOY_DIR\"
             
             # 1. 更新程式碼
@@ -43,8 +43,8 @@ jobs:
             echo 'Checking deployed version on disk...'
             grep 'APP_VERSION' config.py
             
-            # 2. 啟動虛擬環境與安裝
-            source venv/bin/activate
+            # 2. 啟動虛擬環境與安裝 (venv 在外層目錄)
+            source ../venv/bin/activate
             pip install -r requirements.txt
             
             # 3. 清理舊程序 (只殺自己的，避免權限報錯導致腳本崩潰)
@@ -65,9 +65,9 @@ jobs:
             # 4. 啟動 Streamlit
             echo 'Starting Streamlit on Port 8501...'
             
-            # 使用最原始的啟動方式 (./venv/bin/streamlit) 
+            # 使用最原始的啟動方式 (../venv/bin/streamlit) 
             # 加上 CORS/XSRF false 以防止瀏覽器連線被擋
-            nohup ./venv/bin/streamlit run app.py \
+            nohup ../venv/bin/streamlit run app.py \
               --server.port=8501 \
               --server.address=0.0.0.0 \
               --server.headless=true \

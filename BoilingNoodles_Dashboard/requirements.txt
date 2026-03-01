@@ -4,3 +4,5 @@ plotly
 openpyxl
 xlrd>=2.0.1
 holidays
+pyarrow
+fastparquet
