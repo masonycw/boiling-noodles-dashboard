@@ -374,11 +374,12 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
         
         final_cols = [c for c in cols_order if c in base_agg.columns]
         
-        st.dataframe(
-            base_agg[final_cols].sort_values(date_col, ascending=False).style.format({
-                '中午營業額': "${:,.0f}", '晚上營業額': "${:,.0f}", '總營業額': "${:,.0f}",
-                '整日來客數': "{:,.0f}", '客單價': "${:,.0f}",
-                '外送營業額': "${:,.0f}", '外帶營業額': "${:,.0f}", '堂食營業額': "${:,.0f}"
-            }), 
-            use_container_width=True
-        )
+        with st.expander("📋 點擊查看：詳細每日營運數據報表 (Data Table)", expanded=False):
+            st.dataframe(
+                base_agg[final_cols].sort_values(date_col, ascending=False).style.format({
+                    '中午營業額': "${:,.0f}", '晚上營業額': "${:,.0f}", '總營業額': "${:,.0f}",
+                    '整日來客數': "{:,.0f}", '客單價': "${:,.0f}",
+                    '外送營業額': "${:,.0f}", '外帶營業額': "${:,.0f}", '堂食營業額': "${:,.0f}"
+                }), 
+                use_container_width=False
+            )

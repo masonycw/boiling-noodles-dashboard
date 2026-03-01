@@ -104,9 +104,9 @@ def render_member_search(df_report, df_details, latest_dates=None):
             c4.metric("最近來店", str(last_visit))
             
             # Purchase History
-            st.subheader("🧾 消費歷程")
-            hist_df = mem_records[['Date_Parsed', 'order_id', 'total_amount', 'order_type', 'customer_name']].copy()
-            st.dataframe(hist_df.style.format({'total_amount': '${:,.0f}', 'Date_Parsed': '{:%Y-%m-%d %H:%M}'}), use_container_width=True)
+            with st.expander("🧾 點擊查看歷史消費歷程 (Purchase History)", expanded=False):
+                hist_df = mem_records[['Date_Parsed', 'order_id', 'total_amount', 'order_type', 'customer_name']].copy()
+                st.dataframe(hist_df.style.format({'total_amount': '${:,.0f}', 'Date_Parsed': '{:%Y-%m-%d %H:%M}'}), use_container_width=True)
             
             # Favorite Items (if details available)
             if not df_details.empty:
@@ -297,7 +297,7 @@ def render_crm_analysis(df_report, df_details, latest_dates=None):
                     if not df_u.empty:
                         top_items = df_u.groupby('item_name')['qty'].sum().reset_index().sort_values('qty', ascending=False).head(5)
                         # Minimalist bar chart
-                        st.dataframe(top_items.rename(columns={'item_name': '餐點', 'qty': '數量'}).set_index('餐點'), use_container_width=True)
+                        st.dataframe(top_items.rename(columns={'item_name': '餐點', 'qty': '數量'}).set_index('餐點'), use_container_width=False)
                     else:
                         st.caption("無資料")
     else:
