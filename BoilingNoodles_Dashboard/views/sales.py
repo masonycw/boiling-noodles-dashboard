@@ -82,8 +82,9 @@ def render_sales_view(df_sales, start_date, end_date):
     df_real['Date_Parsed'] = pd.to_datetime(df_real['Date_Parsed'])
     trend_df = df_real.set_index('Date_Parsed').groupby('item_name').resample(freq)['qty'].sum().reset_index()
 
-    fig_line = px.line(trend_df, x='Date_Parsed', y='qty', color='item_name', markers=True, title="商品銷售趨勢")
-    st.plotly_chart(fig_line, use_container_width=True)
+    if st.toggle("📊 開啟：商品銷售趨勢圖 (折線圖)", value=False):
+        fig_line = px.line(trend_df, x='Date_Parsed', y='qty', color='item_name', markers=True, title="商品銷售趨勢")
+        st.plotly_chart(fig_line, use_container_width=True)
 
     st.divider()
 

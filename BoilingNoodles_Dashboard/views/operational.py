@@ -163,77 +163,71 @@ def render_operational_view(df_ops):
         cat_pie = df_rep.groupby('Order_Category')['total_amount'].sum().reset_index()
 
         # --- Visualizations ---
-        
-        c_chart1, c_chart2 = st.columns([2, 1])
-        
-        with c_chart1:
-            # Bidirectional Bar: Lunch(-) / Dinner(+)
-            # Sort so colors and legend map cleanly
-            daily_period = daily_period.sort_values('Period', ascending=False)
+        if st.toggle("📊 開啟：進階營運圖表 (午晚餐佔比 / 點餐圓餅圖 / 客單雙軸)", value=False):
+            c_chart1, c_chart2 = st.columns([2, 1])
             
-            fig_bar = px.bar(
-                daily_period, 
-                x='Date_Parsed', 
-                y='plot_amount', 
-                color='Period', 
-                title="每日營業額 (午餐向下 / 晚餐向上)",
-                labels={'plot_amount': '金額', 'Date_Parsed': '日期', 'Period': '時段'},
-                custom_data=['abs_amount'] # Pass absolute amount to hover
+            with c_chart1:
+                # Bidirectional Bar: Lunch(-) / Dinner(+)
+                # Sort so colors and legend map cleanly
+                daily_period = daily_period.sort_values('Period', ascending=False)
+                
+                fig_bar = px.bar(
+                    daily_period, 
+                    x='Date_Parsed', 
+                    y='plot_amount', 
+                    color='Period', 
+                    title="每日營業額 (午餐向下 / 晚餐向上)",
+                    labels={'plot_amount': '金額', 'Date_Parsed': '日期', 'Period': '時段'},
+                    custom_data=['abs_amount'] # Pass absolute amount to hover
+                )
+                
+                # Customize hover to show positive values regardless of direction
+                fig_bar.update_traces(hovertemplate='時段: %{color}<br>日期: %{x}<br>金額: $%{customdata[0]:,.0f}')
+                
+                # Make Y-axis labels positive only
+                fig_bar.update_layout(
+                    xaxis_title=None,
+                    yaxis=dict(tickformat="f"), 
+                    barmode='relative'
+                )
+                
+                st.plotly_chart(fig_bar, use_container_width=True)
+                
+            with c_chart2:
+                # Pie Chart: Order Category
+                fig_pie = px.pie(
+                    cat_pie, 
+                    values='total_amount', 
+                    names='Order_Category', 
+                    title="營收佔比 (期間加總)",
+                    hole=0.4
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+            
+            # Row 2: Line Chart (Visitors & Avg Check) - Dual Axis
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+            
+            fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            # Line 1: Visitors
+            fig_dual.add_trace(
+                go.Scatter(x=daily_stats['Date_Parsed'], y=daily_stats['final_visitors'], name="整日來客數", mode='lines+markers'),
+                secondary_y=False
             )
             
-            # Customize hover to show positive values regardless of direction
-            fig_bar.update_traces(hovertemplate='時段: %{color}<br>日期: %{x}<br>金額: $%{customdata[0]:,.0f}')
-            
-            # Make Y-axis labels positive only
-            fig_bar.update_layout(
-                xaxis_title=None,
-                yaxis=dict(tickformat="f"), 
-                barmode='relative'
+            # Line 2: Avg Check
+            fig_dual.add_trace(
+                go.Scatter(x=daily_stats['Date_Parsed'], y=daily_stats['avg_check'], name="客單價", mode='lines+markers', line=dict(dash='dot')),
+                secondary_y=True
             )
             
-            # Format tick labels to strip the minus sign using tickvals/ticktext if needed
-            # A simpler way in Plotly is using tickformat string: 
-            # Note: to hide negative sign in plotly ticks, we can just let it show for now and see, 
-            # or fix it explicitly. Let's rely on hover for exact value.
-            
-            st.plotly_chart(fig_bar, use_container_width=True)
-            
-        with c_chart2:
-            # Pie Chart: Order Category
-            fig_pie = px.pie(
-                cat_pie, 
-                values='total_amount', 
-                names='Order_Category', 
-                title="營收佔比 (期間加總)",
-                hole=0.4
+            fig_dual.update_layout(
+                title_text="每日來客數 & 客單價趨勢",
+                xaxis_title="日期"
             )
-            st.plotly_chart(fig_pie, use_container_width=True)
-            
-        # Row 2: Line Chart (Visitors & Avg Check) - Dual Axis
-        import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
-        
-        fig_dual = make_subplots(specs=[[{"secondary_y": True}]])
-        
-        # Line 1: Visitors
-        fig_dual.add_trace(
-            go.Scatter(x=daily_stats['Date_Parsed'], y=daily_stats['final_visitors'], name="整日來客數", mode='lines+markers'),
-            secondary_y=False
-        )
-        
-        # Line 2: Avg Check
-        fig_dual.add_trace(
-            go.Scatter(x=daily_stats['Date_Parsed'], y=daily_stats['avg_check'], name="客單價", mode='lines+markers', line=dict(dash='dot')),
-            secondary_y=True
-        )
-        
-        fig_dual.update_layout(
-            title_text="每日來客數 & 客單價趨勢",
-            xaxis_title="日期"
-        )
-        fig_dual.update_yaxes(title_text="來客數 (人)", secondary_y=False)
-        fig_dual.update_yaxes(title_text="客單價 ($)", secondary_y=True)
-        if st.toggle("📊 開啟：來客數與客單價雙軸走勢圖 (耗費運算資源)", value=False):
+            fig_dual.update_yaxes(title_text="來客數 (人)", secondary_y=False)
+            fig_dual.update_yaxes(title_text="客單價 ($)", secondary_y=True)
             st.plotly_chart(fig_dual, use_container_width=True)
 
     st.divider()
