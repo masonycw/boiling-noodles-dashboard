@@ -243,7 +243,8 @@ def render_operational_view(df_ops):
     if not df_rep.empty:
         # Resample Base
         grouped = df_rep.set_index('Date_Parsed').resample(ov_freq)
-        base_agg = grouped['total_amount'].sum().reset_index().rename(columns={'total_amount': '總營業額'})
+        base_agg = grouped.agg({'total_amount': 'sum', 'people_count': 'sum'}).reset_index()
+        base_agg.rename(columns={'total_amount': '總營業額', 'people_count': '整日來客數'}, inplace=True)
         
         # 1. Lunch / Dinner
         if 'Period' in df_rep.columns:
@@ -263,9 +264,7 @@ def render_operational_view(df_ops):
              res.rename(columns={'total_amount': col_name}, inplace=True)
              base_agg = base_agg.merge(res, on='Date_Parsed', how='left').fillna(0)
              
-        base_agg = base_agg.merge(ds_resampled, on='Date_Parsed', how='left')
-        base_agg.rename(columns={'final_visitors': '整日來客數'}, inplace=True)
-        
+
         # Avg Check
         base_agg['客單價'] = base_agg['總營業額'] / base_agg['整日來客數'].replace(0, 1)
 
