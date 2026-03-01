@@ -6,7 +6,7 @@ import os
 # System Version
 # System Version
 # Global Version Config
-APP_VERSION = "2.4"
+APP_VERSION = "2.4.1"
 
 # --- Paths ---
 # Define ROOT paths to scan recursively
