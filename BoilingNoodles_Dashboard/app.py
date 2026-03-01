@@ -70,7 +70,7 @@ def main():
     # --- Routing ---
     if view_mode == "📊 營運總覽":
         # operational view handles its own dates now
-        operational.render_operational_view(df_report, df_details)
+        operational.render_operational_view(df_ops)
         
     elif view_mode == "🍟 商品銷售分析":
         # Needs date range, likely local to view or share same logic?
