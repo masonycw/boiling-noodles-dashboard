@@ -1,4 +1,7 @@
 [server]
 enableWebsocketCompression = false
+enableCORS = false
+enableXsrfProtection = false
+fileWatcherType = "none"
 [browser]
 gatherUsageStats = false
