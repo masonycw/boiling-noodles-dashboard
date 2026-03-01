@@ -50,13 +50,13 @@ jobs:
             source ../venv/bin/activate
             pip install -r requirements.txt
             
-            # 3. 清理舊程序 (只殺自己的，避免權限報錯導致腳本崩潰)
-            echo 'Clearing user processes on Port 8501...'
-            pkill -u $(whoami) -f 'streamlit run' > /dev/null 2>&1 || true
+            # 3. 清理舊程序 (嘗試使用管理員權限強殺殭屍程序)
+            echo 'Clearing all streamlit processes on Port 8501...'
+            sudo -n pkill -f 'streamlit run' > /dev/null 2>&1 || pkill -f 'streamlit run' > /dev/null 2>&1 || true
             sleep 2
             
-            # 使用 fuser 嘗試清理端口 (轉向 null 忽略錯誤)
-            fuser -k 8501/tcp > /dev/null 2>&1 || true
+            # 使用 fuser 嘗試清理端口
+            sudo -n fuser -k 8501/tcp > /dev/null 2>&1 || fuser -k 8501/tcp > /dev/null 2>&1 || true
             sleep 2
             
             # 檢查 Port 8501 是否被 Root 佔用
