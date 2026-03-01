@@ -32,14 +32,17 @@ jobs:
           
           # Run deployment commands
           ssh "$SSH_USER@$SSH_HOST" "
-            DEPLOY_DIR=~/boiling-noodles-dashboard/BoilingNoodles_Dashboard
-            cd \"\$DEPLOY_DIR\"
+            # 1. 進入原本的專案根目錄並更新程式碼
+            cd ~/boiling-noodles-dashboard
             
-            # 1. 更新程式碼
             git fetch --all
             git reset --hard origin/main
             
-            # Debug: 顯示當前版本 (確認是否為 2.3.2)
+            # 進入新架構的子目錄
+            DEPLOY_DIR=~/boiling-noodles-dashboard/BoilingNoodles_Dashboard
+            cd "\$DEPLOY_DIR"
+            
+            # Debug: 顯示當前版本
             echo 'Checking deployed version on disk...'
             grep 'APP_VERSION' config.py
             
