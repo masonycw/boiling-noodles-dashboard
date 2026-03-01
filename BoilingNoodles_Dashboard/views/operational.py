@@ -4,75 +4,40 @@ import pandas as pd
 import numpy as np
 from .utils import calculate_delta
 
-def render_operational_view(df_report, df_details, start_date=None, end_date=None):
-    # If dates passed from global, use them as defaults? 
-    # User said: "Left side date filter, only for operational overview, move it to top"
-    # So we ignore passed defaults for interactive control here? 
-    # Let's Implement Local Control.
-
+def render_operational_view(df_ops):
     st.title("📊 營運總覽")
     
     # --- Local Date Filter ---
     from .utils import render_date_filter
     start_date, end_date = render_date_filter("ops", "近2週 (Last 2 Weeks)")
     
-    # Filter Data      
     st.divider()
 
     # Filter Data
-    mask_rep = (df_report['Date_Parsed'] >= start_date) & (df_report['Date_Parsed'] <= end_date)
-    df_rep = df_report.loc[mask_rep].copy()
+    start_ts = pd.to_datetime(start_date)
+    end_ts = pd.to_datetime(end_date)
+    
+    mask_rep = (df_ops['Date_Parsed'] >= start_ts) & (df_ops['Date_Parsed'] <= end_ts)
+    df_rep = df_ops.loc[mask_rep].copy()
     
     # Previous Period
     duration = end_date - start_date
-    prev_end = start_date - pd.Timedelta(days=1)
-    prev_start = prev_end - duration
-    mask_rep_prev = (df_report['Date_Parsed'] >= prev_start) & (df_report['Date_Parsed'] <= prev_end)
-    df_rep_prev = df_report.loc[mask_rep_prev].copy()
+    prev_end_ts = start_ts - pd.Timedelta(days=1)
+    prev_start_ts = prev_end_ts - duration
+    mask_rep_prev = (df_ops['Date_Parsed'] >= prev_start_ts) & (df_ops['Date_Parsed'] <= prev_end_ts)
+    df_rep_prev = df_ops.loc[mask_rep_prev].copy()
 
     # Metrics
     curr_rev = df_rep['total_amount'].sum()
     prev_rev = df_rep_prev['total_amount'].sum()
     
-    # Visitors/Details (If available)
-    # Priority 1: Visitor Count from Item Details (Main Dishes)
-    # Priority 2: Visitor Count from Report (People Count)
-    # Priority 3: Quantity from Details
-    # Priority 4: Transaction Count
-    
-    has_details = not df_details.empty
-    
-    # Current Period Visitors
-    curr_vis = 0
-    if has_details and 'Is_Main_Dish' in df_details.columns:
-        mask_det = (df_details['Date_Parsed'] >= start_date) & (df_details['Date_Parsed'] <= end_date)
-        df_det = df_details.loc[mask_det]
-        # Method 1
-        curr_vis = df_det[df_det['Is_Main_Dish']]['qty'].sum()
-        
-    if curr_vis == 0 and 'people_count' in df_rep.columns:
-        # Method 2
-        curr_vis = df_rep['people_count'].sum()
-        
-    if curr_vis == 0 and has_details:
-        # Method 3
-        curr_vis = df_det['qty'].sum()
-        
-    # Previous Period Visitors
-    prev_vis = 0
-    if has_details and 'Is_Main_Dish' in df_details.columns:
-        mask_det_prev = (df_details['Date_Parsed'] >= prev_start) & (df_details['Date_Parsed'] <= prev_end)
-        df_det_prev = df_details.loc[mask_det_prev]
-        prev_vis = df_det_prev[df_det_prev['Is_Main_Dish']]['qty'].sum()
-        
-    if prev_vis == 0 and 'people_count' in df_rep_prev.columns:
-        prev_vis = df_rep_prev['people_count'].sum()
-        
-    if prev_vis == 0 and has_details:
-        prev_vis = df_det_prev['qty'].sum()
+    # Visitors/Txs (Simplified because Data Mart already calculated it)
+    curr_vis = df_rep['people_count'].sum()
+    prev_vis = df_rep_prev['people_count'].sum()
 
-    curr_txs = len(df_rep)
-    prev_txs = len(df_rep_prev)
+    curr_txs = df_rep['tx_count'].sum()
+    prev_txs = df_rep_prev['tx_count'].sum()
+    
     curr_avg = curr_rev / curr_vis if curr_vis > 0 else 0
     prev_avg = prev_rev / prev_vis if prev_vis > 0 else 0
 
@@ -180,33 +145,14 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
         # Need to handle visitor count logic per day
         daily_stats = df_rep.groupby('Date_Only').agg({
             'total_amount': 'sum',
-            'people_count': 'sum', # Default report count
-            'order_id': 'count'
+            'people_count': 'sum', # Pre-calculated from Data Marts
+            'tx_count': 'sum'
         }).reset_index()
         # Convert to datetime IMMEDIATELY after groupby
         daily_stats['Date_Parsed'] = pd.to_datetime(daily_stats['Date_Only'])
         daily_stats.drop(columns=['Date_Only'], inplace=True)
+        daily_stats.rename(columns={'people_count': 'final_visitors'}, inplace=True)
         
-        # If details exist, try to improve visitor count accuracy per day
-        if has_details and 'Is_Main_Dish' in df_details.columns:
-            # Create Date_Only for details too
-            df_details['Date_Only'] = df_details['Date_Parsed'].dt.date
-            
-            daily_vis_det = df_details[df_details['Is_Main_Dish']].groupby('Date_Only')['qty'].sum().reset_index()
-            # Convert to datetime BEFORE merge
-            daily_vis_det['Date_Parsed'] = pd.to_datetime(daily_vis_det['Date_Only'])
-            daily_vis_det.drop(columns=['Date_Only'], inplace=True)
-            daily_vis_det.rename(columns={'qty': 'det_qty'}, inplace=True)
-            
-            # Merge (both are now datetime64[ns])
-            daily_stats = daily_stats.merge(daily_vis_det, on='Date_Parsed', how='left')
-            daily_stats['det_qty'] = daily_stats['det_qty'].fillna(0)
-            
-            # Logic: Use detailsqty, if 0 fallback to people_count
-            daily_stats['final_visitors'] = np.where(daily_stats['det_qty'] > 0, daily_stats['det_qty'], daily_stats['people_count'])
-        else:
-             daily_stats['final_visitors'] = daily_stats['people_count']
-             
         # Calculate Avg Check
         daily_stats['avg_check'] = daily_stats['total_amount'] / daily_stats['final_visitors'].replace(0, 1)
         
@@ -317,28 +263,6 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
              res.rename(columns={'total_amount': col_name}, inplace=True)
              base_agg = base_agg.merge(res, on='Date_Parsed', how='left').fillna(0)
              
-        # 3. Visitor & Avg Check (From daily_stats logic above if ov_freq is Daily, else re-agg)
-        # Note: ov_freq might be Weekly/Monthly. 
-        # If freq != 'D', we need to sum visitors.
-        # Let's reuse 'people_count' col from report as base, add details logic if possible?
-        # Aggregating complex visitor logic over weeks is tricky.
-        # Fallback: Sum 'people_count' for now to be safe and consistent with previous logic?
-        # Or re-implement the strict Main Dish logic for the whole resample bin?
-        
-        # Re-calc visitors for the BIN (Day/Week/Month)
-        # Efficient way: Filter details by date bin.
-        # But we simply need to sum 'people_count' (Report) OR 'qty' (Details Main Dish)
-        
-        # Create a helper df with Date, Rev, Visitor
-        # We can just sum the calculated daily_stats if ov_freq is 'D'
-        # If ov_freq is W/M, we need to resample daily_stats.
-        
-        # Let's use daily_stats from above (it is Daily).
-        ds_indexed = daily_stats.set_index('Date_Parsed')
-        ds_resampled = ds_indexed.resample(ov_freq).agg({
-            'final_visitors': 'sum'
-        }).reset_index()
-        
         base_agg = base_agg.merge(ds_resampled, on='Date_Parsed', how='left')
         base_agg.rename(columns={'final_visitors': '整日來客數'}, inplace=True)
         

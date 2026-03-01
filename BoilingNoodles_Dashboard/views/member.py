@@ -126,7 +126,7 @@ def render_member_search(df_report, df_details, latest_dates=None):
         else:
             st.warning("查無資料")
 
-def render_crm_analysis(df_report, df_details, latest_dates=None):
+def render_crm_analysis(df_report, df_details, df_crm, latest_dates=None):
     st.title("🆕 新舊客分析 (New vs Returning)")
     
     # Show Data Freshness Info
@@ -478,28 +478,15 @@ def render_crm_analysis(df_report, df_details, latest_dates=None):
     st.subheader("📊 歷史客群營收走勢 (過去 28 營業日移動總和平滑)")
     st.caption("自動排除店休與無營收日，每一點代表「包含當日在內的過去 28 個實際營業日」的客群營收**總和**。")
     
-    df['Date_Only'] = df['Date_Parsed'].dt.date
-    daily_total = df.groupby('Date_Only')['total_amount'].sum().reset_index()
+    if df_crm.empty:
+        df_crm = pd.DataFrame(columns=['Date_Parsed', 'User_Type', 'total_amount', 'Active_Members'])
+        
+    df_crm['Date_Only'] = df_crm['Date_Parsed'].dt.date
+    daily_total = df_crm.groupby('Date_Only')['total_amount'].sum().reset_index()
     active_days = daily_total[daily_total['total_amount'] > 0]['Date_Only'].sort_values().unique()
     
     if len(active_days) > 0:
-        temp_df = df.copy()
-        
-        temp_members = temp_df[temp_df[col_id] != '非會員']
-        global_first = temp_members.groupby(col_id)['Date_Parsed'].min().reset_index()
-        global_first.columns = [col_id, 'Global_First_Visit']
-        
-        temp_df = temp_df.merge(global_first, on=col_id, how='left')
-        
-        def assign_global_type(row):
-            if row[col_id] == '非會員': return '非會員 (Non-member)'
-            if pd.isna(row['Global_First_Visit']): return '非會員 (Non-member)'
-            if row['Date_Only'] == row['Global_First_Visit'].date(): return '新客 (New)'
-            return '舊客 (Returning)'
-            
-        temp_df['Global_Type'] = temp_df.apply(assign_global_type, axis=1)
-        
-        daily_rev = temp_df.groupby(['Date_Only', 'Global_Type'])['total_amount'].sum().unstack(fill_value=0).reset_index()
+        daily_rev = df_crm.groupby(['Date_Only', 'User_Type'])['total_amount'].sum().unstack(fill_value=0).reset_index()
         
         for c in ['新客 (New)', '舊客 (Returning)', '非會員 (Non-member)']:
             if c not in daily_rev.columns: daily_rev[c] = 0
@@ -538,9 +525,8 @@ def render_crm_analysis(df_report, df_details, latest_dates=None):
                 if len(idx) > 0:
                     end_idx = idx[0]
                     start_idx = max(0, end_idx - 27)
-                    window_days = active_days[start_idx : end_idx + 1]
-                    t2_txs = df[(df['Date_Parsed'].dt.date.isin(window_days)) & (df[col_id] != '非會員')]
-                    unique_members_28d = t2_txs[col_id].nunique()
+                    t2_txs = df_crm[(df_crm['Date_Parsed'].dt.date.isin(window_days)) & (df_crm['User_Type'] != '非會員 (Non-member)')]
+                    unique_members_28d = t2_txs['Active_Members'].sum()
                 else:
                     unique_members_28d = 0
                 

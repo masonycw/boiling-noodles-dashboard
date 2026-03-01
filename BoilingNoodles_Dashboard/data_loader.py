@@ -22,6 +22,9 @@ class UniversalLoader:
         os.makedirs(cache_dir, exist_ok=True)
         report_cache = os.path.join(cache_dir, 'df_report.parquet')
         details_cache = os.path.join(cache_dir, 'df_details.parquet')
+        mart_ops_cache = os.path.join(cache_dir, 'mart_ops.parquet')
+        mart_sales_cache = os.path.join(cache_dir, 'mart_sales.parquet')
+        mart_crm_cache = os.path.join(cache_dir, 'mart_crm.parquet')
         
         # 1. Find the newest raw data file modification time
         newest_raw_mtime = 0
@@ -49,8 +52,11 @@ class UniversalLoader:
             newest_raw_mtime = loader_mtime
                     
         # 2. Check Parquet Cache validity
-        if os.path.exists(report_cache) and os.path.exists(details_cache):
-            cache_mtime = min(os.path.getmtime(report_cache), os.path.getmtime(details_cache))
+        if os.path.exists(report_cache) and os.path.exists(details_cache) and os.path.exists(mart_ops_cache) and os.path.exists(mart_sales_cache) and os.path.exists(mart_crm_cache):
+            cache_mtime = min(
+                os.path.getmtime(report_cache), os.path.getmtime(details_cache),
+                os.path.getmtime(mart_ops_cache), os.path.getmtime(mart_sales_cache), os.path.getmtime(mart_crm_cache)
+            )
             
             if cache_mtime >= newest_raw_mtime:
                 self.log("⚡ [Parquet Cache Hit] Raw files unchanged. Loading binary cache instantly...")
@@ -83,6 +89,11 @@ class UniversalLoader:
         df_report, df_details = self.enrich_data(df_report, df_details)
         self.log("✅ [Pre-Enrichment] Data processing complete.")
         
+        # --- Build Data Marts ---
+        self.log("⚙️ [Data Marts] Building pre-aggregated data marts...")
+        df_mart_ops, df_mart_sales, df_mart_crm = self.build_data_marts(df_report, df_details)
+        self.log("✅ [Data Marts] Build complete.")
+        
         # --- Save Cache ---
         try:
             # Parquet requires uniform column types. Cast ONLY object columns to string to preserve numeric types.
@@ -96,7 +107,10 @@ class UniversalLoader:
             
             df_report_pq.to_parquet(report_cache, engine='pyarrow', index=False)
             df_details_pq.to_parquet(details_cache, engine='pyarrow', index=False)
-            self.log("💾 [Cache Saved] Parquet cache rebuilt successfully.")
+            df_mart_ops.to_parquet(mart_ops_cache, engine='pyarrow', index=False)
+            df_mart_sales.to_parquet(mart_sales_cache, engine='pyarrow', index=False)
+            df_mart_crm.to_parquet(mart_crm_cache, engine='pyarrow', index=False)
+            self.log("💾 [Cache Saved] Parquet cache (Raw + Marts) rebuilt successfully.")
         except Exception as e:
             self.log(f"⚠️ Failed to save Parquet cache: {e}")
             
@@ -893,6 +907,105 @@ class UniversalLoader:
                 df_report.drop(columns=['calculated_people'], inplace=True)
 
         return df_report, df_details
+    def load_marts(self):
+        """Instantly load pre-calculated Data Marts taking almost 0 seconds."""
+        cache_dir = os.path.join(os.getcwd(), 'cache')
+        mart_ops_cache = os.path.join(cache_dir, 'mart_ops.parquet')
+        mart_sales_cache = os.path.join(cache_dir, 'mart_sales.parquet')
+        mart_crm_cache = os.path.join(cache_dir, 'mart_crm.parquet')
+        
+        df_ops, df_sales, df_crm = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        try:
+            if os.path.exists(mart_ops_cache): df_ops = pd.read_parquet(mart_ops_cache)
+            if os.path.exists(mart_sales_cache): df_sales = pd.read_parquet(mart_sales_cache)
+            if os.path.exists(mart_crm_cache): df_crm = pd.read_parquet(mart_crm_cache)
+            self.log("⚡ Data Marts loaded instantly.")
+        except Exception as e:
+            self.log(f"⚠️ Failed to load Data Marts: {e}")
+            
+        if not df_ops.empty:
+            max_date = df_ops['Date_Parsed'].max().strftime('%Y-%m-%d')
+            self.latest_dates = {'csv_report': max_date, 'csv_details': max_date, 'json': max_date, 'invoice': max_date}
+        else:
+            self.latest_dates = {}
+            
+        return df_ops, df_sales, df_crm, self.debug_logs
+
+    def build_data_marts(self, df_report, df_details):
+        import numpy as np
+        
+        # 1. Operational Mart (mart_ops)
+        df_r = df_report.copy()
+        if not df_r.empty:
+            df_r['Date_Only'] = df_r['Date_Parsed'].dt.date
+            df_r['Date_Parsed'] = pd.to_datetime(df_r['Date_Only'])  # Normalize to midnight
+            
+            # Ensure columns exist
+            for col in ['Period', 'Order_Category', 'Day_Type']:
+                if col not in df_r.columns:
+                    df_r[col] = 'Unknown'
+            
+            df_mart_ops = df_r.groupby(['Date_Parsed', 'Period', 'Order_Category', 'Day_Type']).agg({
+                'total_amount': 'sum',
+                'people_count': 'sum',
+                'order_id': 'nunique'
+            }).reset_index()
+            # For backward compatibility with operational.py's delta check
+            df_mart_ops.rename(columns={'order_id': 'tx_count'}, inplace=True)
+        else:
+            df_mart_ops = pd.DataFrame()
+            
+        # 2. Sales Mart (mart_sales)
+        df_d = df_details.copy()
+        if not df_d.empty:
+            df_d['Date_Only'] = df_d['Date_Parsed'].dt.date
+            df_d['Date_Parsed'] = pd.to_datetime(df_d['Date_Only'])
+            
+            cols_to_check = ['item_name', 'sku', 'category', 'Is_Modifier', 'Is_Main_Dish', 'Is_Combo']
+            for col in cols_to_check:
+                if col not in df_d.columns:
+                    df_d[col] = False if col.startswith('Is_') else 'Unknown'
+                    
+            df_mart_sales = df_d.groupby(['Date_Parsed', 'item_name', 'sku', 'category', 'Is_Modifier', 'Is_Main_Dish', 'Is_Combo']).agg({
+                'qty': 'sum',
+                'item_total': 'sum'
+            }).reset_index()
+        else:
+            df_mart_sales = pd.DataFrame()
+            
+        # 3. CRM Mart (mart_crm)
+        if not df_r.empty and 'Member_ID' in df_r.columns:
+            df_mem = df_r[df_r['Member_ID'] != '非會員'].copy()
+            first_visits = df_mem.groupby('Member_ID')['Date_Parsed'].min().reset_index(name='First_Visit')
+            df_r = df_r.merge(first_visits, on='Member_ID', how='left')
+            
+            def get_user_type(row):
+                if row['Member_ID'] == '非會員': return '非會員 (Non-member)'
+                if pd.isna(row['First_Visit']): return '非會員 (Non-member)'
+                if row['Date_Parsed'] == row['First_Visit']: return '新客 (New)'
+                return '舊客 (Returning)'
+                
+            df_r['User_Type'] = df_r.apply(get_user_type, axis=1)
+            
+            def get_visit_id(row):
+                if row['Member_ID'] == '非會員': return str(row['order_id'])
+                return f"{row['Member_ID']}_{row['Date_Only']}"
+                
+            df_r['Visit_ID'] = df_r.apply(get_visit_id, axis=1)
+            
+            df_mart_crm = df_r.groupby(['Date_Parsed', 'User_Type']).agg({
+                'total_amount': 'sum',
+                'Visit_ID': 'nunique' # Count visits instead of orders to group same-day members
+            }).reset_index()
+            # Also need independent members per day (Active Members)
+            mem_counts = df_r[df_r['User_Type'] != '非會員 (Non-member)'].groupby(['Date_Parsed', 'User_Type'])['Member_ID'].nunique().reset_index(name='Active_Members')
+            df_mart_crm = df_mart_crm.merge(mem_counts, on=['Date_Parsed', 'User_Type'], how='left')
+            df_mart_crm['Active_Members'] = df_mart_crm['Active_Members'].fillna(0)
+        else:
+            df_mart_crm = pd.DataFrame()
+
+        return df_mart_ops, df_mart_sales, df_mart_crm
+
 
     def _get_day_type(self, dt):
         if pd.isnull(dt): return 'Unknown'

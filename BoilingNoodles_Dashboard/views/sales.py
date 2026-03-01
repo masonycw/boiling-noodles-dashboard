@@ -3,17 +3,19 @@ import plotly.express as px
 import pandas as pd
 import numpy as np
 
-def render_sales_view(df_details, start_date, end_date):
+def render_sales_view(df_sales, start_date, end_date):
     st.title("🍟 商品銷售分析 (Product Sales)")
 
-    if df_details.empty:
-        st.info("尚未載入交易明細 (Transaction Details missing)")
+    if df_sales.empty:
+        st.info("尚未載入銷售資料庫 (Sales Data Mart unavailable)")
         return
 
     # 1. Filter Data
     # Convert dates to match
-    mask = (df_details['Date_Parsed'].dt.date >= start_date.date()) & (df_details['Date_Parsed'].dt.date <= end_date.date())
-    df = df_details.loc[mask].copy()
+    start_ts = pd.to_datetime(start_date)
+    end_ts = pd.to_datetime(end_date)
+    mask = (df_sales['Date_Parsed'] >= start_ts) & (df_sales['Date_Parsed'] <= end_ts)
+    df = df_sales.loc[mask].copy()
     
     if df.empty:
         st.warning(f"此區間無銷售資料 ({start_date.date()} ~ {end_date.date()})")
@@ -28,9 +30,6 @@ def render_sales_view(df_details, start_date, end_date):
     if df_real.empty:
         st.warning(f"此區間無主商品銷售資料 (只有配料/備註)")
         return
-
-    # Base date column for grouping
-    df_real['Date_Only'] = df_real['Date_Parsed'].dt.date
 
     # 2. Controls
     c1, c2 = st.columns([1, 2])

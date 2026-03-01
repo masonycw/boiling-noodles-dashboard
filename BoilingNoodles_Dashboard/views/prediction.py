@@ -36,15 +36,15 @@ def is_cny_closed_day(dt, tw_holidays):
     
     return any(keyword in name for keyword in cny_keywords)
 
-def render_prediction_view(df_report):
+def render_prediction_view(df_ops):
     st.title("📈 營業額預測 (Revenue Prediction)")
 
-    if df_report.empty:
-        st.info("尚未載入營運資料 (Data missing)")
+    if df_ops.empty:
+        st.info("尚未載入營運資料庫 (Operational Data Mart unavailable)")
         return
 
     # Prepare Data
-    df = df_report[df_report['Date_Parsed'].notna()].copy()
+    df = df_ops[df_ops['Date_Parsed'].notna()].copy()
     daily_rev = df.set_index('Date_Parsed').resample('D')['total_amount'].sum().reset_index()
     daily_rev['Date_Only'] = daily_rev['Date_Parsed'].dt.date
     daily_rev['total_amount'] = daily_rev['total_amount'].fillna(0)

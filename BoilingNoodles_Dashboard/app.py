@@ -20,24 +20,32 @@ st.set_page_config(
 
 # --- 2. Data Loading (Cached) ---
 @st.cache_data(ttl=300)
-def get_data():
+def get_marts_data():
+    loader = UniversalLoader()
+    df_ops, df_sales, df_crm, logs = loader.load_marts()
+    
+    # If marts don't exist yet, we must trigger a full rebuild
+    if df_ops.empty:
+        loader.scan_and_load()
+        df_ops, df_sales, df_crm, logs = loader.load_marts()
+        
+    latest_dates = getattr(loader, 'latest_dates', {})
+    return df_ops, df_sales, df_crm, logs, latest_dates
+
+@st.cache_data(ttl=300)
+def get_raw_data():
     loader = UniversalLoader()
     df_report, df_details, logs = loader.scan_and_load()
-    
-    # ⚠️ Pre-Enrichment is now handled inside loader.scan_and_load() before Parquet caching.
-    # No need to run enrich_data here, dramatically saving frontend computation time on mobile.
-    
-    latest_dates = getattr(loader, 'latest_dates', {})
-    return df_report, df_details, logs, latest_dates
+    return df_report, df_details
 
 # --- 3. Main App ---
 def main():
     st.sidebar.title(f"🍜 滾麵 Dashboard v{APP_VERSION}")
     
-    with st.spinner('數據處理中 (Rebuilding V2)...'):
-        df_report, df_details, debug_logs, latest_dates = get_data()
+    with st.spinner('載入輕量化資料超市...'):
+        df_ops, df_sales, df_crm, debug_logs, latest_dates = get_marts_data()
 
-    if df_report.empty:
+    if df_ops.empty:
         st.warning("尚未載入資料")
         if debug_logs:
             with st.expander("除錯日誌 (Debug Logs)"):
@@ -73,30 +81,27 @@ def main():
         # Or let the view handle it. 
         # I haven't put a date picker IN render_sales_view yet? 
         # Wait, I did: "# 1. Date Filter (Local to View)" in my thought, but did I write it?
-        # Let me check my previous write_to_file for sales.py...
-        # I wrote: "# 1. Date Filter (Local to View)... if start_date is None..."
-        # No, I wrote: "def render_sales_view(df_details, start_date, end_date):"
-        # and "if df.empty...". It EXPECTS arguments.
-        # So I need to provide dates here or wrap it.
-        # Ideally, each view handles its own controls if global is removed.
-        # Let's add a helper for date picker here or inside the view?
-        # Better: Add date picker in this block for Sales View.
-        
         st.subheader("📅 銷售分析區間")
         from views.utils import render_date_filter
         s_date, e_date = render_date_filter("sales", "近2週 (Last 2 Weeks)")
-        sales.render_sales_view(df_details, s_date, e_date)
+        sales.render_sales_view(df_sales, s_date, e_date)
             
     elif view_mode == "📈 營業額預測":
-        prediction.render_prediction_view(df_report)
+        prediction.render_prediction_view(df_ops)
         
     elif view_mode == "👥 會員查詢":
+        with st.spinner("載入完整歷史明細 (第一筆可能需等待約一秒)..."):
+            df_report, df_details = get_raw_data()
         member.render_member_search(df_report, df_details, latest_dates)
         
     elif view_mode == "🆕 新舊客分析":
-        member.render_crm_analysis(df_report, df_details, latest_dates)
+        with st.spinner("載入完整歷史明細以繪製 RFM 模型..."):
+            df_report, df_details = get_raw_data()
+        member.render_crm_analysis(df_report, df_details, df_crm, latest_dates)
         
     elif view_mode == "🔧 系統檢查":
+        with st.spinner("載入完整歷史明細以進行系統檢查..."):
+            df_report, df_details = get_raw_data()
         system.render_system_check(debug_logs, df_report, df_details)
 
 if __name__ == "__main__":
