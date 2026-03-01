@@ -24,8 +24,8 @@ def get_data():
     loader = UniversalLoader()
     df_report, df_details, logs = loader.scan_and_load()
     
-    # Enrich Data (Business Logic)
-    df_report, df_details = loader.enrich_data(df_report, df_details)
+    # ⚠️ Pre-Enrichment is now handled inside loader.scan_and_load() before Parquet caching.
+    # No need to run enrich_data here, dramatically saving frontend computation time on mobile.
     
     latest_dates = getattr(loader, 'latest_dates', {})
     return df_report, df_details, logs, latest_dates

@@ -104,7 +104,7 @@ def render_member_search(df_report, df_details, latest_dates=None):
             c4.metric("最近來店", str(last_visit))
             
             # Purchase History
-            with st.expander("🧾 點擊查看歷史消費歷程 (Purchase History)", expanded=False):
+            if st.toggle("🧾 開啟：歷史消費歷程 (Purchase History)", value=False):
                 hist_df = mem_records[['Date_Parsed', 'order_id', 'total_amount', 'order_type', 'customer_name']].copy()
                 st.dataframe(hist_df.style.format({'total_amount': '${:,.0f}', 'Date_Parsed': '{:%Y-%m-%d %H:%M}'}), use_container_width=True)
             
@@ -430,7 +430,7 @@ def render_crm_analysis(df_report, df_details, latest_dates=None):
             },
             size_max=30
         )
-        with st.expander("📊 點擊展開：查看 RFM 會員分佈散佈圖 (較耗資源)", expanded=False):
+        if st.toggle("📊 開啟：RFM 會員分佈散佈圖 (耗費運算資源)", value=False):
             st.plotly_chart(fig_scatter, use_container_width=True)
         
         st.divider()
@@ -602,7 +602,7 @@ def render_crm_analysis(df_report, df_details, latest_dates=None):
             fig_rolling.update_yaxes(title_text="28營業日總營收", secondary_y=False)
             fig_rolling.update_yaxes(title_text="舊客會員內貢獻佔比", tickformat='.1%', secondary_y=True, range=[0, 1.05]) # Fix max to 105% context so the line doesn't hit the absolute top
             
-            with st.expander("📊 點擊展開：查看詳細滾動趨勢圖表 (較耗資源)", expanded=False):
+            if st.toggle("📊 開啟：詳細滾動趨勢圖表 (耗費運算資源)", value=False):
                 st.plotly_chart(fig_rolling, use_container_width=True)
         else:
             st.info("該區間並無足夠的營業日可以顯示趨勢。")

@@ -78,6 +78,11 @@ class UniversalLoader:
         # Merge raw data
         df_report, df_details, logs = self._merge_data()
         
+        # --- Pre-Enrich Data (Compute Once Before Caching) ---
+        self.log("⚙️ [Pre-Enrichment] Applying business logic before saving cache...")
+        df_report, df_details = self.enrich_data(df_report, df_details)
+        self.log("✅ [Pre-Enrichment] Data processing complete.")
+        
         # --- Save Cache ---
         try:
             # Parquet requires uniform column types. Cast ONLY object columns to string to preserve numeric types.

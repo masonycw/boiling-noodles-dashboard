@@ -287,7 +287,7 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
         )
         fig_dual.update_yaxes(title_text="來客數 (人)", secondary_y=False)
         fig_dual.update_yaxes(title_text="客單價 ($)", secondary_y=True)
-        with st.expander("📊 點擊展開：查看詳細來客數與客單價雙軸走勢圖 (較耗資源)", expanded=False):
+        if st.toggle("📊 開啟：來客數與客單價雙軸走勢圖 (耗費運算資源)", value=False):
             st.plotly_chart(fig_dual, use_container_width=True)
 
     st.divider()
@@ -374,7 +374,7 @@ def render_operational_view(df_report, df_details, start_date=None, end_date=Non
         
         final_cols = [c for c in cols_order if c in base_agg.columns]
         
-        with st.expander("📋 點擊查看：詳細每日營運數據報表 (Data Table)", expanded=False):
+        if st.toggle("📋 開啟：詳細每日營運數據報表 (Data Table)", value=False):
             st.dataframe(
                 base_agg[final_cols].sort_values(date_col, ascending=False).style.format({
                     '中午營業額': "${:,.0f}", '晚上營業額': "${:,.0f}", '總營業額': "${:,.0f}",
