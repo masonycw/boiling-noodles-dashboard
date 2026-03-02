@@ -4,33 +4,31 @@ on:
   push:
     branches:
       - main
+      - V0302
 
 jobs:
-  deploy:
+  # ── 正式版 (main → Port 8501) ──────────────────────────────────────
+  deploy-production:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
       
-      - name: Deploy via SSH (Manual Setup)
+      - name: Deploy via SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_HOST: ${{ secrets.SFTP_HOST }}
           SSH_USER: ${{ secrets.SFTP_USERNAME }}
         run: |
           mkdir -p ~/.ssh
-          
-          # Add private key to ssh-agent
           eval $(ssh-agent -s)
           echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-          
-          # Add host verification to known_hosts to avoid prompt
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           
-          echo "✅ SSH setup complete. Attempting connection..."
+          echo "✅ SSH setup complete. Deploying PRODUCTION (main → 8501)..."
           
-          # Run deployment commands
           ssh "$SSH_USER@$SSH_HOST" "
             DEPLOY_DIR=~/boiling-noodles-dashboard
             cd \"\$DEPLOY_DIR\"
@@ -39,34 +37,21 @@ jobs:
             git fetch --all
             git reset --hard origin/main
             
-            # Debug: 顯示當前版本 (確認是否為 2.3.2)
-            echo 'Checking deployed version on disk...'
+            echo 'Checking deployed version:'
             grep 'APP_VERSION' config.py
             
             # 2. 啟動虛擬環境與安裝
             source venv/bin/activate
-            pip install -r requirements.txt
+            pip install -r requirements.txt -q
             
-            # 3. 清理舊程序 (只殺自己的，避免權限報錯導致腳本崩潰)
-            echo 'Clearing user processes on Port 8501...'
-            pkill -u $(whoami) -f 'streamlit run' > /dev/null 2>&1 || true
-            sleep 2
-            
-            # 使用 fuser 嘗試清理端口 (轉向 null 忽略錯誤)
+            # 3. 清理舊程序
+            echo 'Clearing Port 8501...'
+            pkill -u \$(whoami) -f 'streamlit run.*8501' > /dev/null 2>&1 || true
             fuser -k 8501/tcp > /dev/null 2>&1 || true
             sleep 2
             
-            # 檢查 Port 8501 是否被 Root 佔用
-            if netstat -tulpn | grep :8501 > /dev/null; then
-               echo '⚠️ Warning: Port 8501 is still busy (likely by a Root process).'
-               echo 'The new deployment might fail to bind 8501 if this is not resolved.'
-            fi
-            
             # 4. 啟動 Streamlit
             echo 'Starting Streamlit on Port 8501...'
-            
-            # 使用最原始的啟動方式 (./venv/bin/streamlit) 
-            # 加上 CORS/XSRF false 以防止瀏覽器連線被擋
             nohup ./venv/bin/streamlit run app.py \
               --server.port=8501 \
               --server.address=0.0.0.0 \
@@ -75,19 +60,86 @@ jobs:
               --server.enableXsrfProtection=false \
               > streamlit.log 2>&1 &
             
-            # 5. 最終驗證
             sleep 5
-            pgrep -a -f 'streamlit run'
-            
-            echo 'Current listening ports:'
-            netstat -tulpn | grep :8501 || true
-            
             if netstat -tulpn | grep :8501 > /dev/null; then
-               echo '✅ 部署成功！滾麵報表已在 Port 8501 上線 (v2.3.2)。'
+               echo '✅ PRODUCTION 部署成功！Port 8501 上線。'
                exit 0
             else
-               echo '❌ 啟動失敗，Port 8501 沒有回應。請檢查日誌：'
+               echo '❌ 啟動失敗，請檢查日誌：'
                tail -n 20 streamlit.log
+               exit 1
+            fi
+          "
+
+  # ── 測試版 (V0302 → Port 8502) ─────────────────────────────────────
+  deploy-test:
+    if: github.ref == 'refs/heads/V0302'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Deploy via SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SFTP_HOST }}
+          SSH_USER: ${{ secrets.SFTP_USERNAME }}
+        run: |
+          mkdir -p ~/.ssh
+          eval $(ssh-agent -s)
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          
+          echo "🧪 SSH setup complete. Deploying TEST (V0302 → 8502)..."
+          
+          ssh "$SSH_USER@$SSH_HOST" "
+            DEPLOY_DIR=~/boiling-noodles-dashboard-test
+            
+            # 如果測試目錄不存在，clone 一份
+            if [ ! -d \"\$DEPLOY_DIR\" ]; then
+              git clone https://github.com/masonycw/boiling-noodles-dashboard.git \"\$DEPLOY_DIR\"
+              cd \"\$DEPLOY_DIR\"
+              python3 -m venv venv
+            fi
+            
+            cd \"\$DEPLOY_DIR\"
+            
+            # 1. 更新程式碼 (V0302 branch)
+            git fetch --all
+            git checkout V0302
+            git reset --hard origin/V0302
+            
+            echo 'Checking test version:'
+            grep 'APP_VERSION' config.py
+            
+            # 2. 啟動虛擬環境與安裝
+            source venv/bin/activate
+            pip install -r requirements.txt -q
+            
+            # 3. 清理舊程序
+            echo 'Clearing Port 8502...'
+            pkill -u \$(whoami) -f 'streamlit run.*8502' > /dev/null 2>&1 || true
+            fuser -k 8502/tcp > /dev/null 2>&1 || true
+            sleep 2
+            
+            # 4. 啟動 Streamlit
+            echo 'Starting TEST Streamlit on Port 8502...'
+            nohup ./venv/bin/streamlit run app.py \
+              --server.port=8502 \
+              --server.address=0.0.0.0 \
+              --server.headless=true \
+              --server.enableCORS=false \
+              --server.enableXsrfProtection=false \
+              > streamlit_test.log 2>&1 &
+            
+            sleep 5
+            if netstat -tulpn | grep :8502 > /dev/null; then
+               echo '✅ TEST 部署成功！Port 8502 上線。'
+               exit 0
+            else
+               echo '❌ 測試版啟動失敗，請檢查日誌：'
+               tail -n 20 streamlit_test.log
                exit 1
             fi
           "
