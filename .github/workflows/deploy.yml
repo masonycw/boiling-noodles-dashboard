@@ -117,12 +117,16 @@ jobs:
             source venv/bin/activate
             pip install -r requirements.txt -q
             
-            # 3. 清理舊程序
-            echo 'Clearing Port 8502...'
-            pkill -u \$(whoami) -f '8502' > /dev/null 2>&1 || true
-            sleep 2
+            # 3. 清理舊程序 (用 PID 檔案，避免 pkill -f 誤殺自己)
+            echo 'Clearing old test process...'
+            if [ -f streamlit_test.pid ]; then
+              OLD_PID=\$(cat streamlit_test.pid)
+              kill \$OLD_PID > /dev/null 2>&1 || true
+              rm streamlit_test.pid
+            fi
+            sleep 1
             
-            # 4. 啟動 Streamlit
+            # 4. 啟動 Streamlit，並記錄 PID
             echo 'Starting TEST Streamlit on Port 8502...'
             nohup ./venv/bin/streamlit run app.py \
               --server.port=8502 \
@@ -131,6 +135,7 @@ jobs:
               --server.enableCORS=false \
               --server.enableXsrfProtection=false \
               > streamlit_test.log 2>&1 &
+            echo \$! > streamlit_test.pid
             
             sleep 5
             if netstat -tulpn | grep :8502 > /dev/null; then
