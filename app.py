@@ -22,10 +22,9 @@ st.set_page_config(
 @st.cache_data(ttl=300)
 def get_data():
     loader = UniversalLoader()
+    # scan_and_load now includes enrich_data internally and caches the fully-enriched result.
+    # No need to call loader.enrich_data() separately.
     df_report, df_details, logs = loader.scan_and_load()
-    
-    # Enrich Data (Business Logic)
-    df_report, df_details = loader.enrich_data(df_report, df_details)
     
     latest_dates = getattr(loader, 'latest_dates', {})
     return df_report, df_details, logs, latest_dates
@@ -34,7 +33,8 @@ def get_data():
 def main():
     st.sidebar.title(f"🍜 滾麵 Dashboard v{APP_VERSION}")
     
-    with st.spinner('數據處理中 (Rebuilding V2)...'):
+    with st.spinner('載入資料中... (若有新資料則重新處理)'):
+
         df_report, df_details, debug_logs, latest_dates = get_data()
 
     if df_report.empty:

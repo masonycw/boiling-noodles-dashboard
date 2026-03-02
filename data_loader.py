@@ -16,75 +16,106 @@ class UniversalLoader:
         print(message) 
 
     def scan_and_load(self):
-        """Scans raw files or loads from instant Parquet cache if available and valid."""
-        # --- Cache Validation Logic ---
-        cache_dir = os.path.join(os.getcwd(), 'cache')
-        os.makedirs(cache_dir, exist_ok=True)
-        report_cache = os.path.join(cache_dir, 'df_report.parquet')
-        details_cache = os.path.join(cache_dir, 'df_details.parquet')
+        """Scans raw files, enriches data, and caches the fully-processed result as Parquet.
         
-        # 1. Find the newest raw data file modification time
+        Cache is stored in config.CACHE_DIR (/home/eats365/cache on server, ./cache locally).
+        The cache stores the ENRICHED DataFrames (including Member_ID, Day_Type, Is_Main_Dish, etc.)
+        with correct dtypes, so enrich_data does NOT need to be called again in app.py.
+        """
+        import json
+
+        # --- Cache Paths ---
+        cache_dir = config.CACHE_DIR
+        os.makedirs(cache_dir, exist_ok=True)
+        report_cache  = os.path.join(cache_dir, 'enriched_report.parquet')
+        details_cache = os.path.join(cache_dir, 'enriched_details.parquet')
+        meta_cache    = os.path.join(cache_dir, 'cache_meta.json')
+
+        # --- 1. Find newest raw data file mtime ---
         newest_raw_mtime = 0
         raw_files_to_process = []
-        
+
         for root_dir in config.DATA_DIRS:
             if not os.path.exists(root_dir):
                 self.log(f"Skipping missing directory: {root_dir}")
                 continue
-                
             for current_root, dirs, files in os.walk(root_dir):
                 if '/.' in current_root: continue
                 for f in files:
                     if not (f.endswith(".csv") or f.endswith(".json") or f.endswith(".txt")): continue
-                    
                     full_path = os.path.join(current_root, f)
                     mtime = os.path.getmtime(full_path)
                     if mtime > newest_raw_mtime:
                         newest_raw_mtime = mtime
                     raw_files_to_process.append(full_path)
-                    
-        # 2. Check Parquet Cache validity
+
+        # --- 2. Cache Hit Check ---
         if os.path.exists(report_cache) and os.path.exists(details_cache):
             cache_mtime = min(os.path.getmtime(report_cache), os.path.getmtime(details_cache))
-            
             if cache_mtime >= newest_raw_mtime:
-                self.log("⚡ [Parquet Cache Hit] Raw files unchanged. Loading binary cache instantly...")
+                self.log("⚡ [Parquet Cache Hit] Raw files unchanged. Loading enriched cache instantly...")
                 try:
-                    df_report = pd.read_parquet(report_cache)
+                    df_report  = pd.read_parquet(report_cache)
                     df_details = pd.read_parquet(details_cache)
-                    self.log(f"⚡ Successfully loaded {len(df_report)} report rows and {len(df_details)} details from Parquet.")
+                    # Restore latest_dates from meta file
+                    if os.path.exists(meta_cache):
+                        with open(meta_cache, 'r', encoding='utf-8') as mf:
+                            self.latest_dates = json.load(mf)
+                    self.log(f"⚡ Loaded {len(df_report)} report rows + {len(df_details)} detail rows (fully enriched).")
                     return df_report, df_details, self.debug_logs
                 except Exception as e:
                     self.log(f"⚠️ Failed to load Parquet cache: {e}. Reverting to raw scan.")
-        
-        self.log("🔄 [Cache Miss or Invalid] Processing raw files from scratch...")
-        
-        # --- Raw Parsing Logic (Fallback / Cache Rebuild) ---
-        self.report_data = []
+
+        self.log("🔄 [Cache Miss / Stale] Processing raw files and rebuilding enriched cache...")
+
+        # --- 3. Raw Parse → Merge ---
+        self.report_data  = []
         self.invoice_data = []
         self.details_data = []
-        self.seen_files = set()
+        self.seen_files   = set()
 
         for full_path in raw_files_to_process:
             if full_path in self.seen_files: continue
             self.seen_files.add(full_path)
             self._process_file(full_path)
 
-        # Merge raw data
         df_report, df_details, logs = self._merge_data()
-        
-        # --- Save Cache ---
+
+        # --- 4. Enrich (Business Logic) ---
+        df_report, df_details = self.enrich_data(df_report, df_details)
+
+        # --- 5. Save Enriched Parquet Cache (with correct dtypes) ---
         try:
-            # Parquet requires uniform column types (no mixed int/str). Cast all to string to be safe.
-            df_report_pq = df_report.astype(str)
-            df_details_pq = df_details.astype(str)
-            
-            df_report_pq.to_parquet(report_cache, engine='pyarrow', index=False)
-            df_details_pq.to_parquet(details_cache, engine='pyarrow', index=False)
-            self.log("💾 [Cache Saved] Parquet cache rebuilt successfully.")
+            def _safe_parquet(df, path):
+                """Save DataFrame to Parquet preserving datetime/numeric types."""
+                df_save = df.copy()
+                for col in df_save.columns:
+                    col_dtype = df_save[col].dtype
+                    # Keep datetime columns as-is (Parquet supports them natively)
+                    if pd.api.types.is_datetime64_any_dtype(col_dtype):
+                        continue
+                    # Keep numeric columns as-is
+                    elif pd.api.types.is_numeric_dtype(col_dtype):
+                        continue
+                    # Keep bool as-is
+                    elif col_dtype == bool:
+                        continue
+                    # Convert everything else to string (handles mixed-type object columns)
+                    else:
+                        df_save[col] = df_save[col].astype(str)
+                df_save.to_parquet(path, engine='pyarrow', index=False)
+
+            _safe_parquet(df_report,  report_cache)
+            _safe_parquet(df_details, details_cache)
+
+            # Save latest_dates metadata
+            with open(meta_cache, 'w', encoding='utf-8') as mf:
+                json.dump(getattr(self, 'latest_dates', {}), mf, ensure_ascii=False, default=str)
+
+            self.log(f"💾 [Cache Saved] Enriched Parquet written to {cache_dir}")
         except Exception as e:
             self.log(f"⚠️ Failed to save Parquet cache: {e}")
-            
+
         return df_report, df_details, logs
 
     def _process_file(self, file_path):

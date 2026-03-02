@@ -8,6 +8,12 @@ import os
 # Global Version Config
 APP_VERSION = "2.4"
 
+# --- Cache Path ---
+# On server: /home/eats365/cache  (outside git repo, survives git reset)
+# Locally:   ./cache  (fallback)
+_SERVER_CACHE = "/home/eats365/cache"
+CACHE_DIR = _SERVER_CACHE if os.path.exists("/home/eats365") else os.path.join(os.getcwd(), 'cache')
+
 # --- Paths ---
 # Define ROOT paths to scan recursively
 DATA_DIRS = [
