@@ -33,24 +33,20 @@ jobs:
             DEPLOY_DIR=~/boiling-noodles-dashboard
             cd \"\$DEPLOY_DIR\"
             
-            # 1. 更新程式碼
             git fetch --all
             git reset --hard origin/main
             
             echo 'Checking deployed version:'
             grep 'APP_VERSION' config.py
             
-            # 2. 啟動虛擬環境與安裝
             source venv/bin/activate
             pip install -r requirements.txt -q
             
-            # 3. 清理舊程序
             echo 'Clearing Port 8501...'
-            pkill -u \$(whoami) -f 'streamlit run.*8501' > /dev/null 2>&1 || true
+            pkill -u \$(whoami) -f 'streamlit run' > /dev/null 2>&1 || true
             fuser -k 8501/tcp > /dev/null 2>&1 || true
             sleep 2
             
-            # 4. 啟動 Streamlit
             echo 'Starting Streamlit on Port 8501...'
             nohup ./venv/bin/streamlit run app.py \
               --server.port=8501 \
@@ -91,59 +87,53 @@ jobs:
           echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           
-          echo "🧪 SSH setup complete. Deploying TEST (V0302 → 8502)..."
+          echo "🧪 Deploying TEST (V0302 → 8502)..."
           
-          ssh "$SSH_USER@$SSH_HOST" "
-            DEPLOY_DIR=~/boiling-noodles-dashboard-test
-            
-            # 如果測試目錄不存在，clone 一份
-            if [ ! -d \"\$DEPLOY_DIR\" ]; then
-              git clone https://github.com/masonycw/boiling-noodles-dashboard.git \"\$DEPLOY_DIR\"
-              cd \"\$DEPLOY_DIR\"
-              python3 -m venv venv
-            fi
-            
-            cd \"\$DEPLOY_DIR\"
-            
-            # 1. 更新程式碼 (V0302 branch)
-            git fetch --all
-            git checkout V0302
-            git reset --hard origin/V0302
-            
-            echo 'Checking test version:'
-            grep 'APP_VERSION' config.py
-            
-            # 2. 啟動虛擬環境與安裝
-            source venv/bin/activate
-            pip install -r requirements.txt -q
-            
-            # 3. 清理舊程序 (用 PID 檔案，避免 pkill -f 誤殺自己)
-            echo 'Clearing old test process...'
-            if [ -f streamlit_test.pid ]; then
-              OLD_PID=\$(cat streamlit_test.pid)
-              kill \$OLD_PID > /dev/null 2>&1 || true
-              rm streamlit_test.pid
-            fi
-            sleep 1
-            
-            # 4. 啟動 Streamlit，並記錄 PID
-            echo 'Starting TEST Streamlit on Port 8502...'
-            nohup ./venv/bin/streamlit run app.py \
-              --server.port=8502 \
-              --server.address=0.0.0.0 \
-              --server.headless=true \
-              --server.enableCORS=false \
-              --server.enableXsrfProtection=false \
-              > streamlit_test.log 2>&1 &
-            echo \$! > streamlit_test.pid
-            
-            sleep 5
-            if netstat -tulpn | grep :8502 > /dev/null; then
-               echo '✅ TEST 部署成功！Port 8502 上線。'
-               exit 0
-            else
-               echo '❌ 測試版啟動失敗，請檢查日誌：'
-               tail -n 20 streamlit_test.log
-               exit 1
-            fi
-          "
+          ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" bash << 'ENDSSH'
+          DEPLOY_DIR="$HOME/boiling-noodles-dashboard-test"
+
+          if [ ! -d "$DEPLOY_DIR" ]; then
+            git clone https://github.com/masonycw/boiling-noodles-dashboard.git "$DEPLOY_DIR"
+            cd "$DEPLOY_DIR"
+            python3 -m venv venv
+          fi
+
+          cd "$DEPLOY_DIR"
+          git fetch --all
+          git checkout V0302
+          git reset --hard origin/V0302
+
+          echo "Checking test version:"
+          grep 'APP_VERSION' config.py
+
+          source venv/bin/activate
+          pip install -r requirements.txt -q
+
+          echo "Clearing old test process..."
+          if [ -f streamlit_test.pid ]; then
+            OLD_PID=$(cat streamlit_test.pid)
+            kill $OLD_PID > /dev/null 2>&1 || true
+            rm streamlit_test.pid
+          fi
+          sleep 1
+
+          echo "Starting TEST Streamlit on Port 8502..."
+          nohup ./venv/bin/streamlit run app.py \
+            --server.port=8502 \
+            --server.address=0.0.0.0 \
+            --server.headless=true \
+            --server.enableCORS=false \
+            --server.enableXsrfProtection=false \
+            > streamlit_test.log 2>&1 &
+          echo $! > streamlit_test.pid
+
+          sleep 5
+          if netstat -tulpn | grep :8502 > /dev/null; then
+            echo "✅ TEST 部署成功！Port 8502 上線。"
+            exit 0
+          else
+            echo "❌ 測試版啟動失敗，請檢查日誌："
+            tail -n 20 streamlit_test.log
+            exit 1
+          fi
+          ENDSSH
