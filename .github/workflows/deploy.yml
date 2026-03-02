@@ -119,8 +119,7 @@ jobs:
             
             # 3. 清理舊程序
             echo 'Clearing Port 8502...'
-            pkill -u \$(whoami) -f 'streamlit run.*8502' > /dev/null 2>&1 || true
-            fuser -k 8502/tcp > /dev/null 2>&1 || true
+            pkill -u \$(whoami) -f '8502' > /dev/null 2>&1 || true
             sleep 2
             
             # 4. 啟動 Streamlit
