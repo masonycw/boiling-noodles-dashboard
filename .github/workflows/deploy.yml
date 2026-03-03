@@ -30,43 +30,48 @@ jobs:
           
           echo "✅ SSH setup complete. Deploying PRODUCTION (main → 8501)..."
           
-          ssh "$SSH_USER@$SSH_HOST" "
-            DEPLOY_DIR=~/boiling-noodles-dashboard
-            cd \"\$DEPLOY_DIR\"
-            
-            git fetch --all
-            git reset --hard origin/main
-            
-            echo 'Checking deployed version:'
-            grep 'APP_VERSION' config.py
-            
-            source venv/bin/activate
-            pip install -r requirements.txt -q
-            
-            echo 'Clearing Port 8501...'
-            pkill -u \$(whoami) -f 'streamlit run' > /dev/null 2>&1 || true
-            fuser -k 8501/tcp > /dev/null 2>&1 || true
-            sleep 2
-            
-            echo 'Starting Streamlit on Port 8501...'
-            nohup ./venv/bin/streamlit run app.py \
-              --server.port=8501 \
-              --server.address=0.0.0.0 \
-              --server.headless=true \
-              --server.enableCORS=false \
-              --server.enableXsrfProtection=false \
-              > streamlit.log 2>&1 &
-            
-            sleep 5
-            if netstat -tulpn | grep :8501 > /dev/null; then
-               echo '✅ PRODUCTION 部署成功！Port 8501 上線。'
-               exit 0
-            else
-               echo '❌ 啟動失敗，請檢查日誌：'
-               tail -n 20 streamlit.log
-               exit 1
-            fi
-          "
+          ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" bash << 'ENDSSH'
+          DEPLOY_DIR="$HOME/boiling-noodles-dashboard"
+          cd "$DEPLOY_DIR"
+          
+          git fetch --all
+          git reset --hard origin/main
+          
+          echo "Checking deployed version:"
+          grep 'APP_VERSION' config.py
+          
+          source venv/bin/activate
+          pip install -r requirements.txt -q
+          
+          echo "Clearing Port 8501..."
+          if [ -f streamlit.pid ]; then
+            OLD_PID=$(cat streamlit.pid)
+            kill $OLD_PID > /dev/null 2>&1 || true
+            rm streamlit.pid
+          fi
+          fuser -k 8501/tcp > /dev/null 2>&1 || true
+          sleep 2
+          
+          echo "Starting Streamlit on Port 8501..."
+          nohup ./venv/bin/streamlit run app.py \
+            --server.port=8501 \
+            --server.address=0.0.0.0 \
+            --server.headless=true \
+            --server.enableCORS=false \
+            --server.enableXsrfProtection=false \
+            > streamlit.log 2>&1 &
+          echo $! > streamlit.pid
+          
+          sleep 5
+          if netstat -tulpn | grep :8501 > /dev/null 2>&1 || fuser 8501/tcp > /dev/null 2>&1; then
+             echo "✅ PRODUCTION 部署成功！Port 8501 上線。"
+             exit 0
+          else
+             echo "❌ 啟動失敗，請檢查日誌："
+             tail -n 20 streamlit.log
+             exit 1
+          fi
+          ENDSSH
 
   # ── 測試版 (test / V* → Port 8502) ─────────────────────────────────────
   deploy-test:
