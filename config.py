@@ -6,7 +6,7 @@ import os
 # System Version
 # System Version
 # Global Version Config
-APP_VERSION = "2.4"
+APP_VERSION = "2.4.1"
 
 # --- Cache Path ---
 # On server (eats365 user): /home/eats365/cache  (outside git repo, survives git reset)
