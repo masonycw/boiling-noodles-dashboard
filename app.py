@@ -33,6 +33,10 @@ def get_data():
 def main():
     st.sidebar.title(f"🍜 滾麵 Dashboard v{APP_VERSION}")
     
+    if st.sidebar.button("🔄 強制重新整理資料"):
+        get_data.clear()
+        st.rerun()
+    
     with st.spinner('載入資料中... (若有新資料則重新處理)'):
 
         df_report, df_details, debug_logs, latest_dates = get_data()
