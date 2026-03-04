@@ -1,0 +1,26 @@
+name: Fetch Server Logs
+on:
+  push:
+    branches:
+      - debug-logs
+
+jobs:
+  fetch-logs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Streamlit Log via SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SFTP_HOST }}
+          SSH_USER: ${{ secrets.SFTP_USERNAME }}
+        run: |
+          mkdir -p ~/.ssh
+          eval $(ssh-agent -s)
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          
+          echo "==== DMESG (OOM checks) ===="
+          ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" "sudo dmesg -T | grep -i oom || true"
+          
+          echo "==== STREAMLIT LOG ===="
+          ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" "tail -n 300 ~/boiling-noodles-dashboard/streamlit.log || true"
