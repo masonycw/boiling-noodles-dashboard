@@ -87,23 +87,22 @@ class UniversalLoader:
         # --- 5. Save Enriched Parquet Cache (with correct dtypes) ---
         try:
             def _safe_parquet(df, path):
-                """Save DataFrame to Parquet preserving datetime/numeric types."""
-                df_save = df.copy()
-                for col in df_save.columns:
-                    col_dtype = df_save[col].dtype
-                    # Keep datetime columns as-is (Parquet supports them natively)
-                    if pd.api.types.is_datetime64_any_dtype(col_dtype):
+                """Save DataFrame to Parquet natively without full DF copy (prevents OOM)."""
+                # Convert object columns to string iteratively to save memory
+                for col in df.columns:
+                    col_dtype = df[col].dtype
+                    # Skip datetime, numeric, bool types which PyArrow handles cleanly mapping
+                    if pd.api.types.is_datetime64_any_dtype(col_dtype) or \
+                       pd.api.types.is_numeric_dtype(col_dtype) or \
+                       col_dtype == bool:
                         continue
-                    # Keep numeric columns as-is
-                    elif pd.api.types.is_numeric_dtype(col_dtype):
-                        continue
-                    # Keep bool as-is
-                    elif col_dtype == bool:
-                        continue
-                    # Convert everything else to string (handles mixed-type object columns)
-                    else:
-                        df_save[col] = df_save[col].astype(str)
-                df_save.to_parquet(path, engine='pyarrow', index=False)
+                    
+                    # Convert to explicitly safe string type without risking df.copy() heap spikes
+                    if col_dtype == 'object':
+                        df[col] = df[col].astype(str).replace({'nan': None})
+                
+                # df is now safe to write natively, use pyarrow memory mapping gracefully
+                df.to_parquet(path, engine='pyarrow', index=False)
 
             _safe_parquet(df_report,  report_cache)
             _safe_parquet(df_details, details_cache)
