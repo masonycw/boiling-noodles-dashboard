@@ -1,16 +1,11 @@
-__pycache__/
-*.pyc
-.DS_Store
-<<<<<<< HEAD
-.env
-venv/
-=======
-
 # Python
 __pycache__/
 *.pyc
 venv/
 .env
+
+# MacOS
+.DS_Store
 
 # Node.js
 node_modules/
@@ -21,6 +16,7 @@ yarn-error.log
 dist/
 build/
 
-# Data
->>>>>>> d686c8d (Add project files)
+# Data & Keys
 *.csv
+cache/
+deploy_keys/
