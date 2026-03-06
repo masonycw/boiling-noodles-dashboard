@@ -86,13 +86,13 @@ def fetch_member_search(keyword):
         customer_name, 
         member_phone, 
         member_id AS "Member_ID", 
-        invoice_id AS carrier_id
+        carrier_id
     FROM orders_fact
     WHERE customer_name ILIKE %s 
        OR member_phone LIKE %s
        OR member_id ILIKE %s
-       OR invoice_id ILIKE %s
-    GROUP BY customer_name, member_phone, member_id, invoice_id
+       OR carrier_id ILIKE %s
+    GROUP BY customer_name, member_phone, member_id, carrier_id
     LIMIT 100
     """
     term = f"%{keyword}%"

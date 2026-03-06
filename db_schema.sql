@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS orders_fact (
     member_phone VARCHAR(50),
     customer_name VARCHAR(100),
     invoice_id VARCHAR(50),
+    carrier_id VARCHAR(50),
     data_source VARCHAR(20) DEFAULT 'csv', -- 'csv' 或 'json'
     day_type VARCHAR(20), -- '平日 (Weekday)' 或 '假日 (Holiday)'
     period VARCHAR(20), -- '中午 (Lunch)' 或 '晚上 (Dinner)'

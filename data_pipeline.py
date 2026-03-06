@@ -59,6 +59,7 @@ def transform_and_load_orders(df_report, df_details):
             row.get('member_phone'),
             row.get('customer_name'),
             row.get('invoice_id'),
+            row.get('carrier_id'),
             row.get('data_source', 'csv'),
             row.get('Day_Type'),
             row.get('Period'),
@@ -71,7 +72,7 @@ def transform_and_load_orders(df_report, df_details):
     insert_query = """
     INSERT INTO orders_fact (
         order_id, date, total_amount, status, order_type, people_count, 
-        payment_method, member_phone, customer_name, invoice_id, data_source, 
+        payment_method, member_phone, customer_name, invoice_id, carrier_id, data_source, 
         day_type, period, member_id, order_category, main_dish_count
     ) VALUES %s
     ON CONFLICT (order_id) DO UPDATE SET
@@ -84,6 +85,7 @@ def transform_and_load_orders(df_report, df_details):
         member_phone = EXCLUDED.member_phone,
         customer_name = EXCLUDED.customer_name,
         invoice_id = EXCLUDED.invoice_id,
+        carrier_id = EXCLUDED.carrier_id,
         data_source = EXCLUDED.data_source,
         day_type = EXCLUDED.day_type,
         period = EXCLUDED.period,
