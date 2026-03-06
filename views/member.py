@@ -74,14 +74,19 @@ def render_crm_analysis(latest_dates=None):
     # --- Data Freshness Banner ---
     freshness = db_queries.fetch_data_freshness()
     if not freshness.empty:
-        parts = []
+        dates_map = {}
         for _, row in freshness.iterrows():
-            src = str(row['data_source']).upper()
-            latest = str(row['latest_date'])
-            cnt = int(row['order_count'])
-            parts.append(f"📅 **{src}**: `{latest}` ({cnt:,} 筆)")
-        freshness_text = " \u3000|　 ".join(parts)
-        st.info(f"📑 **資料庫資料截止日 (Data Coverage)**\n\n{freshness_text}\n\n> ⚠️ 新舊客判定依賴歷史全部資料。若某資料來源尚未更新至最新日期，會影響新客判定結果！")
+            dates_map[row['source_key']] = str(row['latest_date'])
+            
+        json_date = dates_map.get('json', 'N/A')
+        rep_date = dates_map.get('csv_report', 'N/A')
+        det_date = dates_map.get('csv_details', 'N/A')
+        inv_date = dates_map.get('invoice', 'N/A')
+        
+        st.info(f"**最新系統資料範圍提示**\n\n"
+                f"📡 **Eats365 API (JSON)**: `{json_date}` \u3000|\u3000 📊 **營業日報表 (CSV)**: `{rep_date}`\n\n"
+                f"🛒 **交易明細 (CSV)**: `{det_date}` \u3000|\u3000 🧾 **發票明細 (CSV)**: `{inv_date}`\n\n"
+                f"*(新舊客與會員判定極度依賴歷史紀錄，請確認上面所有手動 CSV 檔案都已上傳更新至最新日期)*")
     else:
         st.info("⚡ 此頁面已升級為 PostgreSQL 即時連線。")
 

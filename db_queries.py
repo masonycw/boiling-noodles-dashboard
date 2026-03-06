@@ -174,16 +174,18 @@ def fetch_rolling_member_revenue():
     return fetch_data(query)
 
 def fetch_data_freshness():
-    """Fetch the latest date and order count from orders_fact per data source."""
+    """Fetch the latest dates per data source from the data_freshness metadata table."""
     query = """
-    SELECT 
-        data_source AS "data_source",
-        MIN(date)::DATE AS "earliest_date",
-        MAX(date)::DATE AS "latest_date",
-        COUNT(*) AS "order_count"
-    FROM orders_fact
-    GROUP BY data_source
-    ORDER BY data_source
+    SELECT source_key, source_label, latest_date, updated_at
+    FROM data_freshness
+    ORDER BY 
+        CASE source_key
+            WHEN 'json'        THEN 1
+            WHEN 'csv_report'  THEN 2
+            WHEN 'csv_details' THEN 3
+            WHEN 'invoice'     THEN 4
+            ELSE 5
+        END
     """
     return fetch_data(query)
 

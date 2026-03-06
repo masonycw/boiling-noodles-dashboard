@@ -156,6 +156,36 @@ def transform_and_load_details(df_details):
     conn.close()
     print(f"Successfully loaded {len(records_to_insert)} records into order_details_fact.")
 
+def update_data_freshness(latest_dates: dict):
+    """Save 4 granular data source freshness dates to the data_freshness table."""
+    if not latest_dates:
+        return
+    
+    SOURCE_LABELS = {
+        'json':        'Eats365 API (JSON)',
+        'csv_report':  '營業日報表 (CSV)',
+        'csv_details': '交易明細 (CSV)',
+        'invoice':     '發票明細 (CSV)',
+    }
+    
+    conn = connect_to_db()
+    with conn.cursor() as cur:
+        for key, label in SOURCE_LABELS.items():
+            date_val = latest_dates.get(key)
+            if date_val:
+                cur.execute("""
+                    INSERT INTO data_freshness (source_key, source_label, latest_date, updated_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (source_key) DO UPDATE SET
+                        source_label = EXCLUDED.source_label,
+                        latest_date = EXCLUDED.latest_date,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (key, label, date_val))
+    conn.commit()
+    conn.close()
+    print(f"Data freshness updated: {latest_dates}")
+
+
 def update_daily_revenue_agg():
     print("Updating daily_revenue_agg table...")
     update_query = """
@@ -222,7 +252,10 @@ def main():
         
     print(f"Data loaded successfully. Report size: {len(df_report)}")
     
-    # 3. 匯入資料庫
+    # 3. 下載資料新鮮度
+    update_data_freshness(getattr(loader, 'latest_dates', {}))
+    
+    # 4. 匯入資料庫
     transform_and_load_orders(df_report, df_details)
     transform_and_load_details(df_details)
     update_daily_revenue_agg()

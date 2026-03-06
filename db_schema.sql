@@ -112,3 +112,13 @@ CREATE INDEX IF NOT EXISTS idx_order_details_order_id ON order_details_fact(orde
 CREATE INDEX IF NOT EXISTS idx_order_details_date ON order_details_fact(date);
 CREATE INDEX IF NOT EXISTS idx_order_details_category ON order_details_fact(category);
 CREATE INDEX IF NOT EXISTS idx_order_details_sku ON order_details_fact(sku);
+
+-- ==========================================
+-- 5. 資料新鮮度追蹤 (Data Freshness Metadata)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS data_freshness (
+    source_key VARCHAR(30) PRIMARY KEY,
+    source_label VARCHAR(60),
+    latest_date DATE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
