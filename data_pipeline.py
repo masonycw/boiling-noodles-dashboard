@@ -22,6 +22,8 @@ def setup_database():
         with open('db_schema.sql', 'r', encoding='utf-8') as f:
             schema_sql = f.read()
         cur.execute(schema_sql)
+        # Force add column if table already exists (as IF NOT EXISTS won't alter existing schema)
+        cur.execute("ALTER TABLE orders_fact ADD COLUMN IF NOT EXISTS carrier_id VARCHAR(50);")
     conn.commit()
     conn.close()
     print("Database schema created successfully.")
