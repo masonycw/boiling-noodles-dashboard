@@ -71,7 +71,19 @@ def render_member_search(latest_dates=None):
 def render_crm_analysis(latest_dates=None):
     st.title("🆕 新舊客分析 (New vs Returning)")
     
-    st.info("⚡ 此頁面已升級為 PostgreSQL 即時連線。")
+    # --- Data Freshness Banner ---
+    freshness = db_queries.fetch_data_freshness()
+    if not freshness.empty:
+        parts = []
+        for _, row in freshness.iterrows():
+            src = str(row['data_source']).upper()
+            latest = str(row['latest_date'])
+            cnt = int(row['order_count'])
+            parts.append(f"📅 **{src}**: `{latest}` ({cnt:,} 筆)")
+        freshness_text = " \u3000|　 ".join(parts)
+        st.info(f"📑 **資料庫資料截止日 (Data Coverage)**\n\n{freshness_text}\n\n> ⚠️ 新舊客判定依賴歷史全部資料。若某資料來源尚未更新至最新日期，會影響新客判定結果！")
+    else:
+        st.info("⚡ 此頁面已升級為 PostgreSQL 即時連線。")
 
     with st.expander("ℹ️ 新舊客與非會員定義說明"):
         st.markdown("""

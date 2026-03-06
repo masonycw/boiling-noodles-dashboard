@@ -130,7 +130,10 @@ def fetch_crm_tx_data(start_date, end_date):
         date::DATE AS "Date_Only",
         order_id, 
         total_amount, 
-        COALESCE(member_id, '非會員') AS "Member_ID"
+        CASE 
+            WHEN member_id IS NULL OR member_id = '' OR member_id = '\u975e\u6703\u54e1' THEN '\u975e\u6703\u54e1'
+            ELSE member_id
+        END AS "Member_ID"
     FROM orders_fact
     WHERE date >= %s AND date <= %s
     """
@@ -141,7 +144,7 @@ def fetch_all_time_active_members():
     query = """
     SELECT member_id AS "Member_ID", MIN(date) AS "First_Visit_Date", COUNT(order_id) AS "Frequency_Global"
     FROM orders_fact
-    WHERE member_id IS NOT NULL AND member_id != '非會員'
+    WHERE member_id IS NOT NULL AND member_id != '' AND member_id != '\u975e\u6703\u54e1'
     GROUP BY member_id
     """
     return fetch_data(query)
@@ -167,6 +170,20 @@ def fetch_rolling_member_revenue():
     FROM orders_fact
     GROUP BY date::DATE, COALESCE(member_id, '非會員')
     ORDER BY date::DATE ASC
+    """
+    return fetch_data(query)
+
+def fetch_data_freshness():
+    """Fetch the latest date and order count from orders_fact per data source."""
+    query = """
+    SELECT 
+        data_source AS "data_source",
+        MIN(date)::DATE AS "earliest_date",
+        MAX(date)::DATE AS "latest_date",
+        COUNT(*) AS "order_count"
+    FROM orders_fact
+    GROUP BY data_source
+    ORDER BY data_source
     """
     return fetch_data(query)
 

@@ -1,5 +1,6 @@
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 from datetime import date
@@ -139,62 +140,87 @@ def render_prediction_view():
         
     st.divider()
     
-    # Prepare Future 12 Months Projection
-    st.subheader("🔮 未來 12 個月營業額預測")
+    # --- Forecast: This Month + 12 Future Months ---
+    st.subheader("🔮 本月 + 未來 12 個月營業額預測")
+    st.caption("✨ 本月：已發生實際營收 ＋ 剩餘天數預測（堆疊顯示）。未來各月：全月預測。")
     
-    # Start from next month
     today = date.today()
-    next_month = today.replace(day=1) + relativedelta(months=1)
+    this_month_start = today.replace(day=1)
+    
+    # Actual revenue already recorded in current month
+    actual_this_month = daily_rev[
+        (daily_rev['Date_Only'] >= this_month_start) &
+        (daily_rev['Date_Only'] <= max_date)
+    ]['total_amount'].sum()
     
     future_data = []
     
-    # Generate 12 months
-    for i in range(12):
-        target_month = next_month + relativedelta(months=i)
-        year = target_month.year
-        month = target_month.month
+    # Generate 13 entries: this month + 12 future months
+    for i in range(13):
+        target_month_start = this_month_start + relativedelta(months=i)
+        year = target_month_start.year
+        month = target_month_start.month
+        is_current_month = (i == 0)
         
-        # Make sure holidays for that year are loaded
         if year not in tw_holidays.years:
             tw_holidays.update(holidays.country_holidays('TW', years=year))
             
-        # Get all dates in that month
-        start_dt = date(year, month, 1)
-        end_dt = start_dt + relativedelta(months=1) - pd.Timedelta(days=1)
+        full_month_end = target_month_start + relativedelta(months=1) - pd.Timedelta(days=1)
         
-        dates_in_month = pd.date_range(start_dt, end_dt).date
+        # For this month, only project remaining days after latest data date
+        if is_current_month:
+            project_start = max_date + pd.Timedelta(days=1)
+            dates_to_project = pd.date_range(project_start, full_month_end).date
+            month_label = target_month_start.strftime('%Y-%m') + ' ✨本月'
+        else:
+            dates_to_project = pd.date_range(target_month_start, full_month_end).date
+            month_label = target_month_start.strftime('%Y-%m')
         
-        wd_count = 0
-        hol_count = 0
+        wd_count = sum(1 for d in dates_to_project if not is_cny_closed_day(d, tw_holidays) and not is_holiday_tw(d, tw_holidays))
+        hol_count = sum(1 for d in dates_to_project if not is_cny_closed_day(d, tw_holidays) and is_holiday_tw(d, tw_holidays))
         
-        for d in dates_in_month:
-            if is_cny_closed_day(d, tw_holidays):
-                continue # Store is closed, exclude from multiplier completely
-            elif is_holiday_tw(d, tw_holidays):
-                hol_count += 1
-            else:
-                wd_count += 1
-                
-        pred_rev = (wd_count * avg_wd_rev) + (hol_count * avg_hol_rev)
+        predicted_remaining = (wd_count * avg_wd_rev) + (hol_count * avg_hol_rev)
+        actual = actual_this_month if is_current_month else 0
         
         future_data.append({
-            '月份 (Month)': target_month.strftime('%Y-%m'),
+            '月份 (Month)': month_label,
+            '已發生營收 (Actual)': actual,
+            '預測剩餘 (Forecast)': predicted_remaining,
+            '合計 (Total)': actual + predicted_remaining,
             '平日天數 (Weekdays)': wd_count,
             '假日天數 (Holidays)': hol_count,
-            '預測營業額 (Predicted)': pred_rev
         })
         
     future_df = pd.DataFrame(future_data)
     
-    # Visual Chart
-    fig_pred = px.bar(future_df, x='月份 (Month)', y='預測營業額 (Predicted)', title="未來 12 個月預測營業額", text_auto='.2s')
+    fig_pred = go.Figure()
+    fig_pred.add_trace(go.Bar(
+        x=future_df['月份 (Month)'],
+        y=future_df['已發生營收 (Actual)'],
+        name='已發生實際營收',
+        marker_color='#636EFA'
+    ))
+    fig_pred.add_trace(go.Bar(
+        x=future_df['月份 (Month)'],
+        y=future_df['預測剩餘 (Forecast)'],
+        name='預測剩餘天數',
+        marker_color='rgba(239,85,59,0.65)'
+    ))
+    fig_pred.update_layout(
+        barmode='stack',
+        title='本月 + 未來 12 個月預測營業額',
+        xaxis_title=None,
+        yaxis_title='營業額 ($)',
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+    )
     st.plotly_chart(fig_pred, use_container_width=True)
     
-    # Table View
+    # Table
     st.dataframe(
-        future_df.style.format({
-            '預測營業額 (Predicted)': '${:,.0f}'
+        future_df[['月份 (Month)', '已發生營收 (Actual)', '預測剩餘 (Forecast)', '合計 (Total)', '平日天數 (Weekdays)', '假日天數 (Holidays)']].style.format({
+            '已發生營收 (Actual)': '${:,.0f}',
+            '預測剩餘 (Forecast)': '${:,.0f}',
+            '合計 (Total)': '${:,.0f}'
         }),
         use_container_width=True
     )
-
