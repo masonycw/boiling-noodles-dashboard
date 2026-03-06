@@ -4,8 +4,7 @@ on:
   push:
     branches:
       - main
-      - test
-      - "V*"
+      - Backup
 
 jobs:
   # ── 正式版 (main → Port 8501) ──────────────────────────────────────
@@ -73,9 +72,9 @@ jobs:
           fi
           ENDSSH
 
-  # ── 測試版 (test / V* → Port 8502) ─────────────────────────────────────
+  # ── 備份版 (Backup → Port 8502) ───────────────────────────────────────
   deploy-test:
-    if: github.ref == 'refs/heads/test' || startsWith(github.ref, 'refs/heads/V')
+    if: github.ref == 'refs/heads/Backup'
     runs-on: ubuntu-latest
     
     steps:
@@ -93,7 +92,7 @@ jobs:
           echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
           
-          echo "🧪 Deploying TEST (V0302 → 8502)..."
+          echo "💾 Deploying BACKUP (Backup → 8502)..."
           
           ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" bash << 'ENDSSH'
           DEPLOY_DIR="$HOME/boiling-noodles-dashboard-test"
@@ -106,9 +105,8 @@ jobs:
 
           cd "$DEPLOY_DIR"
           git fetch --all
-          BRANCH_NAME="${GITHUB_REF_NAME}"
-          git checkout $BRANCH_NAME
-          git reset --hard origin/$BRANCH_NAME
+          git checkout Backup
+          git reset --hard origin/Backup
 
           echo "Checking test version:"
           grep 'APP_VERSION' config.py
