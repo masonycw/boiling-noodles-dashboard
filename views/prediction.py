@@ -149,7 +149,9 @@ def render_prediction_view():
         if is_curr:
             # Project only remaining days (after max_date in DB)
             proj_start = max_date + pd.Timedelta(days=1)
-            dates_proj = pd.date_range(proj_start, month_end).date if proj_start.date() <= month_end.date() else []
+            p_start_date = pd.to_datetime(proj_start).date()
+            m_end_date = pd.to_datetime(month_end).date()
+            dates_proj = pd.date_range(proj_start, month_end).date if p_start_date <= m_end_date else []
             label = target_start.strftime('%Y-%m') + ' ✨'
         else:
             dates_proj = pd.date_range(target_start, month_end).date
