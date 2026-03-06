@@ -90,11 +90,17 @@ def render_crm_analysis(latest_dates=None):
     else:
         st.info("⚡ 此頁面已升級為 PostgreSQL 即時連線。")
 
-    with st.expander("ℹ️ 新舊客與非會員定義說明"):
+    with st.expander("ℹ️ 新舊客與 RFM 分群定義說明"):
         st.markdown("""
-        * **新客 (New)**：在您選擇的區間內，該會員發生了「歷史以來的第 1 次」消費。
-        * **舊客 (Returning)**：在您選擇的區間內有消費，但他的「歷史第 1 次」消費發生在這個區間之前。
         * **非會員 (Non-member)**：本次交易未綁定會員電話或載具。
+        
+        **RFM 分群定義 (基於歷史總次數與近 30 天回訪)**：
+        * 🟢 **Champions (主力常客)**：歷史總來店 > 4次，且距今 ≤ 30天有回訪
+        * 🟠 **Potential (潛力新星)**：歷史總來店 2~4次，且距今 ≤ 30天有回訪
+        * 🔴 **New (新客)**：歷史總來店 = 1次，且距今 ≤ 30天
+        * 🔵 **At Risk (流失預警)**：歷史總來店 > 4次，且距今超過 30天未回訪
+        * 🟢 **潛力客群**：歷史總來店 2~4次，且距今超過 30天未回訪
+        * 🔵 **One-time (一次客)**：歷史總來店 = 1次，且距今超過 30天
         """)
     
     st.divider()
@@ -330,8 +336,8 @@ def render_crm_analysis(latest_dates=None):
             "Champions (主力常客)": "#7FCCB5",
             "Potential (潛力新星)": "#FDD1C9",
             "New (新客)": "#FF7B72",
-            "At Risk (流失預警)": "#A5D8FF",
-            "潛力客群": "#D4E157",
+            "At Risk (流失預警)": "#D4E157",
+            "潛力客群": "#A5D8FF",
             "One-time (一次客)": "#5B96DB"
         }
         cat_order = list(color_map.keys())
