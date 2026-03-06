@@ -19,7 +19,7 @@ def setup_database():
     print("Setting up database schema...")
     conn = connect_to_db()
     with conn.cursor() as cur:
-        with open('db_schema.sql', 'r') as f:
+        with open('db_schema.sql', 'r', encoding='utf-8') as f:
             schema_sql = f.read()
         cur.execute(schema_sql)
     conn.commit()
