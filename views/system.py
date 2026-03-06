@@ -1,24 +1,18 @@
 import streamlit as st
 import pandas as pd
+import db_queries
 
-def render_system_check(debug_logs, df_report, df_details):
+def render_system_check(health_logs):
     st.title("🔧 系統檢查 (System Diagnostics)")
     
-    st.subheader("1. 資料載入日誌 (Data Loader Logs)")
-    if debug_logs:
-        log_text = "\n".join(debug_logs)
-        st.text_area("Loader Logs", log_text, height=300)
-    else:
-        st.info("無日誌 (No logs available)")
+    st.subheader("1. 資料庫連線狀態 (Database Health)")
+    if not health_logs.empty:
+        st.success("✅ 資料庫連線正常")
         
-    st.subheader("2. 資料統計 (Data Stats)")
-    c1, c2 = st.columns(2)
-    c1.metric("Report Rows", len(df_report))
-    c2.metric("Details Rows", len(df_details))
-    
-    if not df_details.empty:
-        st.subheader("4. 明細資料預覽 (Details Preview)")
-        st.dataframe(df_details.head(50), use_container_width=True)
+        # Display table sizes
+        st.dataframe(health_logs, use_container_width=True)
+    else:
+        st.error("❌ 資料庫無回應或為空")
 
     st.divider()
     st.subheader("5. 伺服器檔案列表 (Server File System)")

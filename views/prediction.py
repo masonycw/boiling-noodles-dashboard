@@ -5,6 +5,7 @@ import numpy as np
 from datetime import date
 from dateutil.relativedelta import relativedelta
 import holidays
+import db_queries
 
 def is_holiday_tw(dt, tw_holidays):
     """Returns True if the date is a weekend or a Taiwanese national holiday."""
@@ -36,16 +37,18 @@ def is_cny_closed_day(dt, tw_holidays):
     
     return any(keyword in name for keyword in cny_keywords)
 
-def render_prediction_view(df_report):
+def render_prediction_view():
     st.title("📈 營業額預測 (Revenue Prediction)")
 
-    if df_report.empty:
+    df_agg = db_queries.fetch_daily_revenue_agg()
+    
+    if df_agg.empty:
         st.info("尚未載入營運資料 (Data missing)")
         return
 
     # Prepare Data
-    df = df_report[df_report['Date_Parsed'].notna()].copy()
-    daily_rev = df.set_index('Date_Parsed').resample('D')['total_amount'].sum().reset_index()
+    daily_rev = df_agg[['date', 'total_revenue']].rename(columns={'date': 'Date_Parsed', 'total_revenue': 'total_amount'}).copy()
+    daily_rev['Date_Parsed'] = pd.to_datetime(daily_rev['Date_Parsed'])
     daily_rev['Date_Only'] = daily_rev['Date_Parsed'].dt.date
     daily_rev['total_amount'] = daily_rev['total_amount'].fillna(0)
 

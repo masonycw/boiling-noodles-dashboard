@@ -8,6 +8,19 @@ import os
 # Global Version Config
 APP_VERSION = "2.4.1"
 
+import socket
+
+# For connecting to the PostgreSQL database (to be used by data_pipeline.py and eventually app.py)
+if socket.gethostname() == 'sftp-server':
+    DB_HOST = "localhost" # Connect directly if running locally on the GCP VM
+else:
+    DB_HOST = "34.81.51.45" # GCP External IP for local dev on Mac
+
+DB_PORT = "5432"
+DB_NAME = "boiling_noodles"
+DB_USER = "dashboard_user"
+DB_PASSWORD = "noodles2026"
+
 # --- Cache Path ---
 # On server (eats365 user): /home/eats365/cache  (outside git repo, survives git reset)
 # Locally or test server (other user, no write access): ./cache  (fallback)

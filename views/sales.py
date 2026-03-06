@@ -2,24 +2,22 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 import numpy as np
+import db_queries
 
-def render_sales_view(df_details, start_date, end_date):
+def render_sales_view(start_date, end_date):
     st.title("🍟 商品銷售分析 (Product Sales)")
 
-    if df_details.empty:
-        st.info("尚未載入交易明細 (Transaction Details missing)")
-        return
-
-    # 1. Filter Data
-    # Convert dates to match
-    mask = (df_details['Date_Parsed'].dt.date >= start_date.date()) & (df_details['Date_Parsed'].dt.date <= end_date.date())
-    df = df_details.loc[mask].copy()
+    df_details = db_queries.fetch_sales_details(start_date, end_date)
     
-    if df.empty:
+    if df_details.empty:
         st.warning(f"此區間無銷售資料 ({start_date.date()} ~ {end_date.date()})")
         return
 
+    # 1. Filter Data
+    df = df_details.copy()
+    
     # Filter out modifiers for "Item Counts"
+
     if 'Is_Modifier' in df.columns:
         df_real = df[~df['Is_Modifier']].copy()
     else:
