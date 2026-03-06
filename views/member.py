@@ -235,10 +235,46 @@ def render_crm_analysis(latest_dates=None):
     st.divider()
     
     st.subheader("📊 期間回訪頻率 (會員)")
-    freq = member_txs.groupby('Member_ID')['Visit_ID'].nunique().reset_index()
+    st.caption("以下分析基於下方獨立選擇的期間計算 (建議使用「過去半年」以上區段以累積具有觀察價值的分佈)")
+    
+    rfm_s_date, rfm_e_date = render_date_filter("rfm_tab", "過去半年 (Last 6 Months)")
+    rfm_period_txs = db_queries.fetch_crm_tx_data(rfm_s_date, rfm_e_date)
+    
+    if rfm_period_txs.empty:
+        st.warning("此區間無交易資料")
+        return
+        
+    rfm_member_txs = rfm_period_txs.merge(global_first_visits, on='Member_ID', how='left')
+    rfm_member_txs['Date_Parsed'] = pd.to_datetime(rfm_member_txs['Date_Parsed'])
+    rfm_member_txs['First_Visit_Date'] = pd.to_datetime(rfm_member_txs['First_Visit_Date'])
+    rfm_member_txs['Date_Only'] = rfm_member_txs['Date_Parsed'].dt.date
+    
+    rfm_start_ts = pd.Timestamp(rfm_s_date)
+    rfm_end_ts = pd.Timestamp(rfm_e_date)
+    
+    def determine_rfm_type(row):
+        if row['Member_ID'] == '非會員':
+            return '非會員 (Non-member)'
+        if pd.isna(row['First_Visit_Date']):
+            return '非會員 (Non-member)'
+        if row['First_Visit_Date'].date() >= rfm_start_ts.date():
+            return '新客 (New)'
+        return '舊客 (Returning)'
+        
+    rfm_member_txs['User_Type'] = rfm_member_txs.apply(determine_rfm_type, axis=1)
+    
+    def get_rfm_visit_id(row):
+        if row['User_Type'] == '非會員 (Non-member)':
+            return str(row['order_id'])
+        else:
+            return f"{row['Member_ID']}_{row['Date_Only']}"
+            
+    rfm_member_txs['Visit_ID'] = rfm_member_txs.apply(get_rfm_visit_id, axis=1)
+
+    freq = rfm_member_txs.groupby('Member_ID')['Visit_ID'].nunique().reset_index()
     freq['Frequency'] = pd.cut(freq['Visit_ID'], bins=[0, 1, 2, 5, 100], labels=['1次', '2次', '3-5次', '6次+'])
     
-    user_type_map = member_txs[['Member_ID', 'User_Type']].drop_duplicates()
+    user_type_map = rfm_member_txs[['Member_ID', 'User_Type']].drop_duplicates()
     freq = freq.merge(user_type_map, on='Member_ID', how='left')
     freq_summary = freq.groupby(['User_Type', 'Frequency']).size().reset_index(name='Count')
     
@@ -253,7 +289,7 @@ def render_crm_analysis(latest_dates=None):
     exclude_ue = st.toggle("過濾外送平台 (UberEats等)", value=False, help="開啟後，圖表中將不包含前綴為 UE_ 的會員")
     
     # 確保排除非會員
-    interval_txs = member_txs[member_txs['Member_ID'] != '非會員'].copy()
+    interval_txs = rfm_member_txs[rfm_member_txs['Member_ID'] != '非會員'].copy()
     
     if exclude_ue:
         interval_txs = interval_txs[~interval_txs['Member_ID'].astype(str).str.startswith('UE_')]
@@ -266,28 +302,27 @@ def render_crm_analysis(latest_dates=None):
         ).reset_index()
         
         rfm = rfm.merge(global_first_visits, on='Member_ID', how='left')
-        rfm['Days_Since_First_Visit'] = (pd.Timestamp(end_ts.date()) - pd.to_datetime(rfm['First_Visit_Date']).dt.normalize()).dt.days
+        rfm['Days_Since_First_Visit'] = (pd.Timestamp(rfm_end_ts.date()) - pd.to_datetime(rfm['First_Visit_Date']).dt.normalize()).dt.days
         rfm['First_Visit_Str'] = pd.to_datetime(rfm['First_Visit_Date']).dt.strftime('%Y-%m-%d')
         
         global_all_freq = db_queries.fetch_all_time_active_members()
         rfm = rfm.merge(global_all_freq[['Member_ID', 'Frequency_Global']], on='Member_ID', how='left')
         
-        rfm['Recency'] = (pd.Timestamp(end_ts.date()) - pd.to_datetime(rfm['Last_Purchase']).dt.normalize()).dt.days
+        # Recency 根據最新一筆消費距離結束日期的天數計算
+        rfm['Recency'] = (pd.Timestamp(rfm_end_ts.date()) - pd.to_datetime(rfm['Last_Purchase']).dt.normalize()).dt.days
         rfm['Recency'] = rfm['Recency'].clip(lower=0)
         
-        interval_days = max((end_ts.date() - start_ts.date()).days, 1)
-        r_thresh = interval_days / 2 if interval_days >= 28 else 14
-        
         def segment_rfm(row):
-            f = row['Frequency']
+            # NEW RFM Definitions Based on Global Frequency and 30 Day Recency
+            f = row['Frequency_Global']
             r = row['Recency']
             
-            if f >= 3:
-                return "Champions (主力常客)" if r <= r_thresh else "At Risk (流失預警)"
-            elif f == 2:
-                return "Potential (潛力新星)" if r <= r_thresh else "At Risk (流失預警)"
+            if f > 4:
+                return "Champions (主力常客)" if r <= 30 else "At Risk (流失預警)"
+            elif 2 <= f <= 4:
+                return "Potential (潛力新星)" if r <= 30 else "潛力客群"
             else:
-                return "New (新客)" if r <= r_thresh else "One-time (一次客)"
+                return "New (新客)" if r <= 30 else "One-time (一次客)"
                 
         rfm['Segment'] = rfm.apply(segment_rfm, axis=1)
         
@@ -296,20 +331,21 @@ def render_crm_analysis(latest_dates=None):
             "Potential (潛力新星)": "#FDD1C9",
             "New (新客)": "#FF7B72",
             "At Risk (流失預警)": "#A5D8FF",
+            "潛力客群": "#D4E157",
             "One-time (一次客)": "#5B96DB"
         }
         cat_order = list(color_map.keys())
         
         fig_scatter = px.scatter(
             rfm, 
-            x='Recency', y='Frequency', size='Monetary', color='Segment', 
+            x='Recency', y='Frequency_Global', size='Monetary', color='Segment', 
             hover_name='Member_ID',
             category_orders={"Segment": cat_order},
             color_discrete_map=color_map,
+            labels={'Frequency_Global': 'Historical Total Visits', 'Recency': 'Days Since Last Visit'},
             title="RFM 分佈"
         )
-        with st.expander("📊 查看 RFM 散佈圖"):
-            st.plotly_chart(fig_scatter, use_container_width=True)
+        st.plotly_chart(fig_scatter, use_container_width=True)
             
         seg_counts = rfm['Segment'].value_counts().reset_index()
         seg_counts.columns = ['會員價值分群', '人數']
