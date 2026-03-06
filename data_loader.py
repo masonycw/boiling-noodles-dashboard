@@ -124,13 +124,22 @@ class UniversalLoader:
                 self._process_json_file(file_path)
                 return
 
-            # Attempt 1: Standard Load with BOM support for CSV
-            df = pd.read_csv(file_path, encoding='utf-8-sig')
+            # Attempt 1: Standard Load with fallback for Big5/Windows encodings
+            try:
+                df = pd.read_csv(file_path, encoding='utf-8-sig')
+            except UnicodeDecodeError:
+                try:
+                    df = pd.read_csv(file_path, encoding='big5')
+                except UnicodeDecodeError:
+                    df = pd.read_csv(file_path, encoding='utf-8', errors='replace')
             
             # Smart Header Detection
             if self._is_messy_header(df):
                 self.log(f"🔄 Detected messy header in {os.path.basename(file_path)}, retrying with header=1")
-                df = pd.read_csv(file_path, header=1, encoding='utf-8-sig') # Retry with correct encoding
+                try:
+                    df = pd.read_csv(file_path, header=1, encoding='utf-8-sig') # Retry with correct encoding
+                except UnicodeDecodeError:
+                    df = pd.read_csv(file_path, header=1, encoding='big5')
             
             # 1. Clean Column Names
             df.columns = df.columns.astype(str).str.strip()
