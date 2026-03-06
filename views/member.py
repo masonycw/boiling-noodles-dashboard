@@ -250,8 +250,13 @@ def render_crm_analysis(latest_dates=None):
     st.subheader("🎯 區間內 RFM Scatter")
     st.caption("基於您選擇的日期區間，計算活躍會員的 R (最近一次消費距今)、F (區間來店)、M (區間消費)。")
     
+    exclude_ue = st.toggle("過濾外送平台 (UberEats等)", value=False, help="開啟後，圖表中將不包含前綴為 UE_ 的會員")
+    
     # 確保排除非會員
     interval_txs = member_txs[member_txs['Member_ID'] != '非會員'].copy()
+    
+    if exclude_ue:
+        interval_txs = interval_txs[~interval_txs['Member_ID'].astype(str).str.startswith('UE_')]
     
     if not interval_txs.empty:
         rfm = interval_txs.groupby('Member_ID').agg(
