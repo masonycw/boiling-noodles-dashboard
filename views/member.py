@@ -250,7 +250,8 @@ def render_crm_analysis(latest_dates=None):
     st.subheader("🎯 區間內 RFM Scatter")
     st.caption("基於您選擇的日期區間，計算活躍會員的 R (最近一次消費距今)、F (區間來店)、M (區間消費)。")
     
-    interval_txs = member_txs.copy()
+    # 確保排除非會員
+    interval_txs = member_txs[member_txs['Member_ID'] != '非會員'].copy()
     
     if not interval_txs.empty:
         rfm = interval_txs.groupby('Member_ID').agg(

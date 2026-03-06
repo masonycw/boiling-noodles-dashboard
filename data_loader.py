@@ -766,8 +766,8 @@ class UniversalLoader:
                     p = ''
                 
                 if len(p) > 6 and p != 'nan': return f"CRM_{p}" # Valid Phone
-                if len(c) > 4 and c != 'nan': return f"Carrier_{c}" # Valid Carrier
-                return None # Non-member
+                if len(c) >= 7 and c != 'nan' and c.startswith('/'): return f"Carrier_{c}" # Valid Carrier
+                return '非會員' # Non-member
                 
             df_report['Member_ID'] = df_report.apply(get_member_id, axis=1)
             
