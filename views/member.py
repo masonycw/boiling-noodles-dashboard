@@ -98,8 +98,8 @@ def render_crm_analysis(latest_dates=None):
         * 🟢 **Champions (主力常客)**：歷史總來店 > 4次，且距今 ≤ 30天有回訪
         * 🟠 **Potential (潛力新星)**：歷史總來店 2~4次，且距今 ≤ 30天有回訪
         * 🔴 **New (新客)**：歷史總來店 = 1次，且距今 ≤ 30天
-        * 🔵 **At Risk (流失預警)**：歷史總來店 > 4次，且距今超過 30天未回訪
-        * 🟢 **潛力客群**：歷史總來店 2~4次，且距今超過 30天未回訪
+        * 🟢 **At Risk (流失預警)**：歷史總來店 > 4次，且距今超過 30天未回訪
+        * 🔵 **潛力客群**：歷史總來店 2~4次，且距今超過 30天未回訪
         * 🔵 **One-time (一次客)**：歷史總來店 = 1次，且距今超過 30天
         """)
     
@@ -336,8 +336,8 @@ def render_crm_analysis(latest_dates=None):
             "Champions (主力常客)": "#7FCCB5",
             "Potential (潛力新星)": "#FDD1C9",
             "New (新客)": "#FF7B72",
-            "At Risk (流失預警)": "#A5D8FF",
-            "潛力客群": "#D4E157",
+            "At Risk (流失預警)": "#D4E157",
+            "潛力客群": "#A5D8FF",
             "One-time (一次客)": "#5B96DB"
         }
         cat_order = list(color_map.keys())
