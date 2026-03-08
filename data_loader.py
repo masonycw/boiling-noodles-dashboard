@@ -120,7 +120,7 @@ class UniversalLoader:
     def _process_file(self, file_path):
         try:
             # Handle JSON files separately
-            if file_path.endswith('.json') or ('OperationReport' in file_path and file_path.endswith('.txt')):
+            if file_path.endswith('.json') or file_path.endswith('.txt'):
                 self._process_json_file(file_path)
                 return
 
