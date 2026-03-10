@@ -45,7 +45,9 @@ jobs:
           echo "Clearing Port 8501..."
           if [ -f streamlit.pid ]; then
             OLD_PID=$(cat streamlit.pid)
-            kill $OLD_PID > /dev/null 2>&1 || true
+            if [ -n "$OLD_PID" ] && [ "$OLD_PID" != "0" ]; then
+              kill $OLD_PID > /dev/null 2>&1 || true
+            fi
             rm streamlit.pid
           fi
           fuser -k 8501/tcp > /dev/null 2>&1 || true
@@ -117,9 +119,12 @@ jobs:
           echo "Clearing old test process..."
           if [ -f streamlit_test.pid ]; then
             OLD_PID=$(cat streamlit_test.pid)
-            kill $OLD_PID > /dev/null 2>&1 || true
+            if [ -n "$OLD_PID" ] && [ "$OLD_PID" != "0" ]; then
+              kill $OLD_PID > /dev/null 2>&1 || true
+            fi
             rm streamlit_test.pid
           fi
+          fuser -k 8502/tcp > /dev/null 2>&1 || true
           sleep 1
 
           echo "Starting TEST Streamlit on Port 8502..."
