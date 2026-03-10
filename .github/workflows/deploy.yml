@@ -37,7 +37,7 @@ jobs:
           git reset --hard origin/main
           
           echo "Checking deployed version:"
-          grep 'APP_VERSION' config.py
+          grep 'APP_VERSION' streamlit/config.py
           
           source venv/bin/activate
           pip install -r requirements.txt -q
@@ -52,7 +52,7 @@ jobs:
           sleep 2
           
           echo "Starting Streamlit on Port 8501..."
-          nohup ./venv/bin/streamlit run app.py \
+          nohup ./venv/bin/streamlit run streamlit/app.py \
             --server.port=8501 \
             --server.address=0.0.0.0 \
             --server.headless=true \
@@ -109,7 +109,7 @@ jobs:
           git reset --hard origin/Backup
 
           echo "Checking test version:"
-          grep 'APP_VERSION' config.py
+          grep 'APP_VERSION' streamlit/config.py
 
           source venv/bin/activate
           pip install -r requirements.txt -q
@@ -123,7 +123,7 @@ jobs:
           sleep 1
 
           echo "Starting TEST Streamlit on Port 8502..."
-          nohup ./venv/bin/streamlit run app.py \
+          nohup ./venv/bin/streamlit run streamlit/app.py \
             --server.port=8502 \
             --server.address=0.0.0.0 \
             --server.headless=true \

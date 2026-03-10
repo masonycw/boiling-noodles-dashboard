@@ -1,10 +1,24 @@
 import os
+import sys
 import psycopg2
 from data_loader import UniversalLoader
 from config import DB_HOST, DB_NAME, DB_USER, DB_PASSWORD
 import pandas as pd
 from psycopg2.extras import execute_values
 from datetime import datetime
+
+LOCK_FILE = '/tmp/pipeline.lock'
+
+def acquire_lock():
+    if os.path.exists(LOCK_FILE):
+        print(f"⚠️ Lock file {LOCK_FILE} exists. Another instance of the pipeline is running.")
+        sys.exit(0)
+    with open(LOCK_FILE, 'w') as f:
+        f.write(str(os.getpid()))
+
+def release_lock():
+    if os.path.exists(LOCK_FILE):
+        os.remove(LOCK_FILE)
 
 def connect_to_db():
     conn = psycopg2.connect(
@@ -94,6 +108,8 @@ def transform_and_load_orders(df_report, df_details):
         member_id = EXCLUDED.member_id,
         order_category = EXCLUDED.order_category,
         main_dish_count = EXCLUDED.main_dish_count
+    WHERE EXCLUDED.data_source = 'json' 
+       OR orders_fact.data_source = 'csv'
     """
     
     conn = connect_to_db()
@@ -182,7 +198,7 @@ def update_data_freshness(latest_dates: dict):
                     VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT (source_key) DO UPDATE SET
                         source_label = EXCLUDED.source_label,
-                        latest_date = EXCLUDED.latest_date,
+                        latest_date = GREATEST(data_freshness.latest_date, EXCLUDED.latest_date),
                         updated_at = CURRENT_TIMESTAMP
                 """, (key, label, date_val))
     conn.commit()
@@ -242,29 +258,36 @@ def update_daily_revenue_agg():
     print("Completed updating daily_revenue_agg.")
 
 def main():
-    # 1. 初始化資料庫 Schema
-    setup_database() 
-    
-    # 2. 獲取清洗後的資料
-    print("Initiating full data load via UniversalLoader...")
-    loader = UniversalLoader()
-    df_report, df_details, logs = loader.scan_and_load()
-    
-    if df_report.empty:
-        print("No report data found. Exting.")
-        return
+    acquire_lock()
+    try:
+        # 1. 初始化資料庫 Schema
+        setup_database() 
         
-    print(f"Data loaded successfully. Report size: {len(df_report)}")
-    
-    # 3. 下載資料新鮮度
-    update_data_freshness(getattr(loader, 'latest_dates', {}))
-    
-    # 4. 匯入資料庫
-    transform_and_load_orders(df_report, df_details)
-    transform_and_load_details(df_details)
-    update_daily_revenue_agg()
-    
-    print("ETL Pipeline completed.")
+        # 2. 獲取清洗後的資料
+        print("Initiating incremental data load via UniversalLoader...")
+        loader = UniversalLoader()
+        df_report, df_details, logs = loader.scan_and_load()
+        
+        if df_report is None or df_report.empty:
+            print("[Incremental] No new or modified files to process. Exiting cleanly.")
+            return
+            
+        print(f"Data loaded successfully. Report size: {len(df_report)}")
+        
+        # 3. 下載資料新鮮度
+        update_data_freshness(getattr(loader, 'latest_dates', {}))
+        
+        # 4. 匯入資料庫
+        transform_and_load_orders(df_report, df_details)
+        transform_and_load_details(df_details)
+        update_daily_revenue_agg()
+        
+        # 5. 確認資料已成功匯入 DB，儲存已處理檔案快取
+        loader.commit_processed_files()
+        
+        print("ETL Pipeline completed.")
+    finally:
+        release_lock()
 
 if __name__ == "__main__":
     main()

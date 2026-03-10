@@ -16,25 +16,36 @@ class UniversalLoader:
         print(message) 
 
     def scan_and_load(self):
-        """Scans raw files, enriches data, and caches the fully-processed result as Parquet.
+        """Scans raw files, tracking mtime for incremental loading.
         
-        Cache is stored in config.CACHE_DIR (/home/eats365/cache on server, ./cache locally).
-        The cache stores the ENRICHED DataFrames (including Member_ID, Day_Type, Is_Main_Dish, etc.)
-        with correct dtypes, so enrich_data does NOT need to be called again in app.py.
+        Uses /home/eats365/cache/processed_files.json (or config.CACHE_DIR) to track 
+        files that have already been loaded into the DB so we only process new data.
         """
         import json
 
-        # --- Cache Paths ---
+        # --- Variables ---
         cache_dir = config.CACHE_DIR
         os.makedirs(cache_dir, exist_ok=True)
-        report_cache  = os.path.join(cache_dir, 'enriched_report.parquet')
-        details_cache = os.path.join(cache_dir, 'enriched_details.parquet')
-        meta_cache    = os.path.join(cache_dir, 'cache_meta.json')
+        self.meta_cache = os.path.join(cache_dir, 'processed_files.json')
+        
+        # Load tracked files
+        self.processed_files = {}
+        if os.path.exists(self.meta_cache):
+            try:
+                with open(self.meta_cache, 'r', encoding='utf-8') as mf:
+                    self.processed_files = json.load(mf)
+            except Exception as e:
+                self.log(f"⚠️ Failed to load processed_files.json: {e}")
 
-        # --- 1. Find newest raw data file mtime ---
-        newest_raw_mtime = 0
+        # Store latest run dates in this object for backward compatibility
+        self.latest_dates = self.processed_files.get('_latest_dates', {
+            'json': '無資料',
+            'csv_report': '無資料',
+            'csv_details': '無資料',
+            'invoice': '無資料'
+        })
+
         raw_files_to_process = []
-
         for root_dir in config.DATA_DIRS:
             if not os.path.exists(root_dir):
                 self.log(f"Skipping missing directory: {root_dir}")
@@ -44,29 +55,22 @@ class UniversalLoader:
                 for f in files:
                     if not (f.endswith(".csv") or f.endswith(".json") or f.endswith(".txt")): continue
                     full_path = os.path.join(current_root, f)
-                    mtime = os.path.getmtime(full_path)
-                    if mtime > newest_raw_mtime:
-                        newest_raw_mtime = mtime
-                    raw_files_to_process.append(full_path)
+                    
+                    try:
+                        mtime = os.path.getmtime(full_path)
+                    except OSError:
+                        continue
+                        
+                    # Incremental check: Only process if file is new or modified
+                    last_mtime = self.processed_files.get(full_path, 0)
+                    if mtime > last_mtime:
+                        raw_files_to_process.append((full_path, mtime))
 
-        # --- 2. Cache Hit Check ---
-        if os.path.exists(report_cache) and os.path.exists(details_cache):
-            cache_mtime = min(os.path.getmtime(report_cache), os.path.getmtime(details_cache))
-            if cache_mtime >= newest_raw_mtime:
-                self.log("⚡ [Parquet Cache Hit] Raw files unchanged. Loading enriched cache instantly...")
-                try:
-                    df_report  = pd.read_parquet(report_cache)
-                    df_details = pd.read_parquet(details_cache)
-                    # Restore latest_dates from meta file
-                    if os.path.exists(meta_cache):
-                        with open(meta_cache, 'r', encoding='utf-8') as mf:
-                            self.latest_dates = json.load(mf)
-                    self.log(f"⚡ Loaded {len(df_report)} report rows + {len(df_details)} detail rows (fully enriched).")
-                    return df_report, df_details, self.debug_logs
-                except Exception as e:
-                    self.log(f"⚠️ Failed to load Parquet cache: {e}. Reverting to raw scan.")
+        if not raw_files_to_process:
+            self.log("⚡ [Incremental Hit] No new or modified files. Exiting early.")
+            return None, None, self.debug_logs
 
-        self.log("🔄 [Cache Miss / Stale] Processing raw files and rebuilding enriched cache...")
+        self.log(f"🔄 Processing {len(raw_files_to_process)} new or modified raw files...")
 
         # --- 3. Raw Parse → Merge ---
         self.report_data  = []
@@ -74,48 +78,38 @@ class UniversalLoader:
         self.details_data = []
         self.seen_files   = set()
 
-        for full_path in raw_files_to_process:
+        # Temporary dict to hold new mtimes until DB commit
+        self.new_processed_files = self.processed_files.copy()
+
+        for full_path, mtime in raw_files_to_process:
             if full_path in self.seen_files: continue
             self.seen_files.add(full_path)
             self._process_file(full_path)
+            # Track mtime for commit later
+            self.new_processed_files[full_path] = mtime
 
         df_report, df_details, logs = self._merge_data()
 
         # --- 4. Enrich (Business Logic) ---
         df_report, df_details = self.enrich_data(df_report, df_details)
-
-        # --- 5. Save Enriched Parquet Cache (with correct dtypes) ---
-        try:
-            def _safe_parquet(df, path):
-                """Save DataFrame to Parquet natively without full DF copy (prevents OOM)."""
-                # Convert object columns to string iteratively to save memory
-                for col in df.columns:
-                    col_dtype = df[col].dtype
-                    # Skip datetime, numeric, bool types which PyArrow handles cleanly mapping
-                    if pd.api.types.is_datetime64_any_dtype(col_dtype) or \
-                       pd.api.types.is_numeric_dtype(col_dtype) or \
-                       col_dtype == bool:
-                        continue
-                    
-                    # Convert to explicitly safe string type without risking df.copy() heap spikes
-                    if col_dtype == 'object':
-                        df[col] = df[col].astype(str).replace({'nan': None})
-                
-                # df is now safe to write natively, use pyarrow memory mapping gracefully
-                df.to_parquet(path, engine='pyarrow', index=False)
-
-            _safe_parquet(df_report,  report_cache)
-            _safe_parquet(df_details, details_cache)
-
-            # Save latest_dates metadata
-            with open(meta_cache, 'w', encoding='utf-8') as mf:
-                json.dump(getattr(self, 'latest_dates', {}), mf, ensure_ascii=False, default=str)
-
-            self.log(f"💾 [Cache Saved] Enriched Parquet written to {cache_dir}")
-        except Exception as e:
-            self.log(f"⚠️ Failed to save Parquet cache: {e}")
+        
+        # Save new latest_dates to state to be written at commit time
+        self.new_processed_files['_latest_dates'] = getattr(self, 'latest_dates', {})
 
         return df_report, df_details, logs
+
+    def commit_processed_files(self):
+        """Called by data_pipeline after successful DB UPSERT to permanently mark files as processed."""
+        import json
+        if not hasattr(self, 'new_processed_files'):
+            return
+            
+        try:
+            with open(self.meta_cache, 'w', encoding='utf-8') as mf:
+                json.dump(self.new_processed_files, mf, ensure_ascii=False, default=str)
+            self.log("💾 [Incremental Cache Saved] processed_files.json updated successfully.")
+        except Exception as e:
+            self.log(f"⚠️ Failed to save processed_files.json: {e}")
 
     def _process_file(self, file_path):
         try:
