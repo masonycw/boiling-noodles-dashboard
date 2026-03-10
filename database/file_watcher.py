@@ -37,7 +37,7 @@ STABILIZE_SECS = 10
 # Path to the ETL script
 PIPELINE_DIR = Path(__file__).parent
 PIPELINE_SCRIPT = PIPELINE_DIR / "data_pipeline.py"
-PYTHON = PIPELINE_DIR / "venv" / "bin" / "python3"
+PYTHON = PIPELINE_DIR.parent / "venv" / "bin" / "python3"
 
 # Log setup
 logging.basicConfig(
