@@ -8,6 +8,8 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api
 const selectedOrder = ref(null)
 const selectedOrderDetails = ref([])
 const isDetailLoading = ref(false)
+const isEditing = ref(false)
+const isSaving = ref(false)
 
 const activeTab = ref('today') // today, received, history, future
 const getTodayStr = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }).substring(0, 10)
@@ -18,11 +20,53 @@ const deleteOrder = async (orderId) => {
     const res = await fetch(`${API_BASE}/inventory/orders/${orderId}`, { method: 'DELETE' })
     if (res.ok) {
       alert('已刪除！')
-      if (selectedOrder.value) showDetails(selectedOrder.value) // re-fetch details if modal open
+      selectedOrder.value = null // close modal if open
       fetchOrders()
     }
   } catch(err) {
     alert('刪除失敗')
+  }
+}
+
+const saveOrder = async () => {
+  if (!confirm('確定要更新這筆叫貨單嗎？\n(如果有多筆同時間的相同廠商單據，將合併為一筆)。')) return
+  isSaving.value = true
+  
+  const payload = {
+    vendor_id: selectedOrder.value.vendor_id,
+    expected_delivery_date: selectedOrder.value.orders[0].expected_delivery_date || null,
+    items: selectedOrderDetails.value.map(i => ({
+      item_id: i.item_id || null,
+      adhoc_name: i.adhoc_name || (i.item_id ? null : i.name),
+      adhoc_unit: i.adhoc_unit || (i.item_id ? null : i.unit),
+      qty: i.qty
+    })).filter(i => i.qty > 0)
+  }
+  
+  const mainOrderId = selectedOrder.value.ids[0]
+  
+  try {
+    const res = await fetch(`${API_BASE}/inventory/orders/${mainOrderId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    
+    if (res.ok) {
+      for(let i = 1; i < selectedOrder.value.ids.length; i++) {
+        await fetch(`${API_BASE}/inventory/orders/${selectedOrder.value.ids[i]}`, { method: 'DELETE' })
+      }
+      alert('已成功修改！')
+      isEditing.value = false
+      selectedOrder.value = null
+      fetchOrders()
+    } else {
+      alert('修改失敗')
+    }
+  } catch(err) {
+    alert('修改發生錯誤')
+  } finally {
+    isSaving.value = false
   }
 }
 
@@ -49,6 +93,7 @@ const groupedOrders = computed(() => {
     if (!groups[key]) {
       groups[key] = {
         ids: [],
+        vendor_id: order.vendor_id,
         vendor_name: order.vendor_name,
         dateStr: dateStr,
         created_at: order.created_at,
@@ -85,6 +130,7 @@ const displayedOrders = computed(() => {
 const showDetails = async (groupedOrder) => {
   selectedOrder.value = groupedOrder
   isDetailLoading.value = true
+  isEditing.value = false
   selectedOrderDetails.value = []
   
   try {
@@ -298,15 +344,34 @@ const getStatusColor = (status) => {
           <div v-else class="space-y-4 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
             <div v-for="item in selectedOrderDetails" :key="item.name" class="flex justify-between items-center py-3 border-b border-slate-50">
               <span class="text-slate-700 font-bold">{{ item.name }}</span>
-              <span class="text-slate-900 font-black">{{ item.qty }} <span class="text-xs font-normal text-slate-400">{{ item.unit }}</span></span>
+              <span v-if="!isEditing" class="text-slate-900 font-black">{{ item.qty }} <span class="text-xs font-normal text-slate-400">{{ item.unit }}</span></span>
+              <div v-else class="flex items-center space-x-2">
+                 <button @click="item.qty = Math.max(0, item.qty - 1)" class="w-8 h-8 bg-slate-100 rounded-full font-black text-slate-600">-</button>
+                 <input v-model.number="item.qty" type="number" class="w-12 bg-slate-50 border-none rounded text-center font-bold px-1 py-1" />
+                 <button @click="item.qty += 1" class="w-8 h-8 bg-slate-100 rounded-full font-black text-slate-600">+</button>
+                 <span class="text-xs font-normal text-slate-400">{{ item.unit }}</span>
+              </div>
             </div>
           </div>
 
           <div class="mt-8 flex flex-col space-y-3">
-            <button v-if="selectedOrder.status === 'pending'" @click="deleteOrder(selectedOrder.ids[0])" class="w-full bg-rose-50 text-rose-500 font-bold py-3.5 rounded-2xl border border-rose-100 active:bg-rose-100 transition-all text-sm">
-              刪除此單 (重叫)
-            </button>
-            <button @click="selectedOrder = null" class="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl active:scale-95 transition-all">
+            <template v-if="selectedOrder.status === 'pending' && !isEditing">
+              <button @click="isEditing = true" class="w-full bg-orange-50 text-orange-500 font-bold py-3.5 rounded-2xl border border-orange-100 active:bg-orange-100 transition-all text-sm">
+                修改此單
+              </button>
+              <button @click="deleteOrder(selectedOrder.ids[0])" class="w-full bg-rose-50 text-rose-500 font-bold py-3.5 rounded-2xl border border-rose-100 active:bg-rose-100 transition-all text-sm">
+                刪除此單 (重叫)
+              </button>
+            </template>
+            <template v-else-if="selectedOrder.status === 'pending' && isEditing">
+              <button @click="saveOrder" :disabled="isSaving" class="w-full bg-emerald-500 text-white font-bold py-3.5 rounded-2xl shadow-lg transition-all text-sm disabled:opacity-50">
+                {{ isSaving ? '儲存中...' : '儲存修改' }}
+              </button>
+              <button @click="isEditing = false" class="w-full bg-slate-100 text-slate-500 font-bold py-3.5 rounded-2xl border border-slate-200 active:bg-slate-200 transition-all text-sm">
+                取消編輯
+              </button>
+            </template>
+            <button v-if="!isEditing" @click="selectedOrder = null" class="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl active:scale-95 transition-all">
               關閉視窗
             </button>
           </div>

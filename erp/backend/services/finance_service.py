@@ -9,6 +9,13 @@ def get_transactions(db: Session, skip: int = 0, limit: int = 100, days_limit: i
         query = query.filter(CashTransaction.created_at >= cutoff_date)
     return query.order_by(CashTransaction.created_at.desc()).offset(skip).limit(limit).all()
 
+from sqlalchemy.sql import func
+def get_balance(db: Session):
+    incomes = db.query(func.sum(CashTransaction.amount)).filter(CashTransaction.type == 'income').scalar() or 0
+    expenses = db.query(func.sum(CashTransaction.amount)).filter(CashTransaction.type == 'expense').scalar() or 0
+    withdrawals = db.query(func.sum(CashTransaction.amount)).filter(CashTransaction.type == 'withdrawal').scalar() or 0
+    return float(incomes - expenses - withdrawals)
+
 def create_transaction(db: Session, user_id: int, tx_in: dict):
     db_tx = CashTransaction(
         user_id=user_id,

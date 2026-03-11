@@ -62,6 +62,16 @@ def create_order(order_data: OrderCreate, db: Session = Depends(get_db)):
         db, user_id, order_data.vendor_id, items_dicts, order_data.expected_delivery_date
     )
 
+@router.put("/orders/{order_id}")
+def update_order(order_id: int, order_data: OrderCreate, db: Session = Depends(get_db)):
+    items_dicts = [item.dict() for item in order_data.items]
+    try:
+        return inventory_service.update_purchase_order(
+            db, order_id, order_data.vendor_id, items_dicts, order_data.expected_delivery_date
+        )
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
 @router.get("/orders")
 def list_orders(days_limit: int = None, status: str = None, db: Session = Depends(get_db)):
     orders = inventory_service.get_orders(db, days_limit=days_limit, status=status)
@@ -70,12 +80,15 @@ def list_orders(days_limit: int = None, status: str = None, db: Session = Depend
         vendor = db.query(inventory_service.Vendor).filter(inventory_service.Vendor.id == order.vendor_id).first()
         result.append({
             "id": order.id,
+            "vendor_id": order.vendor_id,
             "vendor_name": vendor.name if vendor else "Unknown",
             "created_at": order.created_at,
             "status": order.status,
             "total_items": order.total_items,
             "expected_delivery_date": order.expected_delivery_date,
-            "amount_paid": order.amount_paid
+            "total_amount": order.total_amount,
+            "amount_paid": order.amount_paid,
+            "is_paid": order.is_paid
         })
     return result
 
@@ -141,6 +154,9 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
         result.append({
             "name": name,
             "qty": d.qty,
-            "unit": unit
+            "unit": unit,
+            "item_id": d.item_id,
+            "adhoc_name": d.adhoc_name,
+            "adhoc_unit": d.adhoc_unit
         })
     return result

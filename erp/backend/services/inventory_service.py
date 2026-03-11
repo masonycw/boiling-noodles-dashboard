@@ -39,6 +39,33 @@ def create_purchase_order(db: Session, user_id: int, vendor_id: int, items_data:
     db.refresh(db_po)
     return db_po
 
+def update_purchase_order(db: Session, order_id: int, vendor_id: int, items_data: list, expected_delivery_date: datetime = None):
+    db_po = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
+    if not db_po:
+        raise Exception("Order not found")
+        
+    db_po.vendor_id = vendor_id
+    db_po.expected_delivery_date = expected_delivery_date
+    db_po.total_items = len(items_data)
+    
+    # Remove old items
+    db.query(PurchaseOrderDetail).filter(PurchaseOrderDetail.order_id == order_id).delete()
+    
+    # Add new items
+    for item in items_data:
+        db_detail = PurchaseOrderDetail(
+            order_id=db_po.id,
+            item_id=item.get('item_id'),
+            adhoc_name=item.get('adhoc_name'),
+            adhoc_unit=item.get('adhoc_unit'),
+            qty=item['qty']
+        )
+        db.add(db_detail)
+        
+    db.commit()
+    db.refresh(db_po)
+    return db_po
+
 def get_orders(db: Session, skip: int = 0, limit: int = 50, days_limit: int = None, status: str = None):
     query = db.query(PurchaseOrder)
     if days_limit is not None:

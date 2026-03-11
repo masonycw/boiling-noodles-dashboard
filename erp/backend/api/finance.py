@@ -10,6 +10,10 @@ router = APIRouter(prefix="/finance", tags=["finance"])
 def list_transactions(days_limit: int = None, db: Session = Depends(get_db)):
     return finance_service.get_transactions(db, days_limit=days_limit)
 
+@router.get("/balance")
+def get_current_balance(db: Session = Depends(get_db)):
+    return {"balance": finance_service.get_balance(db)}
+
 @router.post("/transactions")
 def create_transaction(tx: dict, db: Session = Depends(get_db)):
     # In a real app, we'd get user_id from the JWT token
