@@ -113,8 +113,29 @@ const generateOrderText = async () => {
     text += `請確認收單，謝謝！`
     
     // 3. Copy to clipboard
-    await navigator.clipboard.writeText(text)
-    alert('叫貨紀錄已存檔，並已複製到剪貼簿！')
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+        alert('叫貨紀錄已存檔，並已複製到剪貼簿！')
+      } else {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+          document.execCommand('copy');
+          alert('叫貨紀錄已存檔，並已複製到剪貼簿！')
+        } catch (err) {
+          alert('叫貨紀錄已存檔！(自動複製失敗，請手動複製內容)')
+        }
+        document.body.removeChild(textArea);
+      }
+    } catch (err) {
+      alert('叫貨紀錄已存檔！(自動複製失敗，請手動複製)')
+    }
     adHocItems.value = [] // Clear ad-hoc after order
   } catch (err) {
     alert('儲存失敗: ' + err.message)

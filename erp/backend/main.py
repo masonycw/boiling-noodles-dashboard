@@ -7,7 +7,7 @@ app = FastAPI(title="Boiling Noodles ERP")
 # Setup CORS for Vue frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with specific domain
+    allow_origin_regex=".*", # Safely match any origin without causing Safari strict CORS failure
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
