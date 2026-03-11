@@ -32,8 +32,6 @@ CACHE_DIR = _SERVER_CACHE if os.access("/home/eats365", os.W_OK) else os.path.jo
 DATA_DIRS = [
     "/home/eats365/data",          # Primary Data Root
     "/home/eats365/upload",        # Fallback Upload
-    "/data",                       # Absolute Data Path (User's SFTP Root?)
-    "/data/交易資料",               # Specific Directory (If not recursive from /data?)
     os.path.join(os.getcwd(), 'data'), # Local Data
     os.getcwd()                    # Local Root
 ]
