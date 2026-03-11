@@ -192,7 +192,7 @@ def update_data_freshness(latest_dates: dict):
     with conn.cursor() as cur:
         for key, label in SOURCE_LABELS.items():
             date_val = latest_dates.get(key)
-            if date_val:
+            if date_val and date_val != '無資料':
                 cur.execute("""
                     INSERT INTO data_freshness (source_key, source_label, latest_date, updated_at)
                     VALUES (%s, %s, %s, CURRENT_TIMESTAMP)

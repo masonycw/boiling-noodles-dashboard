@@ -23,8 +23,6 @@ from watchdog.events import FileSystemEventHandler
 WATCH_DIRS = [
     "/home/eats365/data",
     "/home/eats365/upload",
-    "/data",
-    "/data/交易資料",
 ]
 
 # Only trigger on these file extensions
