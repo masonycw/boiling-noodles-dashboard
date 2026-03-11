@@ -94,6 +94,54 @@ const openItemEdit = (item) => {
   itemForm.value = { ...item }
   showItemModal.value = true
 }
+
+// Password Change
+const passwordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '' })
+const pwdErrorMsg = ref('')
+const pwdSuccessMsg = ref('')
+const isPwdLoading = ref(false)
+
+const changePassword = async () => {
+  pwdErrorMsg.value = ''
+  pwdSuccessMsg.value = ''
+  
+  if (!passwordForm.value.oldPassword || !passwordForm.value.newPassword) {
+    pwdErrorMsg.value = '請填寫完整密碼資訊'
+    return
+  }
+  if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
+    pwdErrorMsg.value = '新密碼與確認密碼不一致'
+    return
+  }
+  
+  isPwdLoading.value = true
+  try {
+    const token = localStorage.getItem('erp_token')
+    const res = await fetch(`${API_BASE}/auth/users/me/password`, {
+      method: 'PUT',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        old_password: passwordForm.value.oldPassword,
+        new_password: passwordForm.value.newPassword
+      })
+    })
+    
+    if (res.ok) {
+      pwdSuccessMsg.value = '密碼修改成功！下次請使用新密碼登入。'
+      passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
+    } else {
+      const data = await res.json()
+      pwdErrorMsg.value = data.detail || '修改密碼失敗，請確認原密碼是否正確'
+    }
+  } catch (err) {
+    pwdErrorMsg.value = '連線錯誤，請稍後再試'
+  } finally {
+    isPwdLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -114,6 +162,13 @@ const openItemEdit = (item) => {
           :class="activeTab === 'items' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500'"
         >
           品項管理
+        </button>
+        <button 
+          @click="activeTab = 'profile'"
+          class="flex-1 py-2 rounded-lg text-sm font-bold transition-all"
+          :class="activeTab === 'profile' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500'"
+        >
+          個人設定
         </button>
       </div>
     </header>
@@ -164,6 +219,36 @@ const openItemEdit = (item) => {
         <button @click="editingItem = null; itemForm = { name: '', unit: '', vendor_id: 1 }; showItemModal = true" class="w-full py-4 border-2 border-dashed border-slate-300 rounded-2xl text-slate-400 font-bold hover:border-orange-300 hover:text-orange-500 transition-all">
           + 新增品項
         </button>
+      </div>
+
+      <!-- User Profile (Change Password) -->
+      <div v-else-if="activeTab === 'profile'" class="space-y-4 max-w-md mx-auto">
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <h3 class="font-black text-slate-900 text-lg mb-4">修改密碼</h3>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-500 mb-1">目前密碼</label>
+              <input v-model="passwordForm.oldPassword" type="password" class="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-orange-500/20" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-500 mb-1">新密碼</label>
+              <input v-model="passwordForm.newPassword" type="password" class="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-orange-500/20" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-500 mb-1">確認新密碼</label>
+              <input v-model="passwordForm.confirmPassword" type="password" class="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-orange-500/20" />
+            </div>
+            <p v-if="pwdErrorMsg" class="text-rose-500 text-sm font-bold">{{ pwdErrorMsg }}</p>
+            <p v-if="pwdSuccessMsg" class="text-emerald-500 text-sm font-bold">{{ pwdSuccessMsg }}</p>
+            <button 
+              @click="changePassword"
+              :disabled="isPwdLoading"
+              class="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl active:scale-95 transition-all disabled:opacity-50 mt-4"
+            >
+              {{ isPwdLoading ? '處理中...' : '確認修改' }}
+            </button>
+          </div>
+        </div>
       </div>
     </main>
 

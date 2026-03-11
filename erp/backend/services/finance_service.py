@@ -1,9 +1,13 @@
 from sqlalchemy.orm import Session
 from erp.backend.db.models import CashTransaction, AuditLog
-from datetime import datetime
+from datetime import datetime, timedelta
 
-def get_transactions(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(CashTransaction).order_by(CashTransaction.created_at.desc()).offset(skip).limit(limit).all()
+def get_transactions(db: Session, skip: int = 0, limit: int = 100, days_limit: int = None):
+    query = db.query(CashTransaction)
+    if days_limit is not None:
+        cutoff_date = datetime.utcnow() - timedelta(days=days_limit)
+        query = query.filter(CashTransaction.created_at >= cutoff_date)
+    return query.order_by(CashTransaction.created_at.desc()).offset(skip).limit(limit).all()
 
 def create_transaction(db: Session, user_id: int, tx_in: dict):
     db_tx = CashTransaction(

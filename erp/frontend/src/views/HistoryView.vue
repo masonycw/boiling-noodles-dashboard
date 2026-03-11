@@ -11,7 +11,7 @@ const isDetailLoading = ref(false)
 
 const fetchOrders = async () => {
   try {
-    const res = await fetch(`${API_BASE}/inventory/orders`)
+    const res = await fetch(`${API_BASE}/inventory/orders?days_limit=7`)
     orders.value = await res.json()
   } catch (err) {
     console.error('Failed to fetch history:', err)
@@ -34,6 +34,48 @@ const showDetails = async (order) => {
 }
 
 onMounted(fetchOrders)
+
+const showReceiveModal = ref(false)
+const receivingOrder = ref(null)
+const receiveForm = ref({ amount_paid: '', note: '' })
+const isReceiving = ref(false)
+
+const openReceiveModal = (order) => {
+  receivingOrder.value = order
+  receiveForm.value = { amount_paid: '', note: '' }
+  showReceiveModal.value = true
+}
+
+const submitReceive = async () => {
+  if (receiveForm.value.amount_paid === '') {
+    alert('請輸入付款金額 (若無則輸入 0)')
+    return
+  }
+  
+  isReceiving.value = true
+  try {
+    const res = await fetch(`${API_BASE}/inventory/orders/${receivingOrder.value.id}/receive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount_paid: Number(receiveForm.value.amount_paid),
+        note: receiveForm.value.note
+      })
+    })
+    
+    if (res.ok) {
+      showReceiveModal.value = false
+      alert('點收完畢，已同步更新金流！')
+      fetchOrders()
+    } else {
+      alert('點收失敗，請稍後再試')
+    }
+  } catch (err) {
+    alert('網路錯誤')
+  } finally {
+    isReceiving.value = false
+  }
+}
 
 const formatDate = (dateStr) => {
   return new Date(dateStr).toLocaleString('zh-TW', {
@@ -87,9 +129,18 @@ const getStatusColor = (status) => {
             <p class="text-xs text-slate-400">{{ formatDate(order.created_at) }}</p>
           </div>
           
-          <div class="text-right">
+          <div class="text-right flex flex-col items-end justify-between h-full">
             <p class="text-lg font-black text-slate-900">{{ order.total_items }} <span class="text-xs font-normal text-slate-400">項品項</span></p>
-            <button @click="showDetails(order)" class="text-orange-500 text-xs font-bold hover:underline">查看詳情</button>
+            <div class="mt-2 space-x-3">
+              <button 
+                v-if="order.status === 'pending' || order.status === 'ordered'"
+                @click="openReceiveModal(order)" 
+                class="bg-emerald-500 text-white px-3 py-1 rounded-lg text-xs font-bold shadow-sm hover:bg-emerald-400 transition-colors"
+              >
+                點收貨物
+              </button>
+              <button @click="showDetails(order)" class="text-orange-500 text-xs font-bold hover:underline">查看詳情</button>
+            </div>
           </div>
         </div>
       </div>
@@ -127,6 +178,37 @@ const getStatusColor = (status) => {
           <button @click="selectedOrder = null" class="w-full mt-8 bg-slate-900 text-white font-bold py-4 rounded-2xl active:scale-95 transition-all">
             關閉視窗
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal for Receiving Order -->
+    <div v-if="showReceiveModal" class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div @click="showReceiveModal = false" class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+      
+      <div class="relative w-full max-w-sm bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300 p-8 pb-10">
+        <h3 class="text-2xl font-black text-slate-900 mb-2">點收貨物</h3>
+        <p class="text-slate-500 text-sm mb-6">點收 {{ receivingOrder.vendor_name }} 的訂單</p>
+        
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-bold text-slate-500 mb-1">實際付款金額 (若為月結請填 0)</label>
+            <input v-model.number="receiveForm.amount_paid" type="number" class="w-full bg-slate-50 border-none rounded-xl py-3 px-4 text-lg font-bold focus:ring-2 focus:ring-emerald-500/20" placeholder="$ 0" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-500 mb-1">備註/差異提醒</label>
+            <textarea v-model="receiveForm.note" class="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-emerald-500/20" rows="2" placeholder="(選填) 例如：少送兩顆高麗菜"></textarea>
+          </div>
+          <div class="flex space-x-3 mt-4">
+            <button @click="showReceiveModal = false" class="flex-1 bg-slate-100 text-slate-500 font-bold py-4 rounded-2xl">取消</button>
+            <button 
+              @click="submitReceive" 
+              :disabled="isReceiving"
+              class="flex-1 bg-emerald-500 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+            >
+              確認點收
+            </button>
+          </div>
         </div>
       </div>
     </div>

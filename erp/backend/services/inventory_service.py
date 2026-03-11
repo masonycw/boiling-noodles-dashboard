@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from erp.backend.db.models import Vendor, Item, PurchaseOrder, PurchaseOrderDetail
+from datetime import datetime, timedelta
 
 def get_vendors(db: Session, skip: int = 0, limit: int = 100):
     return db.query(Vendor).filter(Vendor.is_active == True).offset(skip).limit(limit).all()
@@ -10,7 +11,7 @@ def get_items(db: Session, vendor_id: int = None, skip: int = 0, limit: int = 20
         query = query.filter(Item.vendor_id == vendor_id)
     return query.offset(skip).limit(limit).all()
 
-def create_purchase_order(db: Session, user_id: int, vendor_id: int, items_data: list):
+def create_purchase_order(db: Session, user_id: int, vendor_id: int, items_data: list, expected_delivery_date: datetime = None):
     """
     items_data: list of dicts with {'item_id': int, 'qty': float}
     """
@@ -18,7 +19,8 @@ def create_purchase_order(db: Session, user_id: int, vendor_id: int, items_data:
         user_id=user_id,
         vendor_id=vendor_id,
         status="pending",
-        total_items=len(items_data)
+        total_items=len(items_data),
+        expected_delivery_date=expected_delivery_date
     )
     db.add(db_po)
     db.flush() # Get PO ID
@@ -36,8 +38,42 @@ def create_purchase_order(db: Session, user_id: int, vendor_id: int, items_data:
     db.commit()
     db.refresh(db_po)
     return db_po
-def get_orders(db: Session, skip: int = 0, limit: int = 50):
-    return db.query(PurchaseOrder).order_by(PurchaseOrder.created_at.desc()).offset(skip).limit(limit).all()
+
+def get_orders(db: Session, skip: int = 0, limit: int = 50, days_limit: int = None, status: str = None):
+    query = db.query(PurchaseOrder)
+    if days_limit is not None:
+        cutoff_date = datetime.utcnow() - timedelta(days=days_limit)
+        query = query.filter(PurchaseOrder.created_at >= cutoff_date)
+    if status is not None:
+        query = query.filter(PurchaseOrder.status == status)
+    return query.order_by(PurchaseOrder.created_at.desc()).offset(skip).limit(limit).all()
+
+from erp.backend.services.finance_service import create_transaction
+
+def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float, note: str = None):
+    db_po = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
+    if not db_po:
+        raise Exception("Order not found")
+        
+    db_po.status = "received"
+    db_po.amount_paid = amount_paid
+    if note:
+        db_po.note = note
+    
+    # Generate CashTransaction if amount_paid > 0
+    if amount_paid > 0:
+        tx_in = {
+            "amount": amount_paid,
+            "type": "expense",
+            "category": "進貨付款",
+            "note": f"訂單 #{order_id} 貨款: {note or ''}",
+            "order_id": order_id
+        }
+        create_transaction(db, user_id, tx_in)
+        
+    db.commit()
+    db.refresh(db_po)
+    return db_po
 
 def get_order_details(db: Session, order_id: int):
     return db.query(PurchaseOrderDetail).filter(PurchaseOrderDetail.order_id == order_id).all()

@@ -7,8 +7,8 @@ from typing import List
 router = APIRouter(prefix="/finance", tags=["finance"])
 
 @router.get("/transactions")
-def list_transactions(db: Session = Depends(get_db)):
-    return finance_service.get_transactions(db)
+def list_transactions(days_limit: int = None, db: Session = Depends(get_db)):
+    return finance_service.get_transactions(db, days_limit=days_limit)
 
 @router.post("/transactions")
 def create_transaction(tx: dict, db: Session = Depends(get_db)):

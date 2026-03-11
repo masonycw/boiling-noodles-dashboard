@@ -17,7 +17,7 @@ const categories = ['食材採購', '店內雜項', '員工薪資', '零用金�
 const fetchTransactions = async () => {
   isLoading.value = true
   try {
-    const res = await fetch(`${API_BASE}/finance/transactions`)
+    const res = await fetch(`${API_BASE}/finance/transactions?days_limit=3`)
     transactions.value = await res.json()
   } catch (err) {
     console.error('Fetch error:', err)

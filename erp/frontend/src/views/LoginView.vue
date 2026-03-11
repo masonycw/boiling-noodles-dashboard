@@ -9,18 +9,39 @@ const error = ref('')
 
 const emit = defineEmits(['login-success'])
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
+
 const handleLogin = async () => {
   isLoading.value = true
   error.value = ''
   
-  setTimeout(() => {
-    if (username.value === 'admin' && password.value === 'adminpassword123') {
-      emit('login-success')
-    } else {
+  try {
+    const formData = new URLSearchParams()
+    formData.append('username', username.value)
+    formData.append('password', password.value)
+
+    const res = await fetch(`${API_BASE}/auth/login/access-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: formData
+    })
+
+    if (!res.ok) {
       error.value = '帳號或密碼錯誤'
+      return
     }
+
+    const data = await res.json()
+    localStorage.setItem('erp_token', data.access_token)
+    emit('login-success')
+    
+  } catch (err) {
+    error.value = '連線失敗，請檢查網路狀態'
+  } finally {
     isLoading.value = false
-  }, 1000)
+  }
 }
 </script>
 

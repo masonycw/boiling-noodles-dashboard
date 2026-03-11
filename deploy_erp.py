@@ -40,7 +40,7 @@ def run():
         # Upload production .env files
         print("  Uploading production configs...")
         sftp.put('./erp/backend/.env.production', f'{REMOTE_DIR}/backend/.env')
-        sftp.put('./erp/frontend/.env.production', f'{REMOTE_DIR}/frontend/.env.production')
+        sftp.put('./erp/frontend/.env', f'{REMOTE_DIR}/frontend/.env')
         
         sftp.close()
 
@@ -78,9 +78,9 @@ After=network.target postgresql.service
 [Service]
 Type=simple
 User={REMOTE_USER}
-Environment="PYTHONPATH={os.path.dirname(REMOTE_DIR)}"
-WorkingDirectory={REMOTE_DIR}/backend
-ExecStart={REMOTE_DIR}/backend/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+Environment=PYTHONPATH={os.path.dirname(REMOTE_DIR)}
+WorkingDirectory={os.path.dirname(REMOTE_DIR)}
+ExecStart={REMOTE_DIR}/backend/venv/bin/uvicorn erp.backend.main:app --host 0.0.0.0 --port 8000
 Restart=always
 
 [Install]

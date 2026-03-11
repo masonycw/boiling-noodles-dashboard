@@ -38,15 +38,33 @@ def update_item(item_id: int, item: dict, db: Session = Depends(get_db)):
 def delete_item(item_id: int, db: Session = Depends(get_db)):
     return inventory_service.delete_item(db, item_id)
 
+from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional
+
+class OrderItemCreate(BaseModel):
+    item_id: Optional[int] = None
+    adhoc_name: Optional[str] = None
+    adhoc_unit: Optional[str] = None
+    qty: float
+
+class OrderCreate(BaseModel):
+    vendor_id: int
+    expected_delivery_date: Optional[datetime] = None
+    items: List[OrderItemCreate]
+
 @router.post("/orders")
-def create_order(vendor_id: int, items: List[dict], db: Session = Depends(get_db)):
-    # In a real app, we'd get user_id from the JWT token
+def create_order(order_data: OrderCreate, db: Session = Depends(get_db)):
     user_id = 1 # Temporary placeholder
-    return inventory_service.create_purchase_order(db, user_id, vendor_id, items)
+    # Convert pydantic models to dicts for service layer
+    items_dicts = [item.dict() for item in order_data.items]
+    return inventory_service.create_purchase_order(
+        db, user_id, order_data.vendor_id, items_dicts, order_data.expected_delivery_date
+    )
+
 @router.get("/orders")
-def list_orders(db: Session = Depends(get_db)):
-    orders = inventory_service.get_orders(db)
-    # Enhance orders with vendor name for the frontend
+def list_orders(days_limit: int = None, status: str = None, db: Session = Depends(get_db)):
+    orders = inventory_service.get_orders(db, days_limit=days_limit, status=status)
     result = []
     for order in orders:
         vendor = db.query(inventory_service.Vendor).filter(inventory_service.Vendor.id == order.vendor_id).first()
@@ -55,9 +73,20 @@ def list_orders(db: Session = Depends(get_db)):
             "vendor_name": vendor.name if vendor else "Unknown",
             "created_at": order.created_at,
             "status": order.status,
-            "total_items": order.total_items
+            "total_items": order.total_items,
+            "expected_delivery_date": order.expected_delivery_date,
+            "amount_paid": order.amount_paid
         })
     return result
+
+class OrderReceive(BaseModel):
+    amount_paid: float
+    note: Optional[str] = None
+
+@router.post("/orders/{order_id}/receive")
+def receive_order(order_id: int, receive_data: OrderReceive, db: Session = Depends(get_db)):
+    user_id = 1
+    return inventory_service.receive_order(db, order_id, user_id, receive_data.amount_paid, receive_data.note)
 
 @router.get("/orders/{order_id}")
 def get_order(order_id: int, db: Session = Depends(get_db)):

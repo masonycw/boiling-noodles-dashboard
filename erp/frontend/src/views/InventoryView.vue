@@ -10,7 +10,15 @@ const isLoading = ref(true)
 // In next step, we'll connect this to real fetch() from FastAPI
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 
+const expectedDeliveryDate = ref('')
+const initDate = () => {
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  expectedDeliveryDate.value = tomorrow.toISOString().split('T')[0]
+}
+
 onMounted(async () => {
+  initDate()
   try {
     // 1. Fetch Vendors to get Gaoqing (ID 1)
     const vRes = await fetch(`${API_BASE}/inventory/vendors`)
@@ -81,10 +89,15 @@ const generateOrderText = async () => {
 
   try {
     isLoading.value = true
-    const response = await fetch(`${API_BASE}/inventory/orders?vendor_id=${vendor.value.id}`, {
+    const payload = {
+      vendor_id: vendor.value.id,
+      expected_delivery_date: expectedDeliveryDate.value ? new Date(expectedDeliveryDate.value).toISOString() : null,
+      items: orderDetails
+    }
+    const response = await fetch(`${API_BASE}/inventory/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(orderDetails)
+      body: JSON.stringify(payload)
     })
     
     if (!response.ok) throw new Error('無法儲存叫貨紀錄')
@@ -138,6 +151,19 @@ const generateOrderText = async () => {
         <svg class="w-5 h-5 text-slate-400 absolute left-4 top-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
+      </div>
+      
+      <!-- Expected Delivery Date -->
+      <div class="mt-4 flex items-center justify-between bg-orange-50/50 p-3 rounded-xl border border-orange-100">
+        <label class="text-sm font-bold text-orange-800 flex items-center">
+          <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+          預計到貨日
+        </label>
+        <input 
+          v-model="expectedDeliveryDate" 
+          type="date"
+          class="bg-white border-none rounded-lg text-sm text-slate-800 font-bold focus:ring-2 focus:ring-orange-500/20 py-1.5 px-3"
+        />
       </div>
     </header>
 
@@ -235,7 +261,7 @@ const generateOrderText = async () => {
     </main>
 
     <!-- Bottom Action Bar -->
-    <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 flex items-center space-x-4 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+    <div class="sticky bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 flex items-center space-x-4 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] z-20">
       <div class="flex-1">
         <p class="text-[10px] text-slate-400 uppercase tracking-wider font-bold">已選品項</p>
         <p class="text-lg font-black text-slate-900">{{ items.filter(i => i.qty > 0).length }} 項</p>

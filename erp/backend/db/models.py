@@ -77,6 +77,8 @@ class PurchaseOrder(Base):
     status = Column(String, default="pending")
     total_items = Column(Integer, default=0)
     note = Column(String)
+    expected_delivery_date = Column(DateTime(timezone=True))
+    amount_paid = Column(Numeric(10, 2), default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -115,4 +117,6 @@ class CashTransaction(Base):
     note = Column(String)
     order_id = Column(Integer, ForeignKey("erp_purchase_orders.id"), nullable=True) # For reconciliation
     is_reconciled = Column(Boolean, default=False)
+    has_receipt = Column(Boolean, default=False)
+    receipt_url = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
