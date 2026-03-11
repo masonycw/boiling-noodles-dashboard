@@ -69,6 +69,11 @@ class UploadHandler(FileSystemEventHandler):
             log.info(f"✏️  File modified: {event.src_path}")
             self._schedule_etl()
 
+    def on_moved(self, event):
+        if not event.is_directory and self._should_trigger(event.dest_path):
+            log.info(f"🚚 File moved/renamed to: {event.dest_path}")
+            self._schedule_etl()
+
     def _schedule_etl(self):
         """Mark that we have a pending ETL run. Actual debounced check happens in main loop."""
         self._pending = True
