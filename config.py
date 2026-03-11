@@ -6,7 +6,7 @@ import os
 # System Version
 # System Version
 # Global Version Config
-APP_VERSION = "2.5"
+APP_VERSION = "2.5.2"
 
 import socket
 
