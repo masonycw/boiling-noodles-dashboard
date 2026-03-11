@@ -20,3 +20,7 @@ build/
 *.csv
 cache/
 deploy_keys/
+*.db
+*.log
+*.env*
+.venv/
