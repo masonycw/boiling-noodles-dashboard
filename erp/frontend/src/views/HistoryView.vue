@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 
 const orders = ref([])
 const isLoading = ref(true)
@@ -20,12 +20,57 @@ const fetchOrders = async () => {
   }
 }
 
-const showDetails = async (order) => {
-  selectedOrder.value = order
+const groupedOrders = computed(() => {
+  const groups = {}
+  orders.value.forEach(order => {
+    // Treat null expected delivery date as just its created_at date for grouping
+    const dateStr = order.expected_delivery_date 
+      ? order.expected_delivery_date.substring(0, 10) 
+      : order.created_at.substring(0, 10)
+    
+    const key = `${order.vendor_name}_${dateStr}`
+    if (!groups[key]) {
+      groups[key] = {
+        ids: [],
+        vendor_name: order.vendor_name,
+        dateStr: dateStr,
+        created_at: order.created_at,
+        total_items: 0,
+        status: 'received',
+        orders: [],
+      }
+    }
+    groups[key].ids.push(order.id)
+    groups[key].orders.push(order)
+    groups[key].total_items += order.total_items
+    if (order.status === 'pending' || order.status === 'ordered') {
+      groups[key].status = 'pending'
+    }
+  })
+  
+  return Object.values(groups).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+})
+
+const showDetails = async (groupedOrder) => {
+  selectedOrder.value = groupedOrder
   isDetailLoading.value = true
+  selectedOrderDetails.value = []
+  
   try {
-    const res = await fetch(`${API_BASE}/inventory/orders/${order.id}`)
-    selectedOrderDetails.value = await res.json()
+    const allDetails = []
+    for (const id of groupedOrder.ids) {
+      const res = await fetch(`${API_BASE}/inventory/orders/${id}`)
+      const data = await res.json()
+      allDetails.push(...data)
+    }
+    
+    const agg = {}
+    allDetails.forEach(item => {
+      const k = `${item.name}_${item.unit}`
+      if (!agg[k]) agg[k] = { ...item }
+      else agg[k].qty += item.qty
+    })
+    selectedOrderDetails.value = Object.values(agg)
   } catch (err) {
     console.error('Failed to fetch details:', err)
   } finally {
@@ -54,24 +99,25 @@ const submitReceive = async () => {
   
   isReceiving.value = true
   try {
-    const res = await fetch(`${API_BASE}/inventory/orders/${receivingOrder.value.id}/receive`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        amount_paid: Number(receiveForm.value.amount_paid),
-        note: receiveForm.value.note
+    let first = true
+    for (const id of receivingOrder.value.ids) {
+      const amount = first ? Number(receiveForm.value.amount_paid) : 0
+      const note = first ? receiveForm.value.note : '(依附於同批次收貨)'
+      
+      const res = await fetch(`${API_BASE}/inventory/orders/${id}/receive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount_paid: amount, note: note })
       })
-    })
-    
-    if (res.ok) {
-      showReceiveModal.value = false
-      alert('點收完畢，已同步更新金流！')
-      fetchOrders()
-    } else {
-      alert('點收失敗，請稍後再試')
+      if (!res.ok) throw new Error('部分收貨失敗')
+      first = false
     }
+    
+    showReceiveModal.value = false
+    alert('點收完畢，已同步更新金流！')
+    fetchOrders()
   } catch (err) {
-    alert('網路錯誤')
+    alert('網路錯誤或部分失敗，請重新整理查看')
   } finally {
     isReceiving.value = false
   }
@@ -109,28 +155,29 @@ const getStatusColor = (status) => {
         <p class="text-slate-400">載入紀錄中...</p>
       </div>
 
-      <div v-else-if="orders.length === 0" class="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-300">
+      <div v-else-if="groupedOrders.length === 0" class="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-300">
         <p class="text-slate-400">目前尚無叫貨紀錄</p>
       </div>
 
       <div v-else class="space-y-4">
         <div 
-          v-for="order in orders" 
-          :key="order.id"
+          v-for="order in groupedOrders" 
+          :key="order.ids.join('_')"
           class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between"
         >
           <div class="space-y-1">
             <div class="flex items-center space-x-2">
               <span class="font-black text-slate-900 text-lg">{{ order.vendor_name }}</span>
               <span :class="['text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider', getStatusColor(order.status)]">
-                {{ order.status }}
+                {{ order.status === 'pending' ? '待收貨' : '已收貨' }}
               </span>
             </div>
-            <p class="text-xs text-slate-400">{{ formatDate(order.created_at) }}</p>
+            <p class="text-xs text-slate-400 font-bold">預計到貨日: {{ order.dateStr }}</p>
+            <p class="text-[10px] text-slate-300">共 {{ order.ids.length }} 筆合併叫貨單</p>
           </div>
           
           <div class="text-right flex flex-col items-end justify-between h-full">
-            <p class="text-lg font-black text-slate-900">{{ order.total_items }} <span class="text-xs font-normal text-slate-400">項品項</span></p>
+            <p class="text-lg font-black text-slate-900">{{ order.total_items }} <span class="text-xs font-normal text-slate-400">總品項</span></p>
             <div class="mt-2 space-x-3">
               <button 
                 v-if="order.status === 'pending' || order.status === 'ordered'"
@@ -139,7 +186,7 @@ const getStatusColor = (status) => {
               >
                 點收貨物
               </button>
-              <button @click="showDetails(order)" class="text-orange-500 text-xs font-bold hover:underline">查看詳情</button>
+              <button @click="showDetails(order)" class="text-orange-500 text-xs font-bold hover:underline">展開清單</button>
             </div>
           </div>
         </div>
