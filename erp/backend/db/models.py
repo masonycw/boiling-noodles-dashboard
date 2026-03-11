@@ -79,6 +79,9 @@ class PurchaseOrder(Base):
     note = Column(String)
     expected_delivery_date = Column(DateTime(timezone=True))
     amount_paid = Column(Numeric(10, 2), default=0)
+    total_amount = Column(Numeric(10, 2), default=0)
+    is_paid = Column(Boolean, default=False)
+    receipt_url = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

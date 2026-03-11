@@ -9,6 +9,23 @@ const selectedOrder = ref(null)
 const selectedOrderDetails = ref([])
 const isDetailLoading = ref(false)
 
+const activeTab = ref('today') // today, received, history, future
+const getTodayStr = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }).substring(0, 10)
+
+const deleteOrder = async (orderId) => {
+  if (!confirm('確定要刪除這筆叫貨單嗎？刪除後無法復原。')) return
+  try {
+    const res = await fetch(`${API_BASE}/inventory/orders/${orderId}`, { method: 'DELETE' })
+    if (res.ok) {
+      alert('已刪除！')
+      if (selectedOrder.value) showDetails(selectedOrder.value) // re-fetch details if modal open
+      fetchOrders()
+    }
+  } catch(err) {
+    alert('刪除失敗')
+  }
+}
+
 const fetchOrders = async () => {
   try {
     const res = await fetch(`${API_BASE}/inventory/orders?days_limit=7`)
@@ -51,6 +68,20 @@ const groupedOrders = computed(() => {
   return Object.values(groups).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 })
 
+const displayedOrders = computed(() => {
+  const today = getTodayStr()
+  return groupedOrders.value.filter(group => {
+    const isPending = group.status === 'pending'
+    const isReceived = group.status === 'received'
+    
+    if (activeTab.value === 'today') return isPending && group.dateStr <= today
+    if (activeTab.value === 'future') return isPending && group.dateStr > today
+    if (activeTab.value === 'received') return isReceived && group.dateStr === today
+    if (activeTab.value === 'history') return isReceived && group.dateStr < today
+    return false
+  })
+})
+
 const showDetails = async (groupedOrder) => {
   selectedOrder.value = groupedOrder
   isDetailLoading.value = true
@@ -82,18 +113,22 @@ onMounted(fetchOrders)
 
 const showReceiveModal = ref(false)
 const receivingOrder = ref(null)
-const receiveForm = ref({ amount_paid: '', note: '' })
+const receiveForm = ref({ total_amount: '', is_paid: true, note: '', file: null })
 const isReceiving = ref(false)
+
+const getFile = (e) => {
+  receiveForm.value.file = e.target.files[0]
+}
 
 const openReceiveModal = (order) => {
   receivingOrder.value = order
-  receiveForm.value = { amount_paid: '', note: '' }
+  receiveForm.value = { total_amount: '', is_paid: true, note: '', file: null }
   showReceiveModal.value = true
 }
 
 const submitReceive = async () => {
-  if (receiveForm.value.amount_paid === '') {
-    alert('請輸入付款金額 (若無則輸入 0)')
+  if (receiveForm.value.total_amount === '') {
+    alert('請輸入帳單總金額 (若為0請輸入0)')
     return
   }
   
@@ -101,20 +136,38 @@ const submitReceive = async () => {
   try {
     let first = true
     for (const id of receivingOrder.value.ids) {
-      const amount = first ? Number(receiveForm.value.amount_paid) : 0
-      const note = first ? receiveForm.value.note : '(依附於同批次收貨)'
+      // Only attach full amount & payment to the first order ID in the group to avoid duplicate accounting
+      const tAmount = first ? Number(receiveForm.value.total_amount) : 0
+      const aPaid = (first && receiveForm.value.is_paid) ? tAmount : 0
+      const note = first ? receiveForm.value.note : '(合併收貨)'
       
       const res = await fetch(`${API_BASE}/inventory/orders/${id}/receive`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount_paid: amount, note: note })
+        body: JSON.stringify({ 
+          amount_paid: aPaid,
+          total_amount: tAmount,
+          is_paid: receiveForm.value.is_paid,
+          note: note 
+        })
       })
       if (!res.ok) throw new Error('部分收貨失敗')
+      
+      // Upload receipt to the first order ID if file exists
+      if (first && receiveForm.value.file) {
+        const formData = new FormData()
+        formData.append('file', receiveForm.value.file)
+        await fetch(`${API_BASE}/inventory/orders/${id}/receipt`, {
+          method: 'POST',
+          body: formData
+        })
+      }
+      
       first = false
     }
     
     showReceiveModal.value = false
-    alert('點收完畢，已同步更新金流！')
+    alert('點收完畢，已同步更新後台紀錄！')
     fetchOrders()
   } catch (err) {
     alert('網路錯誤或部分失敗，請重新整理查看')
@@ -144,9 +197,36 @@ const getStatusColor = (status) => {
 
 <template>
   <div class="min-h-screen bg-slate-50 pb-24">
-    <header class="bg-white border-b border-slate-200 sticky top-0 z-10 px-4 py-6">
-      <h2 class="text-2xl font-black text-slate-900">叫貨紀錄</h2>
-      <p class="text-sm text-slate-500">查看過去的訂單狀態</p>
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-10 px-4 pt-6 pb-4">
+      <h2 class="text-2xl font-black text-slate-900 mb-4">收貨與紀錄</h2>
+      
+      <!-- Tabs -->
+      <div class="flex space-x-2 overflow-x-auto custom-scrollbar pb-2">
+        <button 
+          @click="activeTab = 'today'"
+          :class="['whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition-all', activeTab === 'today' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200']"
+        >
+          今日到貨
+        </button>
+        <button 
+          @click="activeTab = 'future'"
+          :class="['whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition-all', activeTab === 'future' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200']"
+        >
+          未來到貨
+        </button>
+        <button 
+          @click="activeTab = 'received'"
+          :class="['whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition-all', activeTab === 'received' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200']"
+        >
+          今日已簽收
+        </button>
+        <button 
+          @click="activeTab = 'history'"
+          :class="['whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition-all', activeTab === 'history' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200']"
+        >
+          歷史到貨
+        </button>
+      </div>
     </header>
 
     <main class="px-4 py-6">
@@ -155,13 +235,13 @@ const getStatusColor = (status) => {
         <p class="text-slate-400">載入紀錄中...</p>
       </div>
 
-      <div v-else-if="groupedOrders.length === 0" class="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-300">
-        <p class="text-slate-400">目前尚無叫貨紀錄</p>
+      <div v-else-if="displayedOrders.length === 0" class="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-300">
+        <p class="text-slate-400 font-bold">目前分頁尚無資料</p>
       </div>
 
       <div v-else class="space-y-4">
         <div 
-          v-for="order in groupedOrders" 
+          v-for="order in displayedOrders" 
           :key="order.ids.join('_')"
           class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between"
         >
@@ -178,15 +258,15 @@ const getStatusColor = (status) => {
           
           <div class="text-right flex flex-col items-end justify-between h-full">
             <p class="text-lg font-black text-slate-900">{{ order.total_items }} <span class="text-xs font-normal text-slate-400">總品項</span></p>
-            <div class="mt-2 space-x-3">
+            <div class="mt-2 flex space-x-2">
               <button 
-                v-if="order.status === 'pending' || order.status === 'ordered'"
+                v-if="order.status === 'pending'"
                 @click="openReceiveModal(order)" 
-                class="bg-emerald-500 text-white px-3 py-1 rounded-lg text-xs font-bold shadow-sm hover:bg-emerald-400 transition-colors"
+                class="bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm hover:bg-emerald-400 transition-colors"
               >
-                點收貨物
+                點收/上傳
               </button>
-              <button @click="showDetails(order)" class="text-orange-500 text-xs font-bold hover:underline">展開清單</button>
+              <button @click="showDetails(order)" class="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-200">管理</button>
             </div>
           </div>
         </div>
@@ -215,47 +295,76 @@ const getStatusColor = (status) => {
              <div class="animate-spin h-8 w-8 border-4 border-orange-500 border-t-transparent rounded-full"></div>
           </div>
 
-          <div v-else class="space-y-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
+          <div v-else class="space-y-4 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
             <div v-for="item in selectedOrderDetails" :key="item.name" class="flex justify-between items-center py-3 border-b border-slate-50">
               <span class="text-slate-700 font-bold">{{ item.name }}</span>
               <span class="text-slate-900 font-black">{{ item.qty }} <span class="text-xs font-normal text-slate-400">{{ item.unit }}</span></span>
             </div>
           </div>
 
-          <button @click="selectedOrder = null" class="w-full mt-8 bg-slate-900 text-white font-bold py-4 rounded-2xl active:scale-95 transition-all">
-            關閉視窗
-          </button>
+          <div class="mt-8 flex flex-col space-y-3">
+            <button v-if="selectedOrder.status === 'pending'" @click="deleteOrder(selectedOrder.ids[0])" class="w-full bg-rose-50 text-rose-500 font-bold py-3.5 rounded-2xl border border-rose-100 active:bg-rose-100 transition-all text-sm">
+              刪除此單 (重叫)
+            </button>
+            <button @click="selectedOrder = null" class="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl active:scale-95 transition-all">
+              關閉視窗
+            </button>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- Modal for Receiving Order -->
-    <div v-if="showReceiveModal" class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div v-if="showReceiveModal" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div @click="showReceiveModal = false" class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
       
       <div class="relative w-full max-w-sm bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300 p-8 pb-10">
-        <h3 class="text-2xl font-black text-slate-900 mb-2">點收貨物</h3>
-        <p class="text-slate-500 text-sm mb-6">點收 {{ receivingOrder.vendor_name }} 的訂單</p>
+        <h3 class="text-2xl font-black text-slate-900 mb-2">相機收貨點收</h3>
+        <p class="text-slate-500 text-sm mb-6">{{ receivingOrder.vendor_name }} | 預計: {{ receivingOrder.dateStr }}</p>
         
-        <div class="space-y-4">
+        <div class="space-y-5 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
+          
+          <!-- File Upload -->
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col items-center justify-center relative overflow-hidden">
+            <input type="file" accept="image/*" capture="environment" @change="getFile" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+            <svg class="w-8 h-8 text-slate-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <span v-if="!receiveForm.file" class="text-sm font-bold text-slate-500">點擊拍照上傳收據 (選填)</span>
+            <span v-else class="text-sm font-bold text-emerald-500 break-all text-center">已選擇相片: {{ receiveForm.file.name }}</span>
+          </div>
+
           <div>
-            <label class="block text-xs font-bold text-slate-500 mb-1">實際付款金額 (若為月結請填 0)</label>
-            <input v-model.number="receiveForm.amount_paid" type="number" class="w-full bg-slate-50 border-none rounded-xl py-3 px-4 text-lg font-bold focus:ring-2 focus:ring-emerald-500/20" placeholder="$ 0" />
+            <label class="block text-xs font-bold text-slate-500 mb-2">請輸入帳單總金額</label>
+            <input v-model.number="receiveForm.total_amount" type="number" class="w-full bg-slate-50 border-none rounded-xl py-3 px-4 text-lg font-bold focus:ring-2 focus:ring-emerald-500/20" placeholder="$ 0" />
           </div>
+          
+          <div class="flex items-center justify-between bg-slate-50 p-3 rounded-xl">
+            <label class="text-sm font-bold text-slate-700">本次是否已經付款？</label>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" v-model="receiveForm.is_paid" class="sr-only peer">
+              <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+            </label>
+          </div>
+          <p v-if="!receiveForm.is_paid" class="text-[10px] text-rose-500 font-bold -mt-2">注意：將建立一筆未付帳款紀錄</p>
+
           <div>
-            <label class="block text-xs font-bold text-slate-500 mb-1">備註/差異提醒</label>
-            <textarea v-model="receiveForm.note" class="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-emerald-500/20" rows="2" placeholder="(選填) 例如：少送兩顆高麗菜"></textarea>
+            <label class="block text-xs font-bold text-slate-500 mb-1">備註提醒</label>
+            <textarea v-model="receiveForm.note" class="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-emerald-500/20 text-sm" rows="2" placeholder="(選填) 取代品或少送紀錄"></textarea>
           </div>
-          <div class="flex space-x-3 mt-4">
-            <button @click="showReceiveModal = false" class="flex-1 bg-slate-100 text-slate-500 font-bold py-4 rounded-2xl">取消</button>
-            <button 
-              @click="submitReceive" 
-              :disabled="isReceiving"
-              class="flex-1 bg-emerald-500 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-500/20 disabled:opacity-50"
-            >
-              確認點收
-            </button>
-          </div>
+        </div>
+
+        <div class="flex space-x-3 mt-6">
+          <button @click="showReceiveModal = false" class="flex-1 bg-slate-100 text-slate-500 font-bold py-4 rounded-2xl">取消</button>
+          <button 
+            @click="submitReceive" 
+            :disabled="isReceiving"
+            class="flex-[2] bg-emerald-500 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-500/20 disabled:opacity-50 flex items-center justify-center"
+          >
+            <span v-if="isReceiving" class="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2"></span>
+            確認歸檔紀錄
+          </button>
         </div>
       </div>
     </div>

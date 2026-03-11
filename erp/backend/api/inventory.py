@@ -81,12 +81,49 @@ def list_orders(days_limit: int = None, status: str = None, db: Session = Depend
 
 class OrderReceive(BaseModel):
     amount_paid: float
+    total_amount: float = 0.0
+    is_paid: bool = False
     note: Optional[str] = None
 
 @router.post("/orders/{order_id}/receive")
 def receive_order(order_id: int, receive_data: OrderReceive, db: Session = Depends(get_db)):
     user_id = 1
-    return inventory_service.receive_order(db, order_id, user_id, receive_data.amount_paid, receive_data.note)
+    return inventory_service.receive_order(db, order_id, user_id, receive_data.amount_paid, receive_data.total_amount, receive_data.is_paid, receive_data.note)
+
+import os
+from fastapi import UploadFile, File
+from fastapi.responses import FileResponse
+import shutil
+
+UPLOAD_DIR = "/home/mason_ycw/boiling-noodles-dashboard/erp/backend/uploads"
+
+@router.post("/orders/{order_id}/receipt")
+def upload_receipt(order_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not os.path.exists(UPLOAD_DIR):
+        os.makedirs(UPLOAD_DIR)
+        
+    file_extension = file.filename.split(".")[-1]
+    filename = f"receipt_order_{order_id}_{datetime.now().strftime('%Y%md%H%M%S')}.{file_extension}"
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    url_path = f"/api/v1/inventory/uploads/{filename}"
+    inventory_service.update_order_receipt(db, order_id, url_path)
+    return {"receipt_url": url_path}
+
+@router.get("/uploads/{filename}")
+def get_upload_file(filename: str):
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    if os.path.exists(file_path):
+        return FileResponse(file_path)
+    raise HTTPException(status_code=404, detail="File not found")
+
+@router.delete("/orders/{order_id}")
+def delete_order(order_id: int, db: Session = Depends(get_db)):
+    inventory_service.delete_purchase_order(db, order_id)
+    return {"message": "Order deleted"}
 
 @router.get("/orders/{order_id}")
 def get_order(order_id: int, db: Session = Depends(get_db)):

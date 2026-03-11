@@ -50,18 +50,20 @@ def get_orders(db: Session, skip: int = 0, limit: int = 50, days_limit: int = No
 
 from erp.backend.services.finance_service import create_transaction
 
-def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float, note: str = None):
+def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float, total_amount: float = 0.0, is_paid: bool = False, note: str = None):
     db_po = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
     if not db_po:
         raise Exception("Order not found")
         
     db_po.status = "received"
-    db_po.amount_paid = amount_paid
+    db_po.total_amount = total_amount
+    db_po.is_paid = is_paid
+    db_po.amount_paid = amount_paid if is_paid else 0.0
     if note:
         db_po.note = note
     
-    # Generate CashTransaction if amount_paid > 0
-    if amount_paid > 0:
+    # Generate CashTransaction if amount_paid > 0 and is_paid
+    if is_paid and amount_paid > 0:
         tx_in = {
             "amount": amount_paid,
             "type": "expense",
@@ -74,6 +76,22 @@ def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float, 
     db.commit()
     db.refresh(db_po)
     return db_po
+
+def update_order_receipt(db: Session, order_id: int, url_path: str):
+    db_po = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
+    if db_po:
+        db_po.receipt_url = url_path
+        db.commit()
+        db.refresh(db_po)
+    return db_po
+
+def delete_purchase_order(db: Session, order_id: int):
+    db_po = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
+    if db_po:
+        db.query(PurchaseOrderDetail).filter(PurchaseOrderDetail.order_id == order_id).delete()
+        db.delete(db_po)
+        db.commit()
+    return True
 
 def get_order_details(db: Session, order_id: int):
     return db.query(PurchaseOrderDetail).filter(PurchaseOrderDetail.order_id == order_id).all()
