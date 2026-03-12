@@ -257,6 +257,26 @@ def update_carrier_ids_from_invoice(invoice_lookup):
     print(f"✅ Updated carrier_id + member_id for {updated} orders via invoice data.")
 
 
+def sync_carrier_member_ids():
+    """Sweep: 任何有有效 carrier_id 但 member_id 仍為非會員的訂單，自動設為 Carrier_{載具號碼}。"""
+    conn = connect_to_db()
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE orders_fact
+            SET member_id = 'Carrier_' || carrier_id
+            WHERE carrier_id IS NOT NULL
+              AND carrier_id != ''
+              AND carrier_id LIKE '/%%'
+              AND LENGTH(carrier_id) >= 7
+              AND (member_id IS NULL OR member_id = '' OR member_id = '非會員')
+        """)
+        updated = cur.rowcount
+    conn.commit()
+    conn.close()
+    if updated > 0:
+        print(f"✅ Synced member_id for {updated} orders with valid carrier_id.")
+
+
 def update_daily_revenue_agg():
     print("Updating daily_revenue_agg table...")
     update_query = """
@@ -324,6 +344,7 @@ def main():
             # Invoice-only run: update carrier_ids for existing orders
             print("[Invoice-Only] No new report data, updating carrier_ids from invoice...")
             update_carrier_ids_from_invoice(invoice_lookup)
+            sync_carrier_member_ids()
             update_data_freshness(getattr(loader, 'latest_dates', {}))
             loader.commit_processed_files()
             print("ETL Pipeline (invoice-only) completed.")
@@ -337,6 +358,7 @@ def main():
         # 4. 匯入資料庫
         transform_and_load_orders(df_report, df_details)
         transform_and_load_details(df_details)
+        sync_carrier_member_ids()
         update_daily_revenue_agg()
         
         # 5. 確認資料已成功匯入 DB，儲存已處理檔案快取
