@@ -11,8 +11,15 @@ LOCK_FILE = '/tmp/pipeline.lock'
 
 def acquire_lock():
     if os.path.exists(LOCK_FILE):
-        print(f"⚠️ Lock file {LOCK_FILE} exists. Another instance of the pipeline is running.")
-        sys.exit(0)
+        with open(LOCK_FILE) as f:
+            pid = int(f.read().strip())
+        try:
+            os.kill(pid, 0)  # 只檢查 process 是否存活，不發送真實信號
+            print(f"⚠️ Pipeline already running (PID {pid}). Exiting.")
+            sys.exit(0)
+        except (ProcessLookupError, PermissionError):
+            print(f"⚠️ Stale lock detected (PID {pid} not running). Clearing and continuing.")
+            os.remove(LOCK_FILE)
     with open(LOCK_FILE, 'w') as f:
         f.write(str(os.getpid()))
 
@@ -283,6 +290,9 @@ def main():
         loader.commit_processed_files()
         
         print("ETL Pipeline completed.")
+    except Exception as e:
+        print(f"❌ Pipeline failed: {e}")
+        raise
     finally:
         release_lock()
 
