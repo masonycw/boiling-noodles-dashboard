@@ -310,6 +310,37 @@ def consolidate_carrier_to_crm():
         print(f"✅ 歸戶：{updated} 筆 Carrier 訂單已合併至 CRM 會員。")
 
 
+def normalize_member_phones():
+    """正規化：統一 member_phone 和 member_id 中的電話格式（去空格、去連字號）。
+    例如 CRM_+886 910 878 407 → CRM_+886910878407"""
+    conn = connect_to_db()
+    with conn.cursor() as cur:
+        # 1. 正規化 member_phone（去空格、連字號）
+        cur.execute("""
+            UPDATE orders_fact
+            SET member_phone = REPLACE(REPLACE(TRIM(member_phone), ' ', ''), '-', '')
+            WHERE member_phone IS NOT NULL
+              AND member_phone != ''
+              AND (member_phone LIKE '%% %%' OR member_phone LIKE '%%-%%')
+        """)
+        phone_updated = cur.rowcount
+
+        # 2. 正規化 member_id 中的 CRM_ 電話（與 member_phone 同步）
+        cur.execute("""
+            UPDATE orders_fact
+            SET member_id = 'CRM_' || REPLACE(REPLACE(TRIM(member_phone), ' ', ''), '-', '')
+            WHERE member_id LIKE 'CRM_%%'
+              AND member_phone IS NOT NULL
+              AND member_phone != ''
+              AND member_id != 'CRM_' || REPLACE(REPLACE(TRIM(member_phone), ' ', ''), '-', '')
+        """)
+        id_updated = cur.rowcount
+    conn.commit()
+    conn.close()
+    if phone_updated > 0 or id_updated > 0:
+        print(f"✅ 正規化：{phone_updated} 筆電話格式統一，{id_updated} 筆 member_id 同步更新。")
+
+
 def update_daily_revenue_agg():
     print("Updating daily_revenue_agg table...")
     update_query = """
@@ -378,6 +409,7 @@ def main():
             print("[Invoice-Only] No new report data, updating carrier_ids from invoice...")
             update_carrier_ids_from_invoice(invoice_lookup)
             sync_carrier_member_ids()
+            normalize_member_phones()
             consolidate_carrier_to_crm()
             update_data_freshness(getattr(loader, 'latest_dates', {}))
             loader.commit_processed_files()
@@ -393,6 +425,7 @@ def main():
         transform_and_load_orders(df_report, df_details)
         transform_and_load_details(df_details)
         sync_carrier_member_ids()
+        normalize_member_phones()
         consolidate_carrier_to_crm()
         update_daily_revenue_agg()
         
