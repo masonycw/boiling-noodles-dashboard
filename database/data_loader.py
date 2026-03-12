@@ -356,6 +356,7 @@ class UniversalLoader:
         }
 
         # 1. Consolidate Type 2 (Invoice)
+        self.invoice_lookup = pd.DataFrame()  # expose for pipeline invoice-only runs
         if self.invoice_data:
             invoice_lookup = pd.concat(self.invoice_data, ignore_index=True)
             if 'date' in invoice_lookup.columns:
@@ -363,12 +364,13 @@ class UniversalLoader:
                 max_dt = invoice_lookup['date'].max()
                 if pd.notna(max_dt):
                     self.latest_dates['invoice'] = max_dt.strftime('%Y-%m-%d')
-                    
+
             # Deduplicate Invoice Data (One row per Invoice ID)
             # If duplicates, keep last (or first?)
             if 'invoice_id' in invoice_lookup.columns:
                 invoice_lookup.drop_duplicates(subset=['invoice_id'], keep='last', inplace=True)
                 self.log(f"Consolidated INVOICE Data: {len(invoice_lookup)} unique records")
+            self.invoice_lookup = invoice_lookup
 
         # 2. Consolidate Type 1 (Report - Master)
         if self.report_data:

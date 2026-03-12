@@ -216,6 +216,36 @@ def update_data_freshness(latest_dates: dict):
     print(f"Data freshness updated: {latest_dates}")
 
 
+def update_carrier_ids_from_invoice(invoice_lookup):
+    """當只有發票資料時，用 invoice_id 去更新 orders_fact 的 carrier_id。"""
+    if invoice_lookup.empty:
+        return
+    if 'invoice_id' not in invoice_lookup.columns or 'carrier_id' not in invoice_lookup.columns:
+        print("⚠️ Invoice data missing invoice_id or carrier_id columns. Skipping.")
+        return
+
+    rows = invoice_lookup[['invoice_id', 'carrier_id']].dropna(subset=['invoice_id', 'carrier_id'])
+    rows = rows[rows['carrier_id'].astype(str).str.strip() != '']
+    if rows.empty:
+        print("No carrier_id data to update.")
+        return
+
+    conn = connect_to_db()
+    updated = 0
+    with conn.cursor() as cur:
+        for _, row in rows.iterrows():
+            cur.execute("""
+                UPDATE orders_fact
+                SET carrier_id = %s
+                WHERE invoice_id = %s
+                  AND (carrier_id IS NULL OR carrier_id = '')
+            """, (str(row['carrier_id']).strip(), str(row['invoice_id']).strip()))
+            updated += cur.rowcount
+    conn.commit()
+    conn.close()
+    print(f"✅ Updated carrier_id for {updated} orders via invoice data.")
+
+
 def update_daily_revenue_agg():
     print("Updating daily_revenue_agg table...")
     update_query = """
@@ -276,7 +306,16 @@ def main():
         df_report, df_details, logs = loader.scan_and_load()
         
         if df_report is None or df_report.empty:
-            print("[Incremental] No new or modified files to process. Exiting cleanly.")
+            invoice_lookup = getattr(loader, 'invoice_lookup', pd.DataFrame())
+            if invoice_lookup.empty:
+                print("[Incremental] No new or modified files to process. Exiting cleanly.")
+                return
+            # Invoice-only run: update carrier_ids for existing orders
+            print("[Invoice-Only] No new report data, updating carrier_ids from invoice...")
+            update_carrier_ids_from_invoice(invoice_lookup)
+            update_data_freshness(getattr(loader, 'latest_dates', {}))
+            loader.commit_processed_files()
+            print("ETL Pipeline (invoice-only) completed.")
             return
             
         print(f"Data loaded successfully. Report size: {len(df_report)}")
