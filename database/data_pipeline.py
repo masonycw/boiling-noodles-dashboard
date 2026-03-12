@@ -260,10 +260,7 @@ def update_daily_revenue_agg():
 def main():
     acquire_lock()
     try:
-        # 1. 初始化資料庫 Schema
-        setup_database() 
-        
-        # 2. 獲取清洗後的資料
+        # 1. 獲取清洗後的資料
         print("Initiating incremental data load via UniversalLoader...")
         loader = UniversalLoader()
         df_report, df_details, logs = loader.scan_and_load()
