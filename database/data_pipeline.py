@@ -234,16 +234,27 @@ def update_carrier_ids_from_invoice(invoice_lookup):
     updated = 0
     with conn.cursor() as cur:
         for _, row in rows.iterrows():
+            carrier = str(row['carrier_id']).strip()
+            invoice = str(row['invoice_id']).strip()
+            # 計算 member_id：載具有效（/開頭, ≥7字）→ Carrier_{carrier_id}
+            member_id_val = f"Carrier_{carrier}" if carrier.startswith('/') and len(carrier) >= 7 else None
+
             cur.execute("""
                 UPDATE orders_fact
-                SET carrier_id = %s
+                SET carrier_id = %s,
+                    member_id = CASE
+                        WHEN (member_id IS NULL OR member_id = '' OR member_id = '非會員')
+                             AND %s IS NOT NULL
+                        THEN %s
+                        ELSE member_id
+                    END
                 WHERE invoice_id = %s
                   AND (carrier_id IS NULL OR carrier_id = '')
-            """, (str(row['carrier_id']).strip(), str(row['invoice_id']).strip()))
+            """, (carrier, member_id_val, member_id_val, invoice))
             updated += cur.rowcount
     conn.commit()
     conn.close()
-    print(f"✅ Updated carrier_id for {updated} orders via invoice data.")
+    print(f"✅ Updated carrier_id + member_id for {updated} orders via invoice data.")
 
 
 def update_daily_revenue_agg():
