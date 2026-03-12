@@ -277,6 +277,39 @@ def sync_carrier_member_ids():
         print(f"✅ Synced member_id for {updated} orders with valid carrier_id.")
 
 
+def consolidate_carrier_to_crm():
+    """歸戶：同一 carrier_id 若已有 CRM 訂單，把舊的 Carrier_ 訂單合併過去。"""
+    conn = connect_to_db()
+    with conn.cursor() as cur:
+        cur.execute("""
+            WITH carrier_phone_map AS (
+                SELECT carrier_id, member_phone,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY carrier_id
+                           ORDER BY COUNT(*) DESC, MAX(date) DESC
+                       ) AS rn
+                FROM orders_fact
+                WHERE carrier_id IS NOT NULL AND carrier_id != ''
+                  AND member_phone IS NOT NULL AND member_phone != ''
+                  AND LENGTH(member_phone) > 6
+                  AND member_id LIKE 'CRM_%%'
+                GROUP BY carrier_id, member_phone
+            )
+            UPDATE orders_fact o
+            SET member_id = 'CRM_' || m.member_phone,
+                member_phone = m.member_phone
+            FROM carrier_phone_map m
+            WHERE o.carrier_id = m.carrier_id
+              AND m.rn = 1
+              AND o.member_id = 'Carrier_' || o.carrier_id
+        """)
+        updated = cur.rowcount
+    conn.commit()
+    conn.close()
+    if updated > 0:
+        print(f"✅ 歸戶：{updated} 筆 Carrier 訂單已合併至 CRM 會員。")
+
+
 def update_daily_revenue_agg():
     print("Updating daily_revenue_agg table...")
     update_query = """
@@ -345,6 +378,7 @@ def main():
             print("[Invoice-Only] No new report data, updating carrier_ids from invoice...")
             update_carrier_ids_from_invoice(invoice_lookup)
             sync_carrier_member_ids()
+            consolidate_carrier_to_crm()
             update_data_freshness(getattr(loader, 'latest_dates', {}))
             loader.commit_processed_files()
             print("ETL Pipeline (invoice-only) completed.")
@@ -359,6 +393,7 @@ def main():
         transform_and_load_orders(df_report, df_details)
         transform_and_load_details(df_details)
         sync_carrier_member_ids()
+        consolidate_carrier_to_crm()
         update_daily_revenue_agg()
         
         # 5. 確認資料已成功匯入 DB，儲存已處理檔案快取
