@@ -55,11 +55,14 @@ def transform_and_load_orders(df_report, df_details):
     # 預處理資料以符合資料表 Schema
     records_to_insert = []
     
-    # 計算主餐數量
-    main_dish_counts = df_details[df_details['Is_Main_Dish']].groupby('order_id')['qty'].sum().reset_index()
-    main_dish_counts = main_dish_counts.rename(columns={'qty': 'main_dish_count'})
-    
-    df_report = df_report.merge(main_dish_counts, on='order_id', how='left')
+    # 計算主餐數量（防呆：沒有 details 時跳過）
+    if df_details is not None and not df_details.empty and 'Is_Main_Dish' in df_details.columns:
+        main_dish_counts = df_details[df_details['Is_Main_Dish']].groupby('order_id')['qty'].sum().reset_index()
+        main_dish_counts = main_dish_counts.rename(columns={'qty': 'main_dish_count'})
+        df_report = df_report.merge(main_dish_counts, on='order_id', how='left')
+
+    if 'main_dish_count' not in df_report.columns:
+        df_report['main_dish_count'] = 0
     df_report['main_dish_count'] = df_report['main_dish_count'].fillna(0).astype(int)
     
     # 將 NaN 轉為 None
@@ -99,24 +102,24 @@ def transform_and_load_orders(df_report, df_details):
         day_type, period, member_id, order_category, main_dish_count
     ) VALUES %s
     ON CONFLICT (order_id) DO UPDATE SET
-        date = EXCLUDED.date,
-        total_amount = EXCLUDED.total_amount,
-        status = EXCLUDED.status,
-        order_type = EXCLUDED.order_type,
-        people_count = EXCLUDED.people_count,
-        payment_method = EXCLUDED.payment_method,
-        member_phone = EXCLUDED.member_phone,
-        customer_name = EXCLUDED.customer_name,
-        invoice_id = EXCLUDED.invoice_id,
-        carrier_id = EXCLUDED.carrier_id,
-        data_source = EXCLUDED.data_source,
-        day_type = EXCLUDED.day_type,
-        period = EXCLUDED.period,
-        member_id = EXCLUDED.member_id,
-        order_category = EXCLUDED.order_category,
-        main_dish_count = EXCLUDED.main_dish_count
-    WHERE EXCLUDED.data_source = 'json' 
-       OR orders_fact.data_source = 'csv'
+        date = COALESCE(EXCLUDED.date, orders_fact.date),
+        total_amount = COALESCE(EXCLUDED.total_amount, orders_fact.total_amount),
+        status = COALESCE(EXCLUDED.status, orders_fact.status),
+        order_type = COALESCE(EXCLUDED.order_type, orders_fact.order_type),
+        people_count = COALESCE(EXCLUDED.people_count, orders_fact.people_count),
+        payment_method = COALESCE(EXCLUDED.payment_method, orders_fact.payment_method),
+        member_phone = COALESCE(NULLIF(EXCLUDED.member_phone, ''), orders_fact.member_phone),
+        customer_name = COALESCE(NULLIF(EXCLUDED.customer_name, ''), orders_fact.customer_name),
+        invoice_id = COALESCE(EXCLUDED.invoice_id, orders_fact.invoice_id),
+        carrier_id = COALESCE(EXCLUDED.carrier_id, orders_fact.carrier_id),
+        data_source = COALESCE(EXCLUDED.data_source, orders_fact.data_source),
+        day_type = COALESCE(EXCLUDED.day_type, orders_fact.day_type),
+        period = COALESCE(EXCLUDED.period, orders_fact.period),
+        member_id = COALESCE(EXCLUDED.member_id, orders_fact.member_id),
+        order_category = COALESCE(EXCLUDED.order_category, orders_fact.order_category),
+        main_dish_count = CASE WHEN EXCLUDED.main_dish_count > 0
+                          THEN EXCLUDED.main_dish_count
+                          ELSE orders_fact.main_dish_count END
     """
     
     conn = connect_to_db()
