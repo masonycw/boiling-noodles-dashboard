@@ -24,3 +24,14 @@ deploy_keys/
 *.log
 *.env*
 .venv/
+
+
+# Claude internal
+.claude/
+
+# Scratch / draft / agent files  
+_scratch/
+_agents/
+
+# Draft documents
+*_Draft.md

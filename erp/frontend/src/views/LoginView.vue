@@ -1,5 +1,7 @@
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const username = ref('')
 const password = ref('')
@@ -7,14 +9,14 @@ const rememberMe = ref(true)
 const isLoading = ref(false)
 const error = ref('')
 
-const emit = defineEmits(['login-success'])
+const auth = useAuthStore()
+const router = useRouter()
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 
 const handleLogin = async () => {
   isLoading.value = true
   error.value = ''
-  
   try {
     const formData = new URLSearchParams()
     formData.append('username', username.value)
@@ -22,9 +24,7 @@ const handleLogin = async () => {
 
     const res = await fetch(`${API_BASE}/auth/login/access-token`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData
     })
 
@@ -34,10 +34,10 @@ const handleLogin = async () => {
     }
 
     const data = await res.json()
-    localStorage.setItem('erp_token', data.access_token)
-    emit('login-success')
-    
-  } catch (err) {
+    auth.setToken(data.access_token)
+    await auth.fetchMe()
+    router.push({ name: 'home' })
+  } catch {
     error.value = '連線失敗，請檢查網路狀態'
   } finally {
     isLoading.value = false
