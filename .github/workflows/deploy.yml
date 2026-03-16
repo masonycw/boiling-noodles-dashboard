@@ -73,23 +73,36 @@ jobs:
              exit 1
           fi
 
-          echo "🔄 重啟 ERP Backend (Port 8000)..."
-          pkill -f "uvicorn erp.backend.main" > /dev/null 2>&1 || true
-          fuser -k 8000/tcp > /dev/null 2>&1 || true
-          sleep 2
+          echo "🔄 重啟 ERP 服務 (systemctl)..."
           source erp/backend/venv/bin/activate
           pip install -r erp/backend/requirements.txt -q
-          nohup erp/backend/venv/bin/uvicorn erp.backend.main:app \
-            --host 0.0.0.0 --port 8000 \
-            > erp_backend.log 2>&1 &
-          echo $! > erp_backend.pid
+
+          # 前端安裝依賴
+          cd erp/frontend && npm install --silent && cd ../..
+          cd erp/admin && npm install --silent && cd ../..
+
+          # 用 systemctl 重啟所有 ERP 服務
+          sudo systemctl restart erp-backend
+          sudo systemctl restart erp-frontend
+          sudo systemctl restart erp-admin
           sleep 3
-          if fuser 8000/tcp > /dev/null 2>&1; then
-            echo "✅ ERP Backend 啟動成功！Port 8000 上線。"
+
+          if sudo systemctl is-active erp-backend > /dev/null 2>&1; then
+            echo "✅ ERP Backend (8000) 上線。"
           else
             echo "❌ ERP Backend 啟動失敗："
-            tail -n 20 erp_backend.log
+            sudo journalctl -u erp-backend --no-pager -n 20
             exit 1
+          fi
+          if sudo systemctl is-active erp-frontend > /dev/null 2>&1; then
+            echo "✅ ERP Frontend (5173) 上線。"
+          else
+            echo "⚠️ ERP Frontend 啟動失敗"
+          fi
+          if sudo systemctl is-active erp-admin > /dev/null 2>&1; then
+            echo "✅ ERP Admin (5174) 上線。"
+          else
+            echo "⚠️ ERP Admin 啟動失敗"
           fi
           ENDSSH
 
