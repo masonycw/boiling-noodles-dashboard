@@ -15,21 +15,22 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
+
       - name: Deploy via SSH
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_HOST: ${{ secrets.SFTP_HOST }}
           SSH_USER: ${{ secrets.SFTP_USERNAME }}
+          SSH_PASS: ${{ secrets.SFTP_PASSWORD }}
         run: |
           mkdir -p ~/.ssh
-          eval $(ssh-agent -s)
-          echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
-          
+
           echo "✅ SSH setup complete. Deploying PRODUCTION (main → 8501)..."
-          
-          ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" bash << 'ENDSSH'
+
+          sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" bash << 'ENDSSH'
           DEPLOY_DIR="$HOME/boiling-noodles-dashboard"
           cd "$DEPLOY_DIR"
           
@@ -100,21 +101,22 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
+
       - name: Deploy via SSH
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_HOST: ${{ secrets.SFTP_HOST }}
           SSH_USER: ${{ secrets.SFTP_USERNAME }}
+          SSH_PASS: ${{ secrets.SFTP_PASSWORD }}
         run: |
           mkdir -p ~/.ssh
-          eval $(ssh-agent -s)
-          echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
-          
+
           echo "💾 Deploying BACKUP (Backup → 8502)..."
-          
-          ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" bash << 'ENDSSH'
+
+          sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" bash << 'ENDSSH'
           DEPLOY_DIR="$HOME/boiling-noodles-dashboard-test"
 
           if [ ! -d "$DEPLOY_DIR" ]; then
