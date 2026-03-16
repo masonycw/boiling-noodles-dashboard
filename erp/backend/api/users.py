@@ -88,15 +88,24 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db)):
 
 
 @router.put("/{user_id}/password")
-def change_password(user_id: int, data: PasswordChange, db: Session = Depends(get_db)):
+def change_password(
+    user_id: int,
+    data: PasswordChange,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     from passlib.context import CryptContext
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if not pwd_context.verify(data.current_password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    # Admin 可以直接重設他人密碼，不需驗證舊密碼
+    is_admin_reset = current_user.role == "admin" and current_user.id != user_id
+    if not is_admin_reset:
+        if not pwd_context.verify(data.current_password, user.hashed_password):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
 
     user.hashed_password = get_password_hash(data.new_password)
     db.commit()

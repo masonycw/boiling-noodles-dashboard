@@ -66,11 +66,29 @@ jobs:
           sleep 5
           if netstat -tulpn | grep :8501 > /dev/null 2>&1 || fuser 8501/tcp > /dev/null 2>&1; then
              echo "✅ PRODUCTION 部署成功！Port 8501 上線。"
-             exit 0
           else
-             echo "❌ 啟動失敗，請檢查日誌："
+             echo "❌ Streamlit 啟動失敗，請檢查日誌："
              tail -n 20 streamlit.log
              exit 1
+          fi
+
+          echo "🔄 重啟 ERP Backend (Port 8000)..."
+          pkill -f "uvicorn erp.backend.main" > /dev/null 2>&1 || true
+          fuser -k 8000/tcp > /dev/null 2>&1 || true
+          sleep 2
+          source erp/backend/venv/bin/activate
+          pip install -r erp/backend/requirements.txt -q
+          nohup erp/backend/venv/bin/uvicorn erp.backend.main:app \
+            --host 0.0.0.0 --port 8000 \
+            > erp_backend.log 2>&1 &
+          echo $! > erp_backend.pid
+          sleep 3
+          if fuser 8000/tcp > /dev/null 2>&1; then
+            echo "✅ ERP Backend 啟動成功！Port 8000 上線。"
+          else
+            echo "❌ ERP Backend 啟動失敗："
+            tail -n 20 erp_backend.log
+            exit 1
           fi
           ENDSSH
 

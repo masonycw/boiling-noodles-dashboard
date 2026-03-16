@@ -5,11 +5,13 @@ from datetime import datetime, timedelta
 def get_vendors(db: Session, skip: int = 0, limit: int = 100):
     return db.query(Vendor).filter(Vendor.is_active == True).offset(skip).limit(limit).all()
 
-def get_items(db: Session, vendor_id: int = None, skip: int = 0, limit: int = 200):
+def get_items(db: Session, vendor_id: int = None, stocktake_group_id: int = None, skip: int = 0, limit: int = 200):
     query = db.query(Item).filter(Item.is_active == True)
     if vendor_id:
         query = query.filter(Item.vendor_id == vendor_id)
-    return query.offset(skip).limit(limit).all()
+    if stocktake_group_id:
+        query = query.filter(Item.stocktake_group_id == stocktake_group_id)
+    return query.order_by(Item.display_order, Item.name).offset(skip).limit(limit).all()
 
 def create_purchase_order(db: Session, user_id: int, vendor_id: int, items_data: list, expected_delivery_date: datetime = None):
     """
