@@ -8,39 +8,42 @@ const router = useRouter()
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 
-const kpi = ref({ balance: 0, petty_cash: 0, waste_count: 0, pending_payables: 0 })
 const loading = ref(true)
 const lowStockItems = ref([])
 const pendingOrders = ref([])
-
-const today = new Date()
-const dateStr = today.toLocaleDateString('zh-TW', { month: 'long', day: 'numeric', weekday: 'short' })
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}` }
 }
 
-async function loadKpi() {
+const formattedDate = computed(() => {
+  return new Date().toLocaleDateString('zh-TW', {
+    year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'short'
+  })
+})
+
+const greeting = computed(() => {
+  const h = new Date().getHours()
+  if (h >= 5 && h < 12) return '早安'
+  if (h >= 12 && h < 18) return '午安'
+  return '晚安'
+})
+
+const overdueReceive = computed(() => {
+  if (!pendingOrders.value.length) return null
+  const today = new Date().toDateString()
+  return pendingOrders.value.find(o => {
+    if (!o.expected_delivery_date) return false
+    return new Date(o.expected_delivery_date).toDateString() === today
+  }) || null
+})
+
+async function loadData() {
   try {
-    const [balRes, pettyCashRes, wasteRes, payRes, itemsRes, ordersRes] = await Promise.all([
-      fetch(`${API_BASE}/finance/balance`, { headers: authHeaders() }),
-      fetch(`${API_BASE}/finance/petty-cash/balance`, { headers: authHeaders() }),
-      fetch(`${API_BASE}/waste/summary?days_limit=1`, { headers: authHeaders() }),
-      fetch(`${API_BASE}/finance/accounts-payable?is_paid=false&limit=200`, { headers: authHeaders() }),
+    const [itemsRes, ordersRes] = await Promise.all([
       fetch(`${API_BASE}/inventory/items?limit=500`, { headers: authHeaders() }),
       fetch(`${API_BASE}/inventory/orders?status=confirmed&limit=20`, { headers: authHeaders() }),
     ])
-
-    if (balRes.ok) kpi.value.balance = (await balRes.json()).balance
-    if (pettyCashRes.ok) kpi.value.petty_cash = (await pettyCashRes.json()).balance
-    if (wasteRes.ok) {
-      const w = await wasteRes.json()
-      kpi.value.waste_count = w.total_records ?? 0
-    }
-    if (payRes.ok) {
-      const arr = await payRes.json()
-      kpi.value.pending_payables = arr.length
-    }
     if (itemsRes.ok) {
       const allItems = await itemsRes.json()
       lowStockItems.value = allItems.filter(i =>
@@ -55,161 +58,104 @@ async function loadKpi() {
   }
 }
 
-onMounted(loadKpi)
-
-const quickActions = [
-  { label: '開始叫貨', icon: '📋', route: 'order',     color: 'bg-orange-50 text-orange-600 border border-orange-100' },
-  { label: '盤點庫存', icon: '📊', route: 'stocktake', color: 'bg-blue-50 text-blue-600 border border-blue-100' },
-  { label: '記錄損耗', icon: '🗑️',  route: 'waste',     color: 'bg-red-50 text-red-600 border border-red-100' },
-  { label: '零用金',   icon: '💰', route: 'finance',   color: 'bg-green-50 text-green-600 border border-green-100' },
-]
-
-function fmt(n) {
-  return Number(n).toLocaleString('zh-TW', { minimumFractionDigits: 0 })
-}
+onMounted(loadData)
 
 function fmtTime(d) {
   if (!d) return ''
   return new Date(d).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
-
-const greetingEmoji = computed(() => {
-  const h = new Date().getHours()
-  if (h < 12) return '☀️'
-  if (h < 18) return '🌤️'
-  return '🌙'
-})
 </script>
 
 <template>
-  <div class="min-h-full bg-slate-50 pb-4">
-    <!-- Orange brand header -->
-    <div class="bg-gradient-to-br from-orange-500 to-orange-600 text-white px-5 pt-12 pb-8">
+  <div class="min-h-full bg-slate-50 pb-8">
+
+    <!-- 橘色問候語橫幅 -->
+    <div style="background:#e85d04" class="text-white px-5 pt-12 pb-6">
       <div class="flex items-start justify-between">
         <div>
-          <p class="text-orange-200 text-sm">{{ dateStr }}</p>
-          <h1 class="text-2xl font-extrabold mt-1">
-            {{ greetingEmoji }} 嗨，{{ auth.user?.full_name || auth.user?.username || '使用者' }}
-          </h1>
-          <p class="text-orange-200 text-sm mt-1">滾麵 ERP · 智慧管理</p>
+          <p class="text-2xl font-extrabold leading-snug">
+            {{ greeting }}，{{ auth.user?.full_name || auth.user?.username || '使用者' }} 👋
+          </p>
+          <p class="text-sm mt-1" style="opacity:0.85">{{ formattedDate }}</p>
         </div>
         <button class="mt-1 relative">
-          <svg class="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-          </svg>
+          <span style="font-size:22px">🔔</span>
           <span v-if="pendingOrders.length > 0"
-            class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+            class="absolute -top-1 -right-1 w-4 h-4 bg-red-600 text-white text-[8px] font-bold rounded-full flex items-center justify-center">
             {{ pendingOrders.length }}
           </span>
         </button>
       </div>
     </div>
 
-    <!-- KPI Cards -->
-    <div class="px-4 -mt-5">
-      <div class="grid grid-cols-2 gap-3">
-        <div class="bg-white rounded-2xl p-4 shadow-sm">
-          <p class="text-xs text-slate-400 font-medium">零用金餘額</p>
-          <p v-if="loading" class="text-xl font-bold text-slate-300 mt-1 animate-pulse">---</p>
-          <p v-else class="text-xl font-bold text-slate-800 mt-1">${{ fmt(kpi.petty_cash) }}</p>
-          <p class="text-[10px] text-slate-400 mt-1">目前現金</p>
-        </div>
-
-        <div class="bg-white rounded-2xl p-4 shadow-sm">
-          <p class="text-xs text-slate-400 font-medium">現金流餘額</p>
-          <p v-if="loading" class="text-xl font-bold text-slate-300 mt-1 animate-pulse">---</p>
-          <p v-else class="text-xl font-bold mt-1"
-            :class="kpi.balance >= 0 ? 'text-emerald-600' : 'text-rose-500'">
-            ${{ fmt(kpi.balance) }}
-          </p>
-          <p class="text-[10px] text-slate-400 mt-1">收入 - 支出</p>
-        </div>
-
-        <div class="bg-white rounded-2xl p-4 shadow-sm">
-          <p class="text-xs text-slate-400 font-medium">今日損耗</p>
-          <p v-if="loading" class="text-xl font-bold text-slate-300 mt-1 animate-pulse">---</p>
-          <p v-else class="text-xl font-bold text-slate-800 mt-1">
-            {{ kpi.waste_count }} <span class="text-sm font-normal text-slate-400">筆</span>
-          </p>
-          <p class="text-[10px] text-slate-400 mt-1">今日記錄</p>
-        </div>
-
-        <div class="bg-white rounded-2xl p-4 shadow-sm">
-          <p class="text-xs text-slate-400 font-medium">待付帳款</p>
-          <p v-if="loading" class="text-xl font-bold text-slate-300 mt-1 animate-pulse">---</p>
-          <p v-else class="text-xl font-bold mt-1"
-            :class="kpi.pending_payables > 0 ? 'text-amber-500' : 'text-slate-800'">
-            {{ kpi.pending_payables }} <span class="text-sm font-normal text-slate-400">筆</span>
-          </p>
-          <p class="text-[10px] text-slate-400 mt-1">尚未付清</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Low Stock Alert -->
-    <div v-if="!loading && lowStockItems.length > 0" class="px-4 mt-5">
-      <div class="bg-red-50 border border-red-200 rounded-2xl p-4">
-        <p class="text-xs font-extrabold text-red-600 mb-3">🚨 低庫存警示 — 需補貨</p>
+    <!-- 低庫存警示卡片 -->
+    <div v-if="!loading && lowStockItems.length > 0" class="px-4 mt-4">
+      <div class="rounded-xl p-4" style="border:1.5px solid #fca5a5;background:#fef2f2">
+        <p class="font-extrabold mb-3" style="font-size:11px;color:#dc2626">🚨 低庫存警示 — 需補貨</p>
         <div class="space-y-2">
-          <div v-for="item in lowStockItems.slice(0, 4)" :key="item.id"
+          <div v-for="item in lowStockItems.slice(0, 5)" :key="item.id"
             class="flex items-center justify-between">
-            <span class="text-sm font-semibold text-red-800">{{ item.name }}</span>
-            <span class="text-xs font-bold text-red-500">
+            <span class="font-semibold" style="font-size:12px;color:#7f1d1d">{{ item.name }}</span>
+            <span class="font-bold" style="font-size:11px;color:#dc2626">
               庫存 {{ item.current_stock }} ／安全 {{ item.min_stock }} {{ item.unit }}
             </span>
           </div>
-          <div v-if="lowStockItems.length > 4" class="text-xs text-red-400 text-center">
-            還有 {{ lowStockItems.length - 4 }} 項低庫存品項…
+          <div v-if="lowStockItems.length > 5" class="text-center" style="font-size:11px;color:#ef4444">
+            還有 {{ lowStockItems.length - 5 }} 項…
           </div>
         </div>
         <button
           @click="router.push({ name: 'order' })"
-          class="mt-3 w-full bg-red-500 text-white text-sm font-bold py-2.5 rounded-xl active:scale-95 transition-transform">
+          class="mt-3 w-full text-white font-extrabold rounded-lg active:scale-95 transition-transform"
+          style="background:#dc2626;font-size:12px;padding:7px;text-align:center">
           一鍵前往叫貨 →
         </button>
       </div>
     </div>
 
-    <!-- Pending Deliveries -->
-    <div v-if="!loading && pendingOrders.length > 0" class="px-4 mt-4">
-      <h2 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-2">今日待辦</h2>
-      <div class="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-2">
-        <p class="text-xs font-bold text-amber-700">⚠️ 有 {{ pendingOrders.length }} 筆訂貨尚未簽收</p>
+    <!-- 今日待辦 -->
+    <div v-if="!loading" class="px-4 mt-5">
+      <h2 class="font-bold text-slate-700 mb-3" style="font-size:13px">今日待辦</h2>
+
+      <!-- 黃色警示條 -->
+      <div v-if="overdueReceive"
+        @click="router.push({ name: 'order' })"
+        class="rounded-lg px-3 py-2.5 mb-3 cursor-pointer"
+        style="background:#fefce8;border:1px solid #fde68a;font-size:12px;font-weight:600;color:#92400e">
+        ⚠️ {{ overdueReceive.vendor_name }} 今日到貨，尚未簽收 — 點此處理
       </div>
-      <div class="space-y-2">
+
+      <!-- 待簽收訂單卡片 -->
+      <div v-if="pendingOrders.length === 0" class="text-center py-8 text-slate-400 text-sm">
+        今日無待辦事項 🎉
+      </div>
+      <div v-else class="space-y-3">
         <button
-          v-for="order in pendingOrders.slice(0, 3)" :key="order.id"
+          v-for="order in pendingOrders.slice(0, 5)" :key="order.id"
           @click="router.push({ name: 'order' })"
-          class="w-full bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-3 shadow-sm active:bg-slate-50 transition-colors text-left">
-          <span class="text-xl">🚚</span>
+          class="w-full bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:bg-slate-50 transition-colors text-left"
+          style="border-radius:12px">
+          <span style="font-size:28px">🚚</span>
           <div class="flex-1 min-w-0">
-            <p class="font-bold text-slate-800 text-sm">{{ order.vendor_name }} — 待簽收</p>
-            <p class="text-xs text-slate-400 mt-0.5">
+            <p class="font-bold text-slate-800" style="font-size:14px">{{ order.vendor_name }} — 待簽收</p>
+            <p class="mt-0.5" style="font-size:12px;color:#999">
               {{ order.expected_delivery_date ? fmtTime(order.expected_delivery_date) : '時間未定' }}
-              · {{ order.total_items }} 項品項
+              · {{ order.total_items || '?' }} 項品項
             </p>
           </div>
-          <span class="shrink-0 bg-amber-100 text-amber-600 text-xs font-bold px-2 py-1 rounded-full">待收</span>
+          <span class="font-bold shrink-0" style="background:#fff7ed;color:#ea580c;border-radius:12px;font-size:11px;padding:4px 10px">待收</span>
+          <span style="color:#ccc;font-size:16px">›</span>
         </button>
       </div>
     </div>
 
-    <!-- Quick Actions -->
-    <div class="px-4 mt-5">
-      <h2 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">快速操作</h2>
-      <div class="grid grid-cols-2 gap-3">
-        <button
-          v-for="action in quickActions"
-          :key="action.route"
-          @click="router.push({ name: action.route })"
-          class="flex items-center gap-3 p-4 rounded-2xl shadow-sm active:scale-95 transition-transform"
-          :class="action.color"
-        >
-          <span class="text-2xl">{{ action.icon }}</span>
-          <span class="font-bold text-sm">{{ action.label }}</span>
-        </button>
-      </div>
+    <!-- Loading state -->
+    <div v-if="loading" class="flex justify-center py-16">
+      <svg class="animate-spin h-8 w-8 text-orange-400" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+      </svg>
     </div>
+
   </div>
 </template>

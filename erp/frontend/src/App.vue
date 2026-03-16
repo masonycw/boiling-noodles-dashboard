@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -7,19 +7,27 @@ const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
+const pendingCount = ref(0)
+
 onMounted(async () => {
   if (auth.isLoggedIn && !auth.user) {
     await auth.fetchMe()
   }
+  if (auth.isLoggedIn) loadPendingCount()
 })
 
-const navItems = [
-  { name: 'home',      label: '首頁',   icon: 'home' },
-  { name: 'order',     label: '訂單',   icon: 'clipboard' },
-  { name: 'stocktake', label: '盤點',   icon: 'chart' },
-  { name: 'finance',   label: '金流',   icon: 'cash' },
-  { name: 'more',      label: '更多',   icon: 'dots' },
-]
+async function loadPendingCount() {
+  try {
+    const res = await fetch(`${API_BASE}/inventory/orders?status=confirmed&limit=50`, {
+      headers: { Authorization: `Bearer ${auth.token}` }
+    })
+    if (res.ok) {
+      const data = await res.json()
+      pendingCount.value = Array.isArray(data) ? data.length : 0
+    }
+  } catch {}
+}
 
 const isActive = (name) => route.name === name
 
@@ -50,24 +58,20 @@ function goTo(name) {
           <span class="text-[10px] font-bold">首頁</span>
         </button>
 
-        <!-- 訂單 -->
+        <!-- 訂單（含待收貨紅點） -->
         <button @click="goTo('order')" class="flex-1 flex flex-col items-center justify-center space-y-1 transition-all"
           :class="isActive('order') ? 'text-orange-500' : 'text-slate-400'">
-          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
-          <span class="text-[10px] font-bold">叫貨</span>
-        </button>
-
-        <!-- 盤點 -->
-        <button @click="goTo('stocktake')" class="flex-1 flex flex-col items-center justify-center space-y-1 transition-all"
-          :class="isActive('stocktake') ? 'text-orange-500' : 'text-slate-400'">
-          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-          <span class="text-[10px] font-bold">盤點</span>
+          <div class="relative">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 10V7" />
+            </svg>
+            <span v-if="pendingCount > 0"
+              class="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center leading-none">
+              {{ pendingCount > 9 ? '9+' : pendingCount }}
+            </span>
+          </div>
+          <span class="text-[10px] font-bold">訂單</span>
         </button>
 
         <!-- 金流 -->

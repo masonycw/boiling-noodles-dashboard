@@ -19,11 +19,6 @@ const routes = [
     component: () => import('@/views/InventoryView.vue')
   },
   {
-    path: '/stocktake',
-    name: 'stocktake',
-    component: () => import('@/views/StocktakeView.vue')
-  },
-  {
     path: '/finance',
     name: 'finance',
     component: () => import('@/views/FinanceView.vue')
@@ -32,6 +27,16 @@ const routes = [
     path: '/more',
     name: 'more',
     component: () => import('@/views/MoreView.vue')
+  },
+  {
+    path: '/waste',
+    name: 'waste',
+    component: () => import('@/views/WasteView.vue')
+  },
+  {
+    path: '/stocktake',
+    name: 'stocktake',
+    component: () => import('@/views/StocktakeView.vue')
   }
 ]
 
