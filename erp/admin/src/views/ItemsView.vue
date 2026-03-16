@@ -57,6 +57,15 @@ const filtered = computed(() => {
 const vendorName = (id) => vendors.value.find(v => v.id === id)?.name || '—'
 const groupName = (id) => groups.value.find(g => g.id === id)?.name || '—'
 
+function stockStatus(item) {
+  const stock = parseFloat(item.current_stock) || 0
+  const min = parseFloat(item.min_stock) || 0
+  if (min === 0) return { label: '正常', cls: 'bg-emerald-900/50 text-emerald-400' }
+  if (stock <= 0) return { label: '缺貨', cls: 'bg-red-900/50 text-red-400' }
+  if (stock <= min) return { label: '預警', cls: 'bg-amber-900/50 text-amber-400' }
+  return { label: '正常', cls: 'bg-emerald-900/50 text-emerald-400' }
+}
+
 function openCreate() {
   editTarget.value = null
   form.value = { name: '', unit: '', vendor_id: null, category: '', price: null, min_order_qty: null, current_stock: 0, secondary_unit: '', secondary_unit_ratio: null, stocktake_group_id: null, display_order: 0, is_active: true }
@@ -118,9 +127,9 @@ async function save() {
             <th class="px-5 py-3 text-left">品項名稱</th>
             <th class="px-5 py-3 text-left">供應商</th>
             <th class="px-5 py-3 text-left">盤點群組</th>
-            <th class="px-5 py-3 text-right">庫存</th>
+            <th class="px-5 py-3 text-right">庫存 / 安全</th>
             <th class="px-5 py-3 text-right">單價</th>
-            <th class="px-5 py-3 text-center">狀態</th>
+            <th class="px-5 py-3 text-center">庫存狀態</th>
             <th class="px-5 py-3 text-center">操作</th>
           </tr>
         </thead>
@@ -132,12 +141,18 @@ async function save() {
             </td>
             <td class="px-5 py-3 text-gray-400">{{ vendorName(item.vendor_id) }}</td>
             <td class="px-5 py-3 text-gray-400">{{ groupName(item.stocktake_group_id) }}</td>
-            <td class="px-5 py-3 text-right font-mono text-gray-300">{{ item.current_stock }}</td>
-            <td class="px-5 py-3 text-right font-mono text-gray-300">${{ item.price ?? '—' }}</td>
-            <td class="px-5 py-3 text-center">
-              <span class="text-xs font-bold" :class="item.is_active ? 'text-emerald-400' : 'text-gray-600'">
-                {{ item.is_active ? '啟用' : '停用' }}
+            <td class="px-5 py-3 text-right font-mono">
+              <span :class="parseFloat(item.min_stock) > 0 && parseFloat(item.current_stock) <= parseFloat(item.min_stock) ? 'text-amber-400 font-bold' : 'text-gray-300'">
+                {{ item.current_stock }}
               </span>
+              <span class="text-gray-600"> / {{ item.min_stock || 0 }} {{ item.unit }}</span>
+            </td>
+            <td class="px-5 py-3 text-right font-mono text-gray-300">{{ item.price ? '$' + item.price : '—' }}</td>
+            <td class="px-5 py-3 text-center">
+              <span class="text-xs font-bold px-2 py-0.5 rounded-full" :class="stockStatus(item).cls">
+                {{ stockStatus(item).label }}
+              </span>
+              <span v-if="!item.is_active" class="ml-1 text-xs text-gray-600">(停用)</span>
             </td>
             <td class="px-5 py-3 text-center">
               <button @click="openEdit(item)" class="text-blue-400 hover:text-blue-300 text-xs font-bold">編輯</button>
@@ -193,6 +208,10 @@ async function save() {
             <div>
               <label class="block text-xs font-bold text-gray-500 uppercase mb-1">目前庫存</label>
               <input v-model.number="form.current_stock" type="number" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-gray-500 uppercase mb-1">安全庫存（預警值）</label>
+              <input v-model.number="form.min_stock" type="number" placeholder="0" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
             </div>
             <div>
               <label class="block text-xs font-bold text-gray-500 uppercase mb-1">顯示排序</label>

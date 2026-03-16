@@ -26,7 +26,8 @@ const navGroups = [
       { name: 'vendors',   label: '供應商管理', icon: '🏪' },
       { name: 'items',     label: '品項管理',   icon: '📦' },
       { name: 'orders',    label: '叫貨 / 收貨', icon: '🚚' },
-      { name: 'stocktake', label: '盤點紀錄',   icon: '🗂️' },
+      { name: 'stocktake',        label: '盤點紀錄',   icon: '🗂️' },
+      { name: 'stocktake-groups', label: '盤點群組',   icon: '🏷️' },
       { name: 'waste',     label: '損耗紀錄',   icon: '🗑️' },
     ]
   },
