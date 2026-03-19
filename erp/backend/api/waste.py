@@ -13,19 +13,39 @@ class WasteCreate(BaseModel):
     adhoc_name: Optional[str] = None
     qty: float
     unit: Optional[str] = None
-    reason: Optional[str] = None       # 過期 / 破損 / 烹調損耗 / 其他
+    reason: Optional[str] = None
+    estimated_value: Optional[float] = None
     photo_url: Optional[str] = None
     note: Optional[str] = None
 
 
+@router.get("/monthly-kpi")
+def get_monthly_kpi(db: Session = Depends(get_db)):
+    return waste_service.get_waste_monthly_kpi(db)
+
+
+@router.get("/items-used")
+def get_items_used(db: Session = Depends(get_db)):
+    return waste_service.get_waste_items_used(db)
+
+
 @router.get("/")
 def list_waste_records(
-    days_limit: Optional[int] = 30,
+    days_limit: Optional[int] = None,
     item_id: Optional[int] = None,
+    reason: Optional[str] = None,
+    date: Optional[str] = None,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
-    return waste_service.get_waste_records(db, days_limit=days_limit, item_id=item_id, limit=limit)
+    return waste_service.get_waste_records(
+        db,
+        days_limit=days_limit,
+        item_id=item_id,
+        reason=reason,
+        record_date=date,
+        limit=limit
+    )
 
 
 @router.post("/")

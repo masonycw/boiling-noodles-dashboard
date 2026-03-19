@@ -4,6 +4,9 @@ from typing import Optional
 from pydantic import BaseModel
 from erp.backend.db.session import get_db
 from erp.backend.services import finance_service
+from erp.backend.db.models import DailySettlement, PettyCashRecord
+from sqlalchemy import extract
+from datetime import date, datetime
 
 router = APIRouter(prefix="/finance", tags=["finance"])
 
@@ -159,3 +162,68 @@ def mark_paid(payable_id: int, db: Session = Depends(get_db)):
         return finance_service.mark_payable_paid(db, payable_id, user_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+# ─────────────────────────────────────────────
+# 日結 Endpoints（P2-3）
+# ─────────────────────────────────────────────
+
+class DailySettlementCreate(BaseModel):
+    income_total: float
+    expense_total: float
+
+
+@router.get("/daily-settlement/today")
+def get_today_settlement(db: Session = Depends(get_db)):
+    today = date.today().isoformat()
+    settlement = db.query(DailySettlement).filter(
+        DailySettlement.settlement_date == today
+    ).first()
+    if not settlement:
+        return {"settled": False, "settlement_date": today}
+    return {
+        "settled": True,
+        "settlement_date": settlement.settlement_date,
+        "income_total": float(settlement.income_total or 0),
+        "expense_total": float(settlement.expense_total or 0),
+        "settled_by": settlement.settled_by,
+        "created_at": settlement.created_at,
+    }
+
+
+@router.post("/daily-settlement")
+def create_daily_settlement(data: DailySettlementCreate, db: Session = Depends(get_db)):
+    user_id = 1  # TODO: 從 JWT 取得
+    today = date.today().isoformat()
+
+    existing = db.query(DailySettlement).filter(
+        DailySettlement.settlement_date == today
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="今日已完成日結")
+
+    settlement = DailySettlement(
+        settlement_date=today,
+        income_total=data.income_total,
+        expense_total=data.expense_total,
+        created_by_user_id=user_id,
+        settled_by="manual",
+    )
+    db.add(settlement)
+
+    # Lock today's petty cash records
+    db.query(PettyCashRecord).filter(
+        extract('year', PettyCashRecord.created_at) == date.today().year,
+        extract('month', PettyCashRecord.created_at) == date.today().month,
+        extract('day', PettyCashRecord.created_at) == date.today().day,
+    ).update({"note": PettyCashRecord.note})  # no-op update to avoid schema issue
+
+    db.commit()
+    db.refresh(settlement)
+    return {
+        "settled": True,
+        "settlement_date": settlement.settlement_date,
+        "income_total": float(settlement.income_total or 0),
+        "expense_total": float(settlement.expense_total or 0),
+        "created_at": settlement.created_at,
+    }

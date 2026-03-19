@@ -329,7 +329,7 @@ const userRole = () => {
         <div>
           <p class="font-bold text-slate-400 uppercase mb-2" style="font-size:11px">每日操作</p>
           <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-            <button @click="loadWaste"
+            <button @click="router.push('/waste')"
               class="w-full flex items-center gap-3 px-4 py-3.5 active:bg-slate-50 transition-colors"
               style="min-height:44px">
               <span style="font-size:16px;flex-shrink:0">🗑</span>

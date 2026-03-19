@@ -15,12 +15,17 @@ router = APIRouter(prefix="/stocktake", tags=["stocktake"])
 class StocktakeGroupCreate(BaseModel):
     name: str
     display_order: int = 0
+    description: Optional[str] = None
+    suggested_frequency: Optional[str] = None
+    is_active: bool = True
 
 
 class StocktakeGroupUpdate(BaseModel):
     name: Optional[str] = None
     display_order: Optional[int] = None
     is_active: Optional[bool] = None
+    description: Optional[str] = None
+    suggested_frequency: Optional[str] = None
 
 
 class StocktakeItemInput(BaseModel):
@@ -32,7 +37,7 @@ class StocktakeItemInput(BaseModel):
 
 
 class StocktakeCreate(BaseModel):
-    mode: str = "stocktake"              # stocktake / order / both
+    mode: str = "stocktake"
     stocktake_group_id: Optional[int] = None
     note: Optional[str] = None
     items: List[StocktakeItemInput] = []
@@ -73,14 +78,37 @@ def delete_stocktake_group(group_id: int, db: Session = Depends(get_db)):
 # 盤點單 Endpoints
 # ─────────────────────────────────────────────
 
+@router.get("/monthly-kpi")
+def get_monthly_kpi(db: Session = Depends(get_db)):
+    return stocktake_service.get_stocktake_monthly_kpi(db)
+
+
+@router.get("/executors")
+def get_executors(db: Session = Depends(get_db)):
+    return stocktake_service.get_executors(db)
+
+
 @router.get("/")
 def list_stocktakes(
     days_limit: Optional[int] = None,
     group_id: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    executor_id: Optional[int] = None,
+    has_discrepancy: Optional[bool] = None,
     limit: int = 50,
     db: Session = Depends(get_db)
 ):
-    return stocktake_service.get_stocktakes(db, days_limit=days_limit, group_id=group_id, limit=limit)
+    return stocktake_service.get_stocktakes(
+        db,
+        days_limit=days_limit,
+        group_id=group_id,
+        date_from=date_from,
+        date_to=date_to,
+        executor_id=executor_id,
+        has_discrepancy=has_discrepancy,
+        limit=limit
+    )
 
 
 @router.get("/{stocktake_id}")

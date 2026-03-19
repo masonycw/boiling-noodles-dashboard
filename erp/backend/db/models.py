@@ -246,7 +246,8 @@ class WasteRecord(Base):
     adhoc_name = Column(String)                              # 非品項的臨時名稱
     qty = Column(Numeric(10, 2), nullable=False)
     unit = Column(String)
-    reason = Column(String)                                  # 過期 / 破損 / 烹調損耗 / 其他
+    reason = Column(String)                                  # 過期 / 損壞 / 試菜 / 其他 / 破損 / 烹調損耗
+    estimated_value = Column(Numeric(10, 2))                 # 損耗估值 P2-0
     photo_url = Column(String)
     note = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -303,6 +304,7 @@ class CashFlowRecord(Base):
     vendor_id = Column(Integer, ForeignKey("erp_vendors.id"), nullable=True)
     is_categorized = Column(Boolean, default=True)           # False = 未分類（臨時支出）
     transaction_date = Column(DateTime(timezone=True))       # 實際發生日期
+    is_locked = Column(Boolean, default=False)               # P2-3 日結後鎖定
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -358,6 +360,28 @@ class Notification(Base):
     is_read = Column(Boolean, default=False)
     reference_id = Column(Integer)                           # 關聯的資源 ID
     reference_type = Column(String)                          # 關聯的資源類型
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─────────────────────────────────────────────
+# Phase 2 Legacy（保留）
+# ─────────────────────────────────────────────
+
+# ─────────────────────────────────────────────
+# P2-3：日結機制
+# ─────────────────────────────────────────────
+
+class DailySettlement(Base):
+    """日結記錄"""
+    __tablename__ = "erp_daily_settlements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    settlement_date = Column(String, nullable=False, unique=True)  # YYYY-MM-DD
+    income_total = Column(Numeric(12, 2), default=0)
+    expense_total = Column(Numeric(12, 2), default=0)
+    created_by_user_id = Column(Integer, ForeignKey("erp_users.id"), nullable=True)
+    settled_by = Column(String, default="manual")            # manual / auto
+    notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

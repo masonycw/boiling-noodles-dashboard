@@ -15,6 +15,13 @@ const yesterdayRecords = ref([])
 const lastSettlement = ref(null)
 const vendors = ref([])
 
+// ---- Daily settlement ----
+const showSettleModal = ref(false)
+const settleSubmitting = ref(false)
+const settleError = ref('')
+const todaySettled = ref(false)
+const settleToast = ref(false)
+
 // ---- Finance sheet modal ----
 const showSheet = ref(false)
 const sheetType = ref('expense')  // 'expense' | 'income' | 'withdrawal'
@@ -41,11 +48,12 @@ async function loadAll() {
     const today = new Date().toISOString().slice(0, 10)
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
 
-    const [balRes, todayRes, yestRes, vendRes] = await Promise.all([
+    const [balRes, todayRes, yestRes, vendRes, settleRes] = await Promise.all([
       fetch(`${API_BASE}/finance/petty-cash/balance`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/petty-cash?date=${today}&limit=100`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/petty-cash?date=${yesterday}&limit=100`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/inventory/vendors`, { headers: { Authorization: `Bearer ${auth.token}` } }),
+      fetch(`${API_BASE}/finance/daily-settlement/today`, { headers: { Authorization: `Bearer ${auth.token}` } }),
     ])
 
     if (balRes.ok) pettyBalance.value = (await balRes.json()).balance
@@ -62,6 +70,10 @@ async function loadAll() {
       yesterdayRecords.value = Array.isArray(records) ? records : []
     }
     if (vendRes.ok) vendors.value = await vendRes.json()
+    if (settleRes.ok) {
+      const sd = await settleRes.json()
+      todaySettled.value = sd.settled === true
+    }
   } finally {
     isLoading.value = false
   }
@@ -100,6 +112,36 @@ async function submitSheet() {
     sheetError.value = e.message
   } finally {
     sheetSubmitting.value = false
+  }
+}
+
+// ---- Daily settlement submit ----
+async function submitSettle() {
+  settleSubmitting.value = true
+  settleError.value = ''
+  try {
+    const res = await fetch(`${API_BASE}/finance/daily-settlement`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        income_total: todayIncome.value,
+        expense_total: todayExpense.value,
+        notes: null,
+      })
+    })
+    if (!res.ok) {
+      const d = await res.json()
+      throw new Error(d.detail || '日結失敗')
+    }
+    showSettleModal.value = false
+    todaySettled.value = true
+    settleToast.value = true
+    setTimeout(() => { settleToast.value = false }, 3000)
+    await loadAll()
+  } catch (e) {
+    settleError.value = e.message
+  } finally {
+    settleSubmitting.value = false
   }
 }
 
@@ -169,10 +211,16 @@ function txSubtitle(r) {
             <p class="font-black text-red-500 mt-0.5" style="font-size:16px">−${{ fmtMoney(todayExpense) }}</p>
           </div>
           <div class="rounded-xl shadow-sm p-2.5 flex flex-col items-center justify-center"
-            style="background:#fff8f0;border:1.5px solid #e85d04">
-            <p class="font-bold" style="font-size:9px;color:#e85d04">今日帳目</p>
-            <button @click="alert('日結功能待開放')"
-              class="mt-1 text-white font-extrabold rounded-md px-2 py-0.5"
+            :style="todaySettled ? 'background:#f0fdf4;border:1.5px solid #86efac' : 'background:#fff8f0;border:1.5px solid #e85d04'">
+            <p class="font-bold" style="font-size:9px" :style="todaySettled ? 'color:#16a34a' : 'color:#e85d04'">今日帳目</p>
+            <button v-if="todaySettled"
+              disabled
+              class="mt-1 font-extrabold rounded-md px-2 py-0.5"
+              style="font-size:11px;background:#86efac;color:#14532d;opacity:0.9">
+              ✓ 已日結
+            </button>
+            <button v-else @click="showSettleModal = true"
+              class="mt-1 text-white font-extrabold rounded-md px-2 py-0.5 active:scale-95 transition-transform"
               style="font-size:11px;background:#e85d04">
               🔒 日結
             </button>
@@ -185,6 +233,15 @@ function txSubtitle(r) {
         <p class="font-bold text-slate-600 mb-2" style="font-size:12px">
           今日流水 — {{ new Date().toLocaleDateString('zh-TW', { month:'numeric', day:'numeric' }) }}
         </p>
+        <!-- Settlement divider -->
+        <div v-if="todaySettled" class="flex items-center gap-2 mb-2">
+          <div class="flex-1 h-px bg-orange-200"></div>
+          <span class="text-xs font-bold px-3 py-1 rounded-full" style="background:#fff8f0;color:#e85d04;border:1px solid #fed7aa">
+            🔒 日結完成
+          </span>
+          <div class="flex-1 h-px bg-orange-200"></div>
+        </div>
+
         <div v-if="todayRecords.length === 0" class="text-center py-6 text-slate-400 text-sm bg-white rounded-xl">
           今日尚無紀錄
         </div>
@@ -359,6 +416,68 @@ function txSubtitle(r) {
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- Daily Settlement Modal -->
+    <div v-if="showSettleModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center px-4">
+      <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden">
+        <div class="px-6 pt-6 pb-2">
+          <h3 class="text-lg font-extrabold text-slate-800">確認日結</h3>
+          <p class="text-xs text-slate-500 mt-1">
+            {{ new Date().toLocaleDateString('zh-TW', { year:'numeric', month:'numeric', day:'numeric' }) }}
+          </p>
+        </div>
+
+        <div class="px-6 py-4 space-y-3">
+          <!-- Today summary -->
+          <div class="rounded-2xl p-4 space-y-2" style="background:#f8f9fb">
+            <div class="flex justify-between items-center">
+              <span class="text-sm text-slate-500">今日收入</span>
+              <span class="font-black text-emerald-600 text-base">+${{ fmtMoney(todayIncome) }}</span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-sm text-slate-500">今日支出</span>
+              <span class="font-black text-red-500 text-base">−${{ fmtMoney(todayExpense) }}</span>
+            </div>
+            <div class="border-t border-slate-200 pt-2 flex justify-between items-center">
+              <span class="text-sm font-bold text-slate-700">淨額</span>
+              <span class="font-black text-base"
+                :class="(todayIncome - todayExpense) >= 0 ? 'text-emerald-600' : 'text-red-500'">
+                {{ (todayIncome - todayExpense) >= 0 ? '+' : '' }}${{ fmtMoney(todayIncome - todayExpense) }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Warning -->
+          <div class="rounded-xl p-3 flex gap-2" style="background:#fff8f0;border:1px solid #fed7aa">
+            <span class="text-base flex-shrink-0">⚠️</span>
+            <p class="text-xs text-orange-700">
+              日結後今日帳目將鎖定，僅後台可做修正
+            </p>
+          </div>
+
+          <div v-if="settleError" class="text-red-500 text-sm text-center">{{ settleError }}</div>
+        </div>
+
+        <div class="px-6 pb-6 flex gap-3">
+          <button @click="showSettleModal = false; settleError = ''"
+            class="flex-1 py-3 rounded-2xl font-bold text-slate-600 border border-slate-200 bg-slate-50 active:scale-95 transition-transform">
+            取消
+          </button>
+          <button @click="submitSettle" :disabled="settleSubmitting"
+            class="flex-1 py-3 rounded-2xl font-bold text-white active:scale-95 transition-transform disabled:opacity-40"
+            style="background:#e85d04">
+            {{ settleSubmitting ? '日結中…' : '確認日結' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div v-if="settleToast"
+      class="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl shadow-lg font-bold text-white text-sm transition-all"
+      style="background:#16a34a">
+      ✓ 日結成功
     </div>
 
   </div>
