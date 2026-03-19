@@ -96,6 +96,12 @@ class Vendor(Base):
     free_shipping_threshold = Column(Numeric(10, 2))         # 免運門檻金額
     delivery_days_to_arrive = Column(Integer, default=1)     # D+N 到貨天數
     note = Column(Text)                                      # 備注
+    # P1-0 新增
+    line_id = Column(String)                                 # LINE ID
+    bank_account_holder = Column(String)                     # 銀行戶名
+    reminder_days = Column(Integer, default=5)               # 到期前提醒天數
+    order_cycle = Column(String)                             # 叫貨週期文字
+    payment_method = Column(String)                          # 付款方式（現金/轉帳/支票）
 
 
 class ItemCategory(Base):
@@ -115,6 +121,9 @@ class StocktakeGroup(Base):
     display_order = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # P1-3 新增
+    description = Column(Text)                               # 群組說明
+    suggested_frequency = Column(String)                     # 建議盤點頻率
 
 
 class Item(Base):
@@ -134,6 +143,9 @@ class Item(Base):
     display_order = Column(Integer, default=0)               # 叫貨/盤點顯示順序
     secondary_unit = Column(String)                          # 第二單位（例：箱）
     secondary_unit_ratio = Column(Numeric(10, 4))            # 換算比例（1箱=N個）
+    # P1-1 新增
+    category = Column(String)                                # 品項分類（文字）
+    price = Column(Numeric(10, 2))                           # 參考單價
 
 
 class PurchaseOrder(Base):

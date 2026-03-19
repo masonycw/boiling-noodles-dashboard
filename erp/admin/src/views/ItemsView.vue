@@ -10,21 +10,31 @@ const vendors = ref([])
 const groups = ref([])
 const loading = ref(true)
 const search = ref('')
+const filterCategory = ref('')
 const filterVendor = ref('')
 const showModal = ref(false)
 const editTarget = ref(null)
 const saving = ref(false)
 const saveError = ref('')
+const toast = ref('')
 
-const form = ref({
-  name: '', unit: '', vendor_id: null, category: '',
-  price: null, min_order_qty: null, current_stock: 0,
-  secondary_unit: '', secondary_unit_ratio: null,
-  stocktake_group_id: null, display_order: 0, is_active: true
+const categoryOptions = ['蔬菜', '肉品', '海鮮', '調味料', '主食', '其他']
+
+const emptyForm = () => ({
+  name: '', unit: '', category: '', vendor_id: null,
+  stocktake_group_id: null, min_stock: 10, current_stock: 0,
+  price: null, display_order: 999, is_active: true
 })
+
+const form = ref(emptyForm())
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
+}
+
+function showToast(msg) {
+  toast.value = msg
+  setTimeout(() => { toast.value = '' }, 2500)
 }
 
 async function load() {
@@ -46,7 +56,14 @@ const filtered = computed(() => {
   let list = items.value
   if (search.value.trim()) {
     const q = search.value.toLowerCase()
-    list = list.filter(i => i.name.toLowerCase().includes(q))
+    list = list.filter(i =>
+      i.name.toLowerCase().includes(q) ||
+      (i.category || '').toLowerCase().includes(q) ||
+      (vendorName(i.vendor_id)).toLowerCase().includes(q)
+    )
+  }
+  if (filterCategory.value) {
+    list = list.filter(i => i.category === filterCategory.value)
   }
   if (filterVendor.value) {
     list = list.filter(i => String(i.vendor_id) === filterVendor.value)
@@ -55,33 +72,45 @@ const filtered = computed(() => {
 })
 
 const vendorName = (id) => vendors.value.find(v => v.id === id)?.name || '—'
-const groupName = (id) => groups.value.find(g => g.id === id)?.name || '—'
+const groupName = (id) => groups.value.find(g => g.id === id)?.name || null
 
 function stockStatus(item) {
   const stock = parseFloat(item.current_stock) || 0
   const min = parseFloat(item.min_stock) || 0
-  if (min === 0) return { label: '正常', cls: 'bg-emerald-900/50 text-emerald-400' }
-  if (stock <= 0) return { label: '缺貨', cls: 'bg-red-900/50 text-red-400' }
-  if (stock <= min) return { label: '預警', cls: 'bg-amber-900/50 text-amber-400' }
-  return { label: '正常', cls: 'bg-emerald-900/50 text-emerald-400' }
+  if (min === 0) return { label: '正常', cls: 'bg-[#10b981] text-white' }
+  if (stock <= 0) return { label: '缺貨', cls: 'bg-[#ef4444] text-white' }
+  if (stock <= min) return { label: '預警', cls: 'bg-[#f59e0b] text-white' }
+  return { label: '正常', cls: 'bg-[#10b981] text-white' }
 }
 
 function openCreate() {
   editTarget.value = null
-  form.value = { name: '', unit: '', vendor_id: null, category: '', price: null, min_order_qty: null, current_stock: 0, secondary_unit: '', secondary_unit_ratio: null, stocktake_group_id: null, display_order: 0, is_active: true }
+  form.value = emptyForm()
   saveError.value = ''
   showModal.value = true
 }
 
 function openEdit(item) {
   editTarget.value = item
-  form.value = { ...item }
+  form.value = {
+    name: item.name || '',
+    unit: item.unit || '',
+    category: item.category || '',
+    vendor_id: item.vendor_id,
+    stocktake_group_id: item.stocktake_group_id,
+    min_stock: item.min_stock ?? 10,
+    current_stock: item.current_stock ?? 0,
+    price: item.price ?? null,
+    display_order: item.display_order ?? 999,
+    is_active: item.is_active !== false,
+  }
   saveError.value = ''
   showModal.value = true
 }
 
 async function save() {
   if (!form.value.name.trim()) { saveError.value = '請填入品項名稱'; return }
+  if (!form.value.unit.trim()) { saveError.value = '請填入單位'; return }
   saving.value = true
   saveError.value = ''
   try {
@@ -92,6 +121,7 @@ async function save() {
     const res = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(form.value) })
     if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '儲存失敗') }
     showModal.value = false
+    showToast('✓ 品項已儲存')
     await load()
   } catch (e) {
     saveError.value = e.message
@@ -103,17 +133,28 @@ async function save() {
 
 <template>
   <div>
+    <!-- Toast -->
+    <div v-if="toast"
+      class="fixed top-5 right-5 z-50 bg-emerald-700 text-white text-sm font-bold px-4 py-2.5 rounded-xl shadow-lg">
+      {{ toast }}
+    </div>
+
     <!-- Toolbar -->
     <div class="flex items-center gap-3 mb-5 flex-wrap">
-      <input v-model="search" type="text" placeholder="搜尋品項…"
-        class="bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-4 py-2 text-sm w-56 focus:outline-none focus:border-blue-500" />
+      <input v-model="search" type="text" placeholder="搜尋品項、分類、供應商…"
+        class="bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-4 py-2 text-sm w-56 focus:outline-none focus:border-[#63b3ed]" />
+      <select v-model="filterCategory"
+        class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
+        <option value="">全部分類</option>
+        <option v-for="c in categoryOptions" :key="c" :value="c">{{ c }}</option>
+      </select>
       <select v-model="filterVendor"
-        class="bg-[#111827] border border-[#374151] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+        class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
         <option value="">全部供應商</option>
         <option v-for="v in vendors" :key="v.id" :value="String(v.id)">{{ v.name }}</option>
       </select>
       <button @click="openCreate"
-        class="ml-auto bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors">
+        class="ml-auto bg-[#63b3ed] hover:bg-blue-400 text-black font-bold px-4 py-2 rounded-lg text-sm transition-colors">
         + 新增品項
       </button>
     </div>
@@ -123,43 +164,48 @@ async function save() {
       <div v-if="loading" class="p-8 text-center text-gray-500">載入中…</div>
       <table v-else class="w-full text-sm">
         <thead>
-          <tr class="border-b border-[#2d3748] text-xs text-gray-500 uppercase tracking-wider">
-            <th class="px-5 py-3 text-left">品項名稱</th>
-            <th class="px-5 py-3 text-left">供應商</th>
-            <th class="px-5 py-3 text-left">盤點群組</th>
-            <th class="px-5 py-3 text-right">庫存 / 安全</th>
-            <th class="px-5 py-3 text-right">單價</th>
-            <th class="px-5 py-3 text-center">庫存狀態</th>
-            <th class="px-5 py-3 text-center">操作</th>
+          <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase tracking-wider">
+            <th class="px-4 py-3 text-left" style="width:150px">品項名稱</th>
+            <th class="px-4 py-3 text-left" style="width:80px">分類</th>
+            <th class="px-4 py-3 text-left" style="width:100px">主要供應商</th>
+            <th class="px-4 py-3 text-left" style="width:100px">盤點群組</th>
+            <th class="px-4 py-3 text-center" style="width:50px">單位</th>
+            <th class="px-4 py-3 text-right" style="width:70px">安全庫存</th>
+            <th class="px-4 py-3 text-right" style="width:70px">目前庫存</th>
+            <th class="px-4 py-3 text-center" style="width:80px">狀態</th>
+            <th class="px-4 py-3 text-center" style="width:120px">操作</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-[#2d3748]">
           <tr v-for="item in filtered" :key="item.id" class="hover:bg-[#1f2937] transition-colors">
-            <td class="px-5 py-3 font-semibold text-gray-200">
-              {{ item.name }}
-              <span class="text-gray-500 font-normal ml-1 text-xs">/ {{ item.unit }}</span>
-            </td>
-            <td class="px-5 py-3 text-gray-400">{{ vendorName(item.vendor_id) }}</td>
-            <td class="px-5 py-3 text-gray-400">{{ groupName(item.stocktake_group_id) }}</td>
-            <td class="px-5 py-3 text-right font-mono">
-              <span :class="parseFloat(item.min_stock) > 0 && parseFloat(item.current_stock) <= parseFloat(item.min_stock) ? 'text-amber-400 font-bold' : 'text-gray-300'">
-                {{ item.current_stock }}
+            <td class="px-4 py-3 font-semibold text-gray-200">{{ item.name }}</td>
+            <td class="px-4 py-3 text-gray-400">{{ item.category || '—' }}</td>
+            <td class="px-4 py-3 text-gray-400">{{ vendorName(item.vendor_id) }}</td>
+            <td class="px-4 py-3">
+              <span v-if="groupName(item.stocktake_group_id)"
+                class="text-[11px] px-1.5 py-0.5 rounded"
+                style="background:#1f2937; color:#9ca3af; border:1px solid #2d3748;">
+                {{ groupName(item.stocktake_group_id) }}
               </span>
-              <span class="text-gray-600"> / {{ item.min_stock || 0 }} {{ item.unit }}</span>
+              <span v-else class="text-gray-600">—</span>
             </td>
-            <td class="px-5 py-3 text-right font-mono text-gray-300">{{ item.price ? '$' + item.price : '—' }}</td>
-            <td class="px-5 py-3 text-center">
+            <td class="px-4 py-3 text-center text-gray-400">{{ item.unit }}</td>
+            <td class="px-4 py-3 text-right font-mono text-gray-300">{{ item.min_stock ?? 0 }}</td>
+            <td class="px-4 py-3 text-right font-mono"
+              :class="parseFloat(item.min_stock) > 0 && parseFloat(item.current_stock) <= parseFloat(item.min_stock) ? 'text-amber-400 font-bold' : 'text-gray-300'">
+              {{ item.current_stock ?? 0 }}
+            </td>
+            <td class="px-4 py-3 text-center">
               <span class="text-xs font-bold px-2 py-0.5 rounded-full" :class="stockStatus(item).cls">
                 {{ stockStatus(item).label }}
               </span>
-              <span v-if="!item.is_active" class="ml-1 text-xs text-gray-600">(停用)</span>
             </td>
-            <td class="px-5 py-3 text-center">
-              <button @click="openEdit(item)" class="text-blue-400 hover:text-blue-300 text-xs font-bold">編輯</button>
+            <td class="px-4 py-3 text-center">
+              <button @click="openEdit(item)" class="text-[#63b3ed] hover:text-blue-300 text-xs font-bold">編輯</button>
             </td>
           </tr>
           <tr v-if="filtered.length === 0">
-            <td colspan="7" class="px-5 py-10 text-center text-gray-600">無品項資料</td>
+            <td colspan="9" class="px-4 py-10 text-center text-gray-600">無品項資料</td>
           </tr>
         </tbody>
       </table>
@@ -176,46 +222,61 @@ async function save() {
         <div class="space-y-3 text-sm">
           <div class="grid grid-cols-2 gap-3">
             <div class="col-span-2">
-              <label class="block text-xs font-bold text-gray-500 uppercase mb-1">品項名稱 *</label>
-              <input v-model="form.name" type="text" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
+                品項名稱 <span class="text-red-400">*</span>
+              </label>
+              <input v-model="form.name" type="text" maxlength="50"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
             <div>
-              <label class="block text-xs font-bold text-gray-500 uppercase mb-1">單位</label>
-              <input v-model="form.unit" type="text" placeholder="kg / 個 / 包" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
+                分類 <span class="text-red-400">*</span>
+              </label>
+              <select v-model="form.category"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
+                <option value="">— 請選擇 —</option>
+                <option v-for="c in categoryOptions" :key="c" :value="c">{{ c }}</option>
+              </select>
             </div>
             <div>
-              <label class="block text-xs font-bold text-gray-500 uppercase mb-1">供應商</label>
-              <select v-model.number="form.vendor_id" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
+                單位 <span class="text-red-400">*</span>
+              </label>
+              <input v-model="form.unit" type="text" placeholder="包 / 把 / 瓶 / 箱"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+            </div>
+            <div>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">主要供應商 <span class="text-red-400">*</span></label>
+              <select v-model.number="form.vendor_id"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
                 <option :value="null">—</option>
                 <option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option>
               </select>
             </div>
             <div>
-              <label class="block text-xs font-bold text-gray-500 uppercase mb-1">單價</label>
-              <input v-model.number="form.price" type="number" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
-            </div>
-            <div>
-              <label class="block text-xs font-bold text-gray-500 uppercase mb-1">最小叫貨量</label>
-              <input v-model.number="form.min_order_qty" type="number" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
-            </div>
-            <div>
-              <label class="block text-xs font-bold text-gray-500 uppercase mb-1">盤點群組</label>
-              <select v-model.number="form.stocktake_group_id" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">盤點群組 <span class="text-red-400">*</span></label>
+              <select v-model.number="form.stocktake_group_id"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
                 <option :value="null">—</option>
                 <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
               </select>
             </div>
             <div>
-              <label class="block text-xs font-bold text-gray-500 uppercase mb-1">目前庫存</label>
-              <input v-model.number="form.current_stock" type="number" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
+                安全庫存量 <span class="text-red-400">*</span>
+              </label>
+              <input v-model.number="form.min_stock" type="number" min="0"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
             <div>
-              <label class="block text-xs font-bold text-gray-500 uppercase mb-1">安全庫存（預警值）</label>
-              <input v-model.number="form.min_stock" type="number" placeholder="0" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">參考價格</label>
+              <input v-model.number="form.price" type="number" min="0" step="0.01"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
             <div>
-              <label class="block text-xs font-bold text-gray-500 uppercase mb-1">顯示排序</label>
-              <input v-model.number="form.display_order" type="number" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">陳列順序</label>
+              <input v-model.number="form.display_order" type="number"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
             <div class="col-span-2 flex items-center gap-3 pt-1">
               <input v-model="form.is_active" type="checkbox" id="is_active" class="w-4 h-4 accent-blue-500" />
@@ -226,8 +287,8 @@ async function save() {
           <div v-if="saveError" class="text-red-400 text-xs text-center">{{ saveError }}</div>
 
           <button @click="save" :disabled="saving"
-            class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50">
-            {{ saving ? '儲存中…' : '儲存' }}
+            class="w-full bg-[#63b3ed] hover:bg-blue-400 text-black font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50">
+            {{ saving ? '儲存中…' : '保存' }}
           </button>
         </div>
       </div>

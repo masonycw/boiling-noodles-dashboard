@@ -16,14 +16,40 @@ const pwForm = ref({ new_password: '', confirm: '' })
 const pwError = ref('')
 const pwSaving = ref(false)
 const pwUserId = ref(null)
+const toast = ref('')
 
 const form = ref({
   username: '', password: '', full_name: '',
   role: 'staff', petty_cash_permission: false, is_active: true
 })
 
+const permissionMatrix = [
+  { feature: '查看儀表板', manager: true, staff: true },
+  { feature: '編輯供應商', manager: true, staff: false },
+  { feature: '新增叫貨', manager: true, staff: false },
+  { feature: '驗收貨物', manager: true, staff: true },
+  { feature: '執行盤點', manager: true, staff: true },
+  { feature: '零用金提領', manager: true, staff: null },
+  { feature: '查看財務報表', manager: true, staff: false },
+  { feature: '帳號管理', manager: true, staff: false },
+]
+
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
+}
+
+function showToast(msg) {
+  toast.value = msg
+  setTimeout(() => { toast.value = '' }, 2500)
+}
+
+function roleName(role) {
+  return role === 'admin' ? '店長' : '員工'
+}
+function roleClass(role) {
+  return role === 'admin'
+    ? 'bg-blue-900/50 text-[#3b82f6]'
+    : 'bg-amber-900/30 text-[#f59e0b]'
 }
 
 async function load() {
@@ -70,6 +96,7 @@ async function save() {
       if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '建立失敗') }
     }
     showModal.value = false
+    showToast('✓ 帳號已儲存')
     await load()
   } catch (e) {
     saveError.value = e.message
@@ -91,13 +118,13 @@ async function savePw() {
   pwSaving.value = true
   pwError.value = ''
   try {
-    // Admin reset: use a dummy current_password (admin privilege bypassed via backend adjustment)
     const res = await fetch(`${API_BASE}/users/${pwUserId.value}/password`, {
       method: 'PUT', headers: authHeaders(),
       body: JSON.stringify({ current_password: '_admin_reset_', new_password: pwForm.value.new_password })
     })
     if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '修改失敗') }
     showPwModal.value = false
+    showToast('✓ 密碼已重設')
   } catch (e) {
     pwError.value = e.message
   } finally {
@@ -105,16 +132,22 @@ async function savePw() {
   }
 }
 
-function fmtDate(d) { return d ? new Date(d).toLocaleDateString('zh-TW') : '—' }
+function fmtDate(d) { return d ? new Date(d).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—' }
 </script>
 
 <template>
-  <div>
+  <div class="space-y-6">
+    <!-- Toast -->
+    <div v-if="toast"
+      class="fixed top-5 right-5 z-50 bg-emerald-700 text-white text-sm font-bold px-4 py-2.5 rounded-xl shadow-lg">
+      {{ toast }}
+    </div>
+
     <!-- Toolbar -->
-    <div class="flex items-center mb-5">
+    <div class="flex items-center">
       <button @click="openCreate"
-        class="ml-auto bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors">
-        + 新增人員
+        class="ml-auto bg-[#63b3ed] hover:bg-blue-400 text-black font-bold px-4 py-2 rounded-lg text-sm transition-colors">
+        + 新增帳號
       </button>
     </div>
 
@@ -123,11 +156,11 @@ function fmtDate(d) { return d ? new Date(d).toLocaleDateString('zh-TW') : '—'
       <div v-if="loading" class="p-8 text-center text-gray-500">載入中…</div>
       <table v-else class="w-full text-sm">
         <thead>
-          <tr class="border-b border-[#2d3748] text-xs text-gray-500 uppercase tracking-wider">
-            <th class="px-5 py-3 text-left">帳號</th>
+          <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase tracking-wider">
             <th class="px-5 py-3 text-left">姓名</th>
+            <th class="px-5 py-3 text-left">帳號</th>
             <th class="px-5 py-3 text-center">角色</th>
-            <th class="px-5 py-3 text-center">提領授權</th>
+            <th class="px-5 py-3 text-center">零用金提領授權</th>
             <th class="px-5 py-3 text-center">狀態</th>
             <th class="px-5 py-3 text-left">最後登入</th>
             <th class="px-5 py-3 text-center">操作</th>
@@ -135,27 +168,27 @@ function fmtDate(d) { return d ? new Date(d).toLocaleDateString('zh-TW') : '—'
         </thead>
         <tbody class="divide-y divide-[#2d3748]">
           <tr v-for="u in users" :key="u.id" class="hover:bg-[#1f2937] transition-colors">
-            <td class="px-5 py-3 font-mono text-gray-300">{{ u.username }}</td>
             <td class="px-5 py-3 font-semibold text-gray-200">{{ u.full_name || '—' }}</td>
+            <td class="px-5 py-3 font-mono text-gray-300">{{ u.username }}</td>
             <td class="px-5 py-3 text-center">
-              <span class="text-xs font-bold px-2 py-1 rounded-full"
-                :class="u.role === 'admin' ? 'bg-blue-900/50 text-blue-400' : 'bg-gray-700 text-gray-400'">
-                {{ u.role === 'admin' ? '管理員' : '員工' }}
+              <span class="text-xs font-bold px-2 py-1 rounded-full" :class="roleClass(u.role)">
+                {{ roleName(u.role) }}
               </span>
             </td>
             <td class="px-5 py-3 text-center">
-              <span class="text-xs font-bold" :class="u.petty_cash_permission ? 'text-emerald-400' : 'text-gray-600'">
-                {{ u.petty_cash_permission ? '✓' : '—' }}
+              <span class="text-xs font-bold" :class="u.petty_cash_permission ? 'text-[#10b981]' : 'text-gray-600'">
+                {{ u.petty_cash_permission ? '✓ 授權' : '— 無權限' }}
               </span>
             </td>
             <td class="px-5 py-3 text-center">
-              <span class="text-xs font-bold" :class="u.is_active ? 'text-emerald-400' : 'text-red-400'">
+              <span class="text-xs font-bold px-2 py-0.5 rounded-full"
+                :class="u.is_active ? 'bg-emerald-900/50 text-[#10b981]' : 'bg-red-900/50 text-[#ef4444]'">
                 {{ u.is_active ? '啟用' : '停用' }}
               </span>
             </td>
             <td class="px-5 py-3 text-gray-500 text-xs">{{ fmtDate(u.last_login) }}</td>
             <td class="px-5 py-3 text-center flex items-center justify-center gap-3">
-              <button @click="openEdit(u)" class="text-blue-400 hover:text-blue-300 text-xs font-bold">編輯</button>
+              <button @click="openEdit(u)" class="text-[#63b3ed] hover:text-blue-300 text-xs font-bold">編輯</button>
               <button @click="openChangePw(u)" class="text-amber-400 hover:text-amber-300 text-xs font-bold">改密碼</button>
             </td>
           </tr>
@@ -166,37 +199,74 @@ function fmtDate(d) { return d ? new Date(d).toLocaleDateString('zh-TW') : '—'
       </table>
     </div>
 
-    <!-- Edit/Create Modal -->
+    <!-- Permission Matrix -->
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="px-5 py-3 border-b border-[#2d3748]">
+        <h3 class="text-sm font-bold text-gray-200">權限矩陣</h3>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-[#111827] border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase">
+            <th class="px-5 py-3 text-left">功能</th>
+            <th class="px-5 py-3 text-center">店長</th>
+            <th class="px-5 py-3 text-center">員工</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-[#2d3748]">
+          <tr v-for="row in permissionMatrix" :key="row.feature" class="hover:bg-[#1f2937]">
+            <td class="px-5 py-2.5 text-gray-300 pl-8">{{ row.feature }}</td>
+            <td class="px-5 py-2.5 text-center">
+              <span class="font-bold text-[#10b981]">✓</span>
+            </td>
+            <td class="px-5 py-2.5 text-center">
+              <span v-if="row.staff === true" class="font-bold text-[#10b981]">✓</span>
+              <span v-else-if="row.staff === false" class="font-bold text-[#6b7280]">—</span>
+              <span v-else class="text-xs text-[#f59e0b]">依帳號設定</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Create/Edit Modal -->
     <div v-if="showModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
       <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl w-full max-w-md p-6">
         <div class="flex justify-between items-center mb-5">
-          <h3 class="text-lg font-bold text-gray-100">{{ editTarget ? '編輯人員' : '新增人員' }}</h3>
+          <h3 class="text-lg font-bold text-gray-100">{{ editTarget ? '編輯人員' : '新增帳號' }}</h3>
           <button @click="showModal = false" class="text-gray-500 hover:text-gray-300 text-xl">✕</button>
         </div>
 
         <div class="space-y-3 text-sm">
           <div v-if="!editTarget">
-            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">帳號 *</label>
-            <input v-model="form.username" type="text" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+            <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">帳號 <span class="text-red-400">*</span></label>
+            <input v-model="form.username" type="text" maxlength="20"
+              class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+          </div>
+          <div v-if="editTarget">
+            <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">帳號（唯讀）</label>
+            <div class="bg-[#0f1117] border border-[#2d3748] text-gray-500 rounded-lg px-3 py-2 font-mono">{{ editTarget.username }}</div>
           </div>
           <div v-if="!editTarget">
-            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">初始密碼 *</label>
-            <input v-model="form.password" type="password" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+            <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">初始密碼 <span class="text-red-400">*</span></label>
+            <input v-model="form.password" type="password"
+              class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">姓名</label>
-            <input v-model="form.full_name" type="text" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+            <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">姓名 <span class="text-red-400">*</span></label>
+            <input v-model="form.full_name" type="text" maxlength="30"
+              class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">角色</label>
-            <select v-model="form.role" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+            <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">角色 <span class="text-red-400">*</span></label>
+            <select v-model="form.role"
+              class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
               <option value="staff">員工</option>
-              <option value="admin">管理員</option>
+              <option value="admin">店長（管理員）</option>
             </select>
           </div>
           <div class="flex items-center gap-3">
             <input v-model="form.petty_cash_permission" type="checkbox" id="pcp" class="w-4 h-4 accent-blue-500" />
-            <label for="pcp" class="text-gray-300">允許提領零用金</label>
+            <label for="pcp" class="text-gray-300">授予零用金提領權限</label>
           </div>
           <div class="flex items-center gap-3">
             <input v-model="form.is_active" type="checkbox" id="active" class="w-4 h-4 accent-blue-500" />
@@ -206,8 +276,12 @@ function fmtDate(d) { return d ? new Date(d).toLocaleDateString('zh-TW') : '—'
           <div v-if="saveError" class="text-red-400 text-xs text-center">{{ saveError }}</div>
 
           <button @click="save" :disabled="saving"
-            class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50">
-            {{ saving ? '儲存中…' : '儲存' }}
+            class="w-full bg-[#63b3ed] hover:bg-blue-400 text-black font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50">
+            {{ saving ? '儲存中…' : '建立帳號' }}
+          </button>
+          <button v-if="editTarget && !editTarget.is_active === false" @click="form.is_active = false; save()"
+            class="w-full bg-red-900 hover:bg-red-800 text-white font-bold py-2 rounded-lg transition-colors text-sm">
+            停用帳號
           </button>
         </div>
       </div>
@@ -222,12 +296,14 @@ function fmtDate(d) { return d ? new Date(d).toLocaleDateString('zh-TW') : '—'
         </div>
         <div class="space-y-3 text-sm">
           <div>
-            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">新密碼</label>
-            <input v-model="pwForm.new_password" type="password" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+            <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">新密碼</label>
+            <input v-model="pwForm.new_password" type="password"
+              class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
           </div>
           <div>
-            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">確認密碼</label>
-            <input v-model="pwForm.confirm" type="password" class="w-full bg-[#111827] border border-[#374151] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+            <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">確認密碼</label>
+            <input v-model="pwForm.confirm" type="password"
+              class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
           </div>
           <div v-if="pwError" class="text-red-400 text-xs text-center">{{ pwError }}</div>
           <button @click="savePw" :disabled="pwSaving"
