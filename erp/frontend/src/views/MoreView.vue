@@ -9,6 +9,24 @@ const router = useRouter()
 // Sub-page: null | 'waste' | 'staff' | 'change-password' | 'notifications'
 const subPage = ref(null)
 
+// ──────────────────────────────────────────
+// PWA 安裝提示 (P3-4)
+// ──────────────────────────────────────────
+const pwaInstallable = ref(!!window.__pwaInstallPrompt)
+const pwaInstalled = ref(window.matchMedia('(display-mode: standalone)').matches)
+
+window.addEventListener('pwa-installable', () => { pwaInstallable.value = true })
+window.addEventListener('appinstalled', () => { pwaInstalled.value = true; pwaInstallable.value = false })
+
+async function installPwa() {
+  if (!window.__pwaInstallPrompt) return
+  window.__pwaInstallPrompt.prompt()
+  const { outcome } = await window.__pwaInstallPrompt.userChoice
+  if (outcome === 'accepted') pwaInstalled.value = true
+  window.__pwaInstallPrompt = null
+  pwaInstallable.value = false
+}
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 
 const isManager = (role) => role === 'admin' || role === 'manager' || role === 'store_manager'
@@ -353,6 +371,16 @@ const userRole = () => {
               <span class="text-slate-300" style="font-size:16px">›</span>
             </button>
           </div>
+        </div>
+
+        <!-- ─── 安裝 App ─── -->
+        <div v-if="!pwaInstalled && pwaInstallable">
+          <p class="font-bold text-slate-400 uppercase mb-2" style="font-size:11px">安裝應用</p>
+          <button @click="installPwa"
+            class="w-full bg-orange-500 text-white font-bold py-3.5 rounded-xl shadow-sm flex items-center justify-center gap-2 active:bg-orange-600">
+            <span style="font-size:16px">📱</span>
+            <span style="font-size:13px">加入主畫面</span>
+          </button>
         </div>
 
         <!-- ─── 個人設定 ─── -->

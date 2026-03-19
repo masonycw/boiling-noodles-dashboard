@@ -404,3 +404,37 @@ class CashTransaction(Base):
     has_receipt = Column(Boolean, default=False)
     receipt_url = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─────────────────────────────────────────────
+# P3-0: 通知設定
+# ─────────────────────────────────────────────
+
+class NotificationSetting(Base):
+    """通知規則開關（每位使用者獨立設定）"""
+    __tablename__ = "erp_notification_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("erp_users.id"), nullable=False)
+    notification_type = Column(String, nullable=False)  # order, low_stock, delivery, settlement, payment, stocktake, waste, system
+    is_enabled = Column(Boolean, default=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+# ─────────────────────────────────────────────
+# P3-1: 比例費用規則
+# ─────────────────────────────────────────────
+
+class ProportionalFeeRule(Base):
+    """比例費用規則（外送平台抽成、信用卡手續費等）"""
+    __tablename__ = "erp_proportional_fee_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    category = Column(String)            # platform_fee, processing_fee, tax, other
+    calculation_basis = Column(String)   # order_total, transaction_amount, taxable_sales, other
+    percentage = Column(Numeric(5, 2), nullable=False)
+    settlement_period = Column(String, default="monthly")  # monthly, quarterly, yearly
+    is_active = Column(Boolean, default=True)
+    note = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -29,17 +29,23 @@ const navGroups = [
       { name: 'stocktake',        label: '盤點紀錄',   icon: '🗂️' },
       { name: 'stocktake-groups', label: '盤點群組',   icon: '🏷️' },
       { name: 'waste',     label: '損耗紀錄',   icon: '🗑️' },
+      { name: 'categories', label: '分類管理', icon: '🏷️' },
     ]
   },
   {
     label: '財務管理',
     items: [
-      { name: 'finance', label: '金流 / 財務', icon: '💰' },
+      { name: 'finance', label: '零用金管理', icon: '💰' },
+      { name: 'cash-flow-overview', label: '金流總覽', icon: '📊' },
+      { name: 'recurring-charges', label: '重複預約', icon: '🔁' },
+      { name: 'proportional-fees', label: '比例費用設定', icon: '📐' },
+      { name: 'reports', label: '損益報表', icon: '📈' },
     ]
   },
   {
     label: '系統管理',
     items: [
+      { name: 'notifications', label: '通知管理', icon: '🔔' },
       { name: 'users', label: '人員管理', icon: '👥' },
     ]
   }

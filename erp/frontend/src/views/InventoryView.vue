@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -25,6 +25,66 @@ const adHocName = ref(''); const adHocQty = ref(1); const adHocUnit = ref('個')
 const showPreviewSheet = ref(false)
 const previewText = ref('')
 const previewCopied = ref(false)
+
+// ── D+N 到貨倒數 (P3-3) ──────────────────────────
+const deliveryDays = computed(() => selectedVendor.value?.delivery_days_to_arrive || 2)
+const estimatedDeliveryLabel = computed(() => {
+  const n = deliveryDays.value
+  const d = new Date(); d.setDate(d.getDate() + n)
+  return `D+${n} 到貨：${d.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' })}`
+})
+
+// ── 草稿自動儲存 (P3-3) ──────────────────────────
+const draftBanner = ref(null)
+const DRAFT_KEY = () => `draft:order:${auth.user?.id || 'anon'}`
+const DRAFT_TTL = 48 * 60 * 60 * 1000
+
+function saveDraft() {
+  if (!selectedVendor.value || orderedCount.value === 0) return
+  const draft = {
+    timestamp: Date.now(),
+    vendorId: selectedVendor.value.id,
+    vendorName: selectedVendor.value.name,
+    qtys: items.value.filter(i => i.qty > 0).map(i => ({ id: i.id, qty: i.qty })),
+    adHocItems: adHocItems.value,
+    expectedDeliveryDate: expectedDeliveryDate.value
+  }
+  localStorage.setItem(DRAFT_KEY(), JSON.stringify(draft))
+}
+
+function loadDraftBanner() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY())
+    if (!raw) return
+    const draft = JSON.parse(raw)
+    if (Date.now() - draft.timestamp > DRAFT_TTL) { localStorage.removeItem(DRAFT_KEY()); return }
+    draftBanner.value = draft
+  } catch { localStorage.removeItem(DRAFT_KEY()) }
+}
+
+async function resumeDraft() {
+  const draft = draftBanner.value
+  if (!draft) return
+  draftBanner.value = null
+  const v = vendors.value.find(v => v.id === draft.vendorId)
+  if (v) {
+    await selectVendor(v)
+    draft.qtys.forEach(({ id, qty }) => {
+      const item = items.value.find(i => i.id === id)
+      if (item) item.qty = qty
+    })
+    adHocItems.value = draft.adHocItems || []
+    if (draft.expectedDeliveryDate) expectedDeliveryDate.value = draft.expectedDeliveryDate
+  }
+  localStorage.removeItem(DRAFT_KEY())
+}
+
+function discardDraft() {
+  localStorage.removeItem(DRAFT_KEY())
+  draftBanner.value = null
+}
+
+let _draftTimer = null
 
 const freeShippingThreshold = computed(() => parseFloat(selectedVendor.value?.free_shipping_threshold) || 0)
 const orderTotal = computed(() =>
@@ -81,7 +141,12 @@ onMounted(async () => {
       else isLoading.value = false
     } else isLoading.value = false
   } catch { isLoading.value = false }
+  // Draft auto-save setup (P3-3)
+  loadDraftBanner()
+  _draftTimer = setInterval(() => { saveDraft() }, 30000)
 })
+
+onUnmounted(() => { if (_draftTimer) clearInterval(_draftTimer) })
 
 async function selectVendor(v) {
   selectedVendor.value = v
@@ -258,6 +323,15 @@ const payBadge = (o) => {
     <!-- ═══ 叫貨 Tab ═══ -->
     <div v-if="subTab==='order'" class="flex-1 pb-32">
 
+      <!-- 草稿恢復 banner (P3-3) -->
+      <div v-if="draftBanner" class="mx-3 mt-3 rounded-xl px-3 py-2.5 bg-amber-50 border border-amber-200">
+        <p class="text-xs font-bold text-amber-800">📌 發現未完成的叫貨草稿（{{ draftBanner.vendorName }}）</p>
+        <div class="flex gap-2 mt-1.5">
+          <button @click="resumeDraft" class="flex-1 bg-orange-500 text-white text-xs font-bold py-1.5 rounded-lg">繼續編輯</button>
+          <button @click="discardDraft" class="flex-1 bg-slate-200 text-slate-600 text-xs font-bold py-1.5 rounded-lg">丟棄草稿</button>
+        </div>
+      </div>
+
       <!-- Control bar -->
       <div class="bg-white border-b border-slate-100 px-3 py-3 space-y-3">
 
@@ -299,11 +373,16 @@ const payBadge = (o) => {
           </div>
         </div>
 
-        <!-- Delivery date -->
-        <div class="flex items-center justify-between bg-orange-50 rounded-xl px-3 py-2 border border-orange-100">
-          <label class="text-xs font-bold text-orange-700">📅 預計到貨日</label>
-          <input v-model="expectedDeliveryDate" type="date"
-            class="bg-transparent border-none text-xs font-bold text-slate-700 focus:outline-none" />
+        <!-- D+N 到貨倒數 + 日期選擇器 (P3-3) -->
+        <div class="bg-orange-50 rounded-xl px-3 py-2 border border-orange-100 space-y-1">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-bold text-orange-600">⚡ {{ estimatedDeliveryLabel }}</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-bold text-orange-700">📅 預計到貨日</label>
+            <input v-model="expectedDeliveryDate" type="date"
+              class="bg-transparent border-none text-xs font-bold text-slate-700 focus:outline-none" />
+          </div>
         </div>
       </div>
 

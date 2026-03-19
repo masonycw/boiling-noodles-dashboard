@@ -52,7 +52,37 @@ const routes = [
     path: '/stocktake-groups',
     name: 'stocktake-groups',
     component: () => import('@/views/StocktakeGroupsView.vue')
-  }
+  },
+  {
+    path: '/categories',
+    name: 'categories',
+    component: () => import('@/views/CategoryView.vue')
+  },
+  {
+    path: '/notifications',
+    name: 'notifications',
+    component: () => import('@/views/NotificationView.vue')
+  },
+  {
+    path: '/cash-flow-overview',
+    name: 'cash-flow-overview',
+    component: () => import('@/views/CashFlowOverviewView.vue')
+  },
+  {
+    path: '/recurring-charges',
+    name: 'recurring-charges',
+    component: () => import('@/views/RecurringChargesView.vue')
+  },
+  {
+    path: '/proportional-fees',
+    name: 'proportional-fees',
+    component: () => import('@/views/ProportionalFeesView.vue')
+  },
+  {
+    path: '/reports',
+    name: 'reports',
+    component: () => import('@/views/ReportsView.vue')
+  },
 ]
 
 const router = createRouter({

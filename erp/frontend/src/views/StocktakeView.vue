@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -35,7 +35,12 @@ onMounted(async () => {
     if (res.ok) groups.value = await res.json()
   } catch {}
   await loadItems(null)
+  // Draft auto-save (P3-3)
+  loadDraftBanner()
+  _draftTimer = setInterval(() => { saveDraft() }, 30000)
 })
+
+onUnmounted(() => { if (_draftTimer) clearInterval(_draftTimer) })
 
 async function loadItems(group) {
   selectedGroup.value = group
@@ -189,6 +194,71 @@ function reset() {
 function isLowStock(item) {
   return parseFloat(item.min_stock) > 0 && parseFloat(item.current_stock) <= parseFloat(item.min_stock)
 }
+
+// ── 草稿自動儲存 (P3-3) ──────────────────────────
+const draftBanner = ref(null)
+const DRAFT_KEY = () => `draft:stocktake:${auth.user?.id || 'anon'}`
+const DRAFT_TTL = 48 * 60 * 60 * 1000
+
+function saveDraft() {
+  if (Object.keys(counts.value).length === 0) return
+  const draft = {
+    timestamp: Date.now(),
+    groupId: selectedGroup.value?.id || null,
+    groupName: selectedGroup.value?.name || '全部品項',
+    counts: counts.value,
+    modeStocktake: modeStocktake.value,
+    modeOrder: modeOrder.value
+  }
+  localStorage.setItem(DRAFT_KEY(), JSON.stringify(draft))
+}
+
+function loadDraftBanner() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY())
+    if (!raw) return
+    const draft = JSON.parse(raw)
+    if (Date.now() - draft.timestamp > DRAFT_TTL) { localStorage.removeItem(DRAFT_KEY()); return }
+    draftBanner.value = draft
+  } catch { localStorage.removeItem(DRAFT_KEY()) }
+}
+
+async function resumeDraft() {
+  const draft = draftBanner.value
+  if (!draft) return
+  draftBanner.value = null
+  modeStocktake.value = draft.modeStocktake ?? true
+  modeOrder.value = draft.modeOrder ?? true
+  const g = groups.value.find(g => g.id === draft.groupId) || null
+  await loadItems(g)
+  counts.value = draft.counts
+  localStorage.removeItem(DRAFT_KEY())
+}
+
+function discardDraft() {
+  localStorage.removeItem(DRAFT_KEY())
+  draftBanner.value = null
+}
+
+let _draftTimer = null
+
+// ── 差異分析 Sheet (P3-3) ──────────────────────────
+const showDiscrepancy = ref(false)
+const discrepancyItem = ref(null)
+const discrepancyData = ref(null)
+const discrepancyLoading = ref(false)
+
+async function openDiscrepancy(item) {
+  discrepancyItem.value = item
+  discrepancyData.value = null
+  showDiscrepancy.value = true
+  discrepancyLoading.value = true
+  try {
+    const res = await fetch(`${API_BASE}/inventory/items/${item.id}/discrepancy-analysis?days=7`, { headers: authHeaders() })
+    if (res.ok) discrepancyData.value = await res.json()
+  } catch {}
+  finally { discrepancyLoading.value = false }
+}
 </script>
 
 <template>
@@ -238,6 +308,15 @@ function isLowStock(item) {
             📦 叫貨{{ modeOrder ? ' ✓' : '' }}
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- 草稿恢復 banner (P3-3) -->
+    <div v-if="draftBanner && !submitted && !showOrderSheets" class="mx-3 mt-3 rounded-xl px-3 py-2.5 bg-amber-50 border border-amber-200">
+      <p class="text-xs font-bold text-amber-800">📌 發現未完成的盤點草稿（{{ draftBanner.groupName }}）</p>
+      <div class="flex gap-2 mt-1.5">
+        <button @click="resumeDraft" class="flex-1 bg-orange-500 text-white text-xs font-bold py-1.5 rounded-lg">繼續編輯</button>
+        <button @click="discardDraft" class="flex-1 bg-slate-200 text-slate-600 text-xs font-bold py-1.5 rounded-lg">丟棄草稿</button>
       </div>
     </div>
 
@@ -330,6 +409,11 @@ function isLowStock(item) {
                   系統 {{ item.current_stock || 0 }} {{ item.unit }} · 安全庫存 {{ item.min_stock || 0 }} {{ item.unit }}
                 </p>
               </div>
+              <!-- 🔍 差異分析按鈕 (P3-3) -->
+              <button @click="openDiscrepancy(item)"
+                class="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg bg-slate-100 text-slate-500 active:bg-slate-200 text-sm">
+                🔍
+              </button>
             </div>
 
             <!-- Dual columns -->
@@ -408,6 +492,72 @@ function isLowStock(item) {
         <span v-else-if="modeStocktake">💾 提交盤點</span>
         <span v-else>📦 提交叫貨</span>
       </button>
+    </div>
+
+    <!-- ═══ 差異分析 Sheet (P3-3) ═══ -->
+    <div v-if="showDiscrepancy" class="fixed inset-0 bg-black/50 z-50 flex items-end">
+      <div class="bg-white w-full rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
+        <div class="flex items-center justify-center w-10 h-1 bg-slate-200 rounded-full mx-auto mb-4"></div>
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-base font-extrabold text-slate-800">
+            🔍 {{ discrepancyItem?.name }} — 近 7 天紀錄
+          </h3>
+          <button @click="showDiscrepancy=false" class="text-slate-400 text-xl font-bold">✕</button>
+        </div>
+
+        <div v-if="discrepancyLoading" class="flex justify-center py-10">
+          <div class="animate-spin h-7 w-7 border-4 border-orange-500 border-t-transparent rounded-full"></div>
+        </div>
+
+        <div v-else-if="discrepancyData" class="space-y-4">
+          <!-- 到貨紀錄 -->
+          <div>
+            <p class="text-xs font-bold text-slate-500 uppercase mb-2">近 7 天到貨</p>
+            <div v-if="discrepancyData.deliveries.length" class="space-y-1">
+              <div v-for="(d,i) in discrepancyData.deliveries" :key="i"
+                class="flex justify-between text-sm bg-emerald-50 rounded-lg px-3 py-2">
+                <span class="text-slate-700">{{ d.date }} 到貨</span>
+                <span class="font-bold text-emerald-700">+{{ d.qty }} {{ d.unit }}</span>
+              </div>
+            </div>
+            <p v-else class="text-xs text-slate-400 text-center py-2">近 7 天無到貨紀錄</p>
+          </div>
+
+          <!-- 損耗紀錄 -->
+          <div>
+            <p class="text-xs font-bold text-slate-500 uppercase mb-2">損耗紀錄</p>
+            <div v-if="discrepancyData.wastes.length" class="space-y-1">
+              <div v-for="(w,i) in discrepancyData.wastes" :key="i"
+                class="flex justify-between text-sm bg-red-50 rounded-lg px-3 py-2">
+                <span class="text-slate-700">{{ w.date }} {{ w.reason }}</span>
+                <span class="font-bold text-red-600">−{{ w.qty }} {{ w.unit }}</span>
+              </div>
+            </div>
+            <p v-else class="text-xs text-slate-400 text-center py-2">近 7 天無損耗紀錄</p>
+          </div>
+
+          <!-- 分析摘要 -->
+          <div class="bg-blue-50 rounded-xl p-3 border border-blue-100">
+            <p class="text-xs font-bold text-blue-700 mb-1">💡 分析摘要</p>
+            <p class="text-xs text-blue-800">{{ discrepancyData.analysis_summary }}</p>
+            <p class="text-xs text-slate-400 mt-2">
+              系統庫存：{{ discrepancyData.current_stock }} {{ discrepancyData.unit }}
+              <span v-if="discrepancyData.total_received > 0"> · 近期到貨：+{{ discrepancyData.total_received }}</span>
+              <span v-if="discrepancyData.total_waste > 0"> · 損耗：−{{ discrepancyData.total_waste }}</span>
+            </p>
+          </div>
+
+          <button @click="showDiscrepancy=false"
+            class="w-full py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl">
+            關閉
+          </button>
+        </div>
+
+        <div v-else class="text-center py-10 text-slate-400">
+          <p>無法載入分析資料</p>
+          <button @click="showDiscrepancy=false" class="mt-4 text-orange-500 font-bold">關閉</button>
+        </div>
+      </div>
     </div>
 
   </div>

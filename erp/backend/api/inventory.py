@@ -150,7 +150,7 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
             if item:
                 name = item.name
                 unit = item.unit
-        
+
         result.append({
             "name": name,
             "qty": d.qty,
@@ -160,3 +160,152 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
             "adhoc_unit": d.adhoc_unit
         })
     return result
+
+
+# ─────────────────────────────────────────────
+# P3-0: 品項分類 CRUD
+# ─────────────────────────────────────────────
+from erp.backend.db.models import ItemCategory, Item as ItemModel
+
+@router.get("/categories")
+def list_categories(db: Session = Depends(get_db)):
+    cats = db.query(ItemCategory).order_by(ItemCategory.display_order, ItemCategory.name).all()
+    result = []
+    for c in cats:
+        item_count = db.query(ItemModel).filter(ItemModel.category_id == c.id, ItemModel.is_active == True).count()
+        examples = db.query(ItemModel.name).filter(ItemModel.category_id == c.id, ItemModel.is_active == True).limit(3).all()
+        result.append({
+            "id": c.id,
+            "name": c.name,
+            "display_order": c.display_order,
+            "item_count": item_count,
+            "example_items": [e[0] for e in examples],
+        })
+    return result
+
+class CategoryCreate(BaseModel):
+    name: str
+    display_order: int = 0
+
+@router.post("/categories")
+def create_category(data: CategoryCreate, db: Session = Depends(get_db)):
+    existing = db.query(ItemCategory).filter(ItemCategory.name == data.name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="分類名稱已存在")
+    cat = ItemCategory(name=data.name.strip(), display_order=data.display_order)
+    db.add(cat)
+    db.commit()
+    db.refresh(cat)
+    return {"id": cat.id, "name": cat.name, "item_count": 0, "example_items": []}
+
+@router.put("/categories/{cat_id}")
+def update_category(cat_id: int, data: CategoryCreate, db: Session = Depends(get_db)):
+    cat = db.query(ItemCategory).filter(ItemCategory.id == cat_id).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="分類不存在")
+    dup = db.query(ItemCategory).filter(ItemCategory.name == data.name, ItemCategory.id != cat_id).first()
+    if dup:
+        raise HTTPException(status_code=400, detail="分類名稱已存在")
+    cat.name = data.name.strip()
+    cat.display_order = data.display_order
+    db.commit()
+    db.refresh(cat)
+    return {"id": cat.id, "name": cat.name}
+
+@router.delete("/categories/{cat_id}")
+def delete_category(cat_id: int, db: Session = Depends(get_db)):
+    cat = db.query(ItemCategory).filter(ItemCategory.id == cat_id).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="分類不存在")
+    item_count = db.query(ItemModel).filter(ItemModel.category_id == cat_id, ItemModel.is_active == True).count()
+    if item_count > 0:
+        raise HTTPException(status_code=400, detail=f"此分類有 {item_count} 個品項，請先移除品項")
+    db.delete(cat)
+    db.commit()
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────
+# P3-3: 盤點差異分析
+# ─────────────────────────────────────────────
+from erp.backend.db.models import PurchaseOrder, PurchaseOrderDetail, WasteRecord
+from datetime import timedelta
+
+@router.get("/items/{item_id}/discrepancy-analysis")
+def discrepancy_analysis(item_id: int, days: int = 7, db: Session = Depends(get_db)):
+    item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="品項不存在")
+
+    from sqlalchemy import func as sqlfunc
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    # 近 N 天到貨紀錄（status=received 的訂單）
+    received_orders = (
+        db.query(PurchaseOrder, PurchaseOrderDetail)
+        .join(PurchaseOrderDetail, PurchaseOrder.id == PurchaseOrderDetail.order_id)
+        .filter(
+            PurchaseOrderDetail.item_id == item_id,
+            PurchaseOrder.status == "received",
+            PurchaseOrder.updated_at >= cutoff
+        )
+        .order_by(PurchaseOrder.updated_at.desc())
+        .all()
+    )
+    deliveries = []
+    total_received = 0.0
+    for order, detail in received_orders:
+        qty = float(detail.actual_qty or detail.qty or 0)
+        total_received += qty
+        deliveries.append({
+            "date": order.updated_at.strftime("%m/%d") if order.updated_at else "",
+            "vendor_id": order.vendor_id,
+            "qty": qty,
+            "unit": item.unit or "",
+            "status": "簽收"
+        })
+
+    # 近 N 天損耗紀錄
+    waste_records = (
+        db.query(WasteRecord)
+        .filter(
+            WasteRecord.item_id == item_id,
+            WasteRecord.created_at >= cutoff
+        )
+        .order_by(WasteRecord.created_at.desc())
+        .all()
+    )
+    wastes = []
+    total_waste = 0.0
+    for w in waste_records:
+        qty = float(w.qty or 0)
+        total_waste += qty
+        wastes.append({
+            "date": w.created_at.strftime("%m/%d") if w.created_at else "",
+            "reason": w.reason or "損耗",
+            "qty": qty,
+            "unit": w.unit or item.unit or ""
+        })
+
+    # 計算理論剩餘
+    current_stock = float(item.current_stock or 0)
+    theoretical = current_stock + total_waste  # 如果實盤=current_stock，理論=盤點值+損耗
+    # 差異分析
+    diff_text = ""
+    if abs(theoretical - current_stock) <= 0.5:
+        diff_text = f"理論剩餘約 {theoretical:.1f} {item.unit or ''}，差異在合理範圍內 ✓"
+    else:
+        diff_text = f"理論剩餘約 {theoretical:.1f} {item.unit or ''}，與系統庫存差異 {theoretical - current_stock:+.1f}，建議核查"
+
+    return {
+        "item_id": item_id,
+        "item_name": item.name,
+        "current_stock": current_stock,
+        "unit": item.unit or "",
+        "days": days,
+        "deliveries": deliveries,
+        "total_received": total_received,
+        "wastes": wastes,
+        "total_waste": total_waste,
+        "analysis_summary": diff_text
+    }

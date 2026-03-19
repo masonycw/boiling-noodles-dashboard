@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from erp.backend.api import auth, inventory, finance, stocktake, waste, users
+from erp.backend.api import auth, inventory, finance, stocktake, waste, users, notifications, reports
 
 app = FastAPI(
     title="Boiling Noodles ERP",
@@ -24,6 +24,8 @@ app.include_router(finance.router,    prefix="/api/v1",            tags=["financ
 app.include_router(stocktake.router,  prefix="/api/v1",            tags=["stocktake"])
 app.include_router(waste.router,      prefix="/api/v1",            tags=["waste"])
 app.include_router(users.router,      prefix="/api/v1",            tags=["users"])
+app.include_router(notifications.router, prefix="/api/v1",          tags=["notifications"])
+app.include_router(reports.router,       prefix="/api/v1",          tags=["reports"])
 
 
 @app.get("/")

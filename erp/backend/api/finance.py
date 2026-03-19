@@ -227,3 +227,178 @@ def create_daily_settlement(data: DailySettlementCreate, db: Session = Depends(g
         "expense_total": float(settlement.expense_total or 0),
         "created_at": settlement.created_at,
     }
+
+
+# ─────────────────────────────────────────────
+# P3-1: 金流總覽
+# ─────────────────────────────────────────────
+
+@router.get("/overview")
+def get_finance_overview(db: Session = Depends(get_db)):
+    from erp.backend.db.models import PettyCashRecord, AccountsPayable, CashFlowRecurring
+    from sqlalchemy import func as sqlfunc
+    import calendar
+
+    today = date.today()
+    month_start = today.replace(day=1)
+
+    # 本月收入（零用金收入記錄）
+    income_total = db.query(sqlfunc.sum(PettyCashRecord.amount)).filter(
+        PettyCashRecord.type == 'income',
+        PettyCashRecord.created_at >= month_start,
+    ).scalar() or 0
+
+    # 本月支出（零用金支出+提領）
+    expense_total = db.query(sqlfunc.sum(PettyCashRecord.amount)).filter(
+        PettyCashRecord.type.in_(['expense', 'withdrawal']),
+        PettyCashRecord.created_at >= month_start,
+    ).scalar() or 0
+
+    # 零用金餘額
+    from erp.backend.services.finance_service import get_petty_cash_balance
+    balance = get_petty_cash_balance(db)
+
+    # 應付帳款（未付）
+    payable_count = db.query(AccountsPayable).filter(AccountsPayable.is_paid == False).count()
+    payable_amount = db.query(sqlfunc.sum(AccountsPayable.amount)).filter(AccountsPayable.is_paid == False).scalar() or 0
+
+    # 本月有效重複預約
+    recurring_active = db.query(CashFlowRecurring).filter(CashFlowRecurring.is_active == True, CashFlowRecurring.type == 'expense').all()
+    recurring_total = sum(float(r.amount or 0) for r in recurring_active)
+    recurring_count = len(recurring_active)
+
+    return {
+        "month_income": float(income_total),
+        "month_expense": float(expense_total),
+        "projected_net": float(income_total) - float(expense_total),
+        "petty_cash_balance": float(balance),
+        "payable_count": payable_count,
+        "payable_amount": float(payable_amount),
+        "recurring_expense_total": recurring_total,
+        "recurring_expense_count": recurring_count,
+    }
+
+
+# ─────────────────────────────────────────────
+# P3-1: 重複預約費用 CRUD
+# ─────────────────────────────────────────────
+
+class RecurringCreate(BaseModel):
+    name: str
+    category: Optional[str] = None
+    amount: float
+    type: str = "expense"
+    day_of_month: Optional[int] = None
+    vendor_id: Optional[int] = None
+    note: Optional[str] = None
+
+
+@router.get("/recurring")
+def list_recurring(db: Session = Depends(get_db)):
+    from erp.backend.db.models import CashFlowRecurring, Vendor
+    items = db.query(CashFlowRecurring).order_by(CashFlowRecurring.id).all()
+    result = []
+    for r in items:
+        vendor = db.query(Vendor).filter(Vendor.id == r.vendor_id).first() if r.vendor_id else None
+        result.append({
+            "id": r.id,
+            "name": r.name,
+            "category": r.category,
+            "amount": float(r.amount or 0),
+            "type": r.type,
+            "day_of_month": r.day_of_month,
+            "vendor_id": r.vendor_id,
+            "vendor_name": vendor.name if vendor else None,
+            "note": r.note,
+            "is_active": r.is_active,
+        })
+    return result
+
+
+@router.post("/recurring")
+def create_recurring(data: RecurringCreate, db: Session = Depends(get_db)):
+    from erp.backend.db.models import CashFlowRecurring
+    rec = CashFlowRecurring(**data.dict())
+    db.add(rec)
+    db.commit()
+    db.refresh(rec)
+    return {"id": rec.id, "name": rec.name, "is_active": rec.is_active}
+
+
+@router.put("/recurring/{rec_id}")
+def update_recurring(rec_id: int, data: RecurringCreate, db: Session = Depends(get_db)):
+    from erp.backend.db.models import CashFlowRecurring
+    rec = db.query(CashFlowRecurring).filter(CashFlowRecurring.id == rec_id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="重複預約不存在")
+    for k, v in data.dict().items():
+        setattr(rec, k, v)
+    db.commit()
+    db.refresh(rec)
+    return {"id": rec.id, "name": rec.name}
+
+
+@router.delete("/recurring/{rec_id}")
+def delete_recurring(rec_id: int, db: Session = Depends(get_db)):
+    from erp.backend.db.models import CashFlowRecurring
+    rec = db.query(CashFlowRecurring).filter(CashFlowRecurring.id == rec_id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="重複預約不存在")
+    rec.is_active = False
+    db.commit()
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────
+# P3-1: 比例費用規則 CRUD
+# ─────────────────────────────────────────────
+
+class ProportionalFeeCreate(BaseModel):
+    name: str
+    category: Optional[str] = None
+    calculation_basis: Optional[str] = None
+    percentage: float
+    settlement_period: str = "monthly"
+    note: Optional[str] = None
+
+
+@router.get("/proportional-fees")
+def list_proportional_fees(db: Session = Depends(get_db)):
+    from erp.backend.db.models import ProportionalFeeRule
+    rules = db.query(ProportionalFeeRule).filter(ProportionalFeeRule.is_active == True).all()
+    return [{"id": r.id, "name": r.name, "category": r.category,
+             "calculation_basis": r.calculation_basis, "percentage": float(r.percentage),
+             "settlement_period": r.settlement_period, "note": r.note} for r in rules]
+
+
+@router.post("/proportional-fees")
+def create_proportional_fee(data: ProportionalFeeCreate, db: Session = Depends(get_db)):
+    from erp.backend.db.models import ProportionalFeeRule
+    rule = ProportionalFeeRule(**data.dict())
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+    return {"id": rule.id, "name": rule.name}
+
+
+@router.put("/proportional-fees/{rule_id}")
+def update_proportional_fee(rule_id: int, data: ProportionalFeeCreate, db: Session = Depends(get_db)):
+    from erp.backend.db.models import ProportionalFeeRule
+    rule = db.query(ProportionalFeeRule).filter(ProportionalFeeRule.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="費率規則不存在")
+    for k, v in data.dict().items():
+        setattr(rule, k, v)
+    db.commit()
+    return {"id": rule.id, "name": rule.name}
+
+
+@router.delete("/proportional-fees/{rule_id}")
+def delete_proportional_fee(rule_id: int, db: Session = Depends(get_db)):
+    from erp.backend.db.models import ProportionalFeeRule
+    rule = db.query(ProportionalFeeRule).filter(ProportionalFeeRule.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="費率規則不存在")
+    rule.is_active = False
+    db.commit()
+    return {"ok": True}
