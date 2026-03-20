@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import UserBadge from '@/components/UserBadge.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -10,18 +11,26 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api
 // ── Sub-tabs ──────────────────────────────────
 const subTab = ref('order')  // 'order' | 'pending' | 'history'
 
+// ── A1: 模式切換（叫貨/盤點，從 localStorage 恢復）──
+const MODE_KEY = 'inventory:mode'
+const _savedMode = (() => { try { return JSON.parse(localStorage.getItem(MODE_KEY) || '{}') } catch { return {} } })()
+const modeOrder = ref(_savedMode.order !== false)
+const modeStocktake = ref(_savedMode.stocktake === true)
+function saveMode() { localStorage.setItem(MODE_KEY, JSON.stringify({ order: modeOrder.value, stocktake: modeStocktake.value })) }
+
 // ── 叫貨 tab ──────────────────────────────────
 const vendors = ref([])
 const selectedVendor = ref(null)
 const items = ref([])
 const isLoading = ref(true)
 const submitting = ref(false)
+const submitToast = ref('')
 const expectedDeliveryDate = ref('')
 const adHocItems = ref([])
 const showAdHocForm = ref(false)
 const adHocName = ref(''); const adHocQty = ref(1); const adHocUnit = ref('個')
 
-// Order preview sheet
+// Order preview sheet (legacy - kept for reference but replaced by direct submit)
 const showPreviewSheet = ref(false)
 const previewText = ref('')
 const previewCopied = ref(false)
@@ -153,7 +162,7 @@ async function selectVendor(v) {
   isLoading.value = true
   try {
     const iRes = await fetch(`${API_BASE}/inventory/items?vendor_id=${v.id}`, { headers: authHeaders() })
-    items.value = iRes.ok ? (await iRes.json()).map(i => ({ ...i, qty: 0 })) : []
+    items.value = iRes.ok ? (await iRes.json()).map(i => ({ ...i, qty: 0, actual_qty: null })) : []
   } finally { isLoading.value = false }
 }
 
@@ -163,52 +172,116 @@ function addAdHoc() {
   adHocName.value = ''; adHocQty.value = 1; showAdHocForm.value = false
 }
 
-async function openPreview() {
-  const regularOrdered = items.value.filter(i => i.qty > 0)
-  const combined = [...regularOrdered, ...adHocItems.value]
-  if (!combined.length) return
+// A2: 暫存草稿到後端
+const draftSaving = ref(false)
+const draftToast = ref('')
 
-  // Save order to backend
+async function saveDraftToServer() {
+  const orderItems = items.value.filter(i => i.qty > 0)
+  const stocktakeItems = items.value.filter(i => i.actual_qty !== null && i.actual_qty !== '')
+  if (!selectedVendor.value && !orderItems.length && !stocktakeItems.length) return
+
+  const type = modeOrder.value && modeStocktake.value ? 'both' : modeStocktake.value ? 'stocktake' : 'order'
+  const payload = {
+    type,
+    vendor_id: selectedVendor.value?.id || null,
+    order_items: orderItems.map(i => ({ item_id: i.id, quantity: i.qty })),
+    stocktake_items: stocktakeItems.map(i => ({ item_id: i.id, actual_quantity: parseFloat(i.actual_qty) || 0 })),
+    created_by_name: auth.user?.full_name || auth.user?.username || ''
+  }
+  draftSaving.value = true
+  try {
+    const res = await fetch(`${API_BASE}/drafts`, {
+      method: 'POST', headers: authHeaders(), body: JSON.stringify(payload)
+    })
+    if (!res.ok) throw new Error('儲存失敗')
+    draftToast.value = '草稿已儲存 ✓'
+    setTimeout(() => { draftToast.value = '' }, 2000)
+  } catch {
+    draftToast.value = '⚠ 草稿儲存失敗'
+    setTimeout(() => { draftToast.value = '' }, 2000)
+  } finally { draftSaving.value = false }
+}
+
+// A2: 盤點歷史底部抽屜
+const showStocktakeHistory = ref(false)
+const stocktakeHistory = ref([])
+const stocktakeHistoryLoading = ref(false)
+const expandedHistoryId = ref(null)
+
+async function loadStocktakeHistory() {
+  showStocktakeHistory.value = true
+  stocktakeHistoryLoading.value = true
+  try {
+    const res = await fetch(`${API_BASE}/stocktake/?limit=5`, { headers: authHeaders() })
+    if (res.ok) stocktakeHistory.value = await res.json()
+  } finally { stocktakeHistoryLoading.value = false }
+}
+
+function toggleHistoryExpand(id) {
+  expandedHistoryId.value = expandedHistoryId.value === id ? null : id
+}
+
+// A1: 送出待收貨（替換舊的複製叫貨單）
+async function submitPendingReceive() {
+  const orderItems = items.value.filter(i => i.qty > 0)
+  const allItems = [...orderItems, ...adHocItems.value]
+  if (!allItems.length && !modeStocktake.value) return
+
   submitting.value = true
   try {
-    const orderDetails = [
-      ...regularOrdered.map(i => ({ item_id: i.id, qty: i.qty })),
-      ...adHocItems.value.map(i => ({ adhoc_name: i.name, qty: i.qty, adhoc_unit: i.unit }))
-    ]
-    await fetch(`${API_BASE}/inventory/orders`, {
-      method: 'POST', headers: authHeaders(),
-      body: JSON.stringify({
-        vendor_id: selectedVendor.value.id,
-        expected_delivery_date: expectedDeliveryDate.value ? new Date(expectedDeliveryDate.value).toISOString() : null,
-        items: orderDetails
+    if (modeOrder.value && allItems.length > 0) {
+      const orderDetails = [
+        ...orderItems.map(i => ({ item_id: i.id, qty: i.qty })),
+        ...adHocItems.value.map(i => ({ adhoc_name: i.name, qty: i.qty, adhoc_unit: i.unit }))
+      ]
+      const res = await fetch(`${API_BASE}/inventory/orders`, {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({
+          vendor_id: selectedVendor.value.id,
+          status: 'pending_receive',
+          expected_delivery_date: expectedDeliveryDate.value ? new Date(expectedDeliveryDate.value).toISOString() : null,
+          items: orderDetails
+        })
       })
-    })
-  } finally { submitting.value = false }
+      if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '送出失敗') }
+    }
 
-  const today = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: 'numeric', day: 'numeric' })
-  let text = `【叫貨單】${selectedVendor.value.name}\n日期：${today}\n──────────\n`
-  regularOrdered.forEach(i => { text += `${i.name} × ${i.qty} ${i.unit || ''}\n` })
-  adHocItems.value.forEach(i => { text += `${i.name} × ${i.qty} ${i.unit}\n` })
-  text += `──────────\n請於${expectedDeliveryDate.value ? new Date(expectedDeliveryDate.value).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' }) : '預計日期'}配送，謝謝！`
-  previewText.value = text
-  previewCopied.value = false
-  showPreviewSheet.value = true
+    if (modeStocktake.value) {
+      const stocktakeItems = items.value
+        .filter(i => i.actual_qty !== null && i.actual_qty !== '')
+        .map(i => ({ item_id: i.id, actual_qty: parseFloat(i.actual_qty) || 0 }))
+      if (stocktakeItems.length > 0) {
+        await fetch(`${API_BASE}/stocktake/records`, {
+          method: 'POST', headers: authHeaders(),
+          body: JSON.stringify({ items: stocktakeItems, mode: 'stocktake' })
+        })
+      }
+    }
+
+    // Reset + show toast + go to pending tab
+    items.value.forEach(i => { i.qty = 0; i.actual_qty = null })
+    adHocItems.value = []
+    localStorage.removeItem(DRAFT_KEY())
+    submitToast.value = '✓ 已送出！訂單進入待收貨清單'
+    setTimeout(() => { submitToast.value = ''; switchTab('pending') }, 1800)
+  } catch (e) {
+    submitToast.value = `⚠ ${e.message || '送出失敗'}`
+    setTimeout(() => { submitToast.value = '' }, 3000)
+  } finally {
+    submitting.value = false
+  }
 }
 
-async function copyAndClose() {
-  try {
-    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(previewText.value)
-    else { const ta = document.createElement('textarea'); ta.value = previewText.value; ta.style.cssText = 'position:fixed;left:-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta) }
-    previewCopied.value = true
-    setTimeout(() => { showPreviewSheet.value = false; items.value.forEach(i => i.qty = 0); adHocItems.value = [] }, 1500)
-  } catch (e) { alert('複製失敗，請手動複製') }
-}
+// Legacy - kept for backward compat but hidden from UI
+async function openPreview() { await submitPendingReceive() }
+async function copyAndClose() { showPreviewSheet.value = false }
 
 // ── 待收貨 ──────────────────────────────────
 async function loadPending() {
   pendingLoading.value = true
   try {
-    const res = await fetch(`${API_BASE}/inventory/orders?status=confirmed`, { headers: authHeaders() })
+    const res = await fetch(`${API_BASE}/inventory/orders?status=pending_receive,confirmed`, { headers: authHeaders() })
     if (res.ok) pendingOrders.value = await res.json()
   } finally { pendingLoading.value = false }
 }
@@ -335,15 +408,18 @@ const payBadge = (o) => {
       <!-- Control bar -->
       <div class="bg-white border-b border-slate-100 px-3 py-3 space-y-3">
 
-        <!-- Mode toggle: 盤點 / 叫貨 -->
+        <!-- A1: 模式切換（可同時勾選） -->
         <div class="flex gap-2">
-          <button @click="router.push({ name: 'stocktake' })"
-            class="flex-1 py-2 rounded-xl text-xs font-bold border transition-all bg-white border-slate-200 text-slate-500">
-            📋 盤點
+          <button @click="modeOrder=!modeOrder; saveMode()"
+            class="flex-1 py-2 rounded-xl text-xs font-bold border transition-all"
+            :class="modeOrder ? 'text-white border-orange-500' : 'bg-white border-slate-200 text-slate-400'"
+            :style="modeOrder ? 'background:#e85d04' : ''">
+            📦 叫貨{{ modeOrder ? ' ✓' : '' }}
           </button>
-          <button class="flex-1 py-2 rounded-xl text-xs font-bold border transition-all text-white"
-            style="background:#e85d04;border-color:#e85d04">
-            📦 叫貨
+          <button @click="modeStocktake=!modeStocktake; saveMode()"
+            class="flex-1 py-2 rounded-xl text-xs font-bold border transition-all"
+            :class="modeStocktake ? 'bg-blue-500 text-white border-blue-500' : 'bg-white border-slate-200 text-slate-400'">
+            📋 盤點{{ modeStocktake ? ' ✓' : '' }}
           </button>
         </div>
 
@@ -406,33 +482,49 @@ const payBadge = (o) => {
           </div>
         </div>
 
-        <!-- Regular items -->
+        <!-- A1: Regular items（支援雙模式） -->
         <div v-for="item in items" :key="item.id"
-          class="bg-white rounded-xl p-3 shadow-sm flex items-center gap-3"
-          :class="stockBorder(item)">
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-1.5 flex-wrap">
-              <span class="font-bold text-slate-900 text-sm">{{ item.name }}</span>
-              <span v-if="isLowStock(item)"
-                class="text-[9px] font-extrabold bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">低庫存</span>
+          class="bg-white rounded-xl p-3 shadow-sm transition-all duration-300"
+          :class="stockBorder(item)"
+          style="overflow:hidden">
+          <!-- 品項資訊 -->
+          <div class="flex items-center gap-2 mb-1.5">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="font-bold text-slate-900 text-sm">{{ item.name }}</span>
+                <span v-if="isLowStock(item)" class="text-[9px] font-extrabold bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">低庫存</span>
+              </div>
+              <p class="text-[10px] text-slate-400 mt-0.5">
+                庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.current_stock || 0 }}</span>
+                {{ item.unit }}<span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>
+              </p>
             </div>
-            <p class="text-[10px] text-slate-400 mt-0.5">
-              安全庫存 {{ item.min_stock || 0 }} · 庫存 
-              <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">
-                {{ item.current_stock || 0 }}
-              </span>
-              {{ item.unit }}
-              <span v-if="item.price" class="ml-1 text-orange-500">${{ fmtMoney(item.price) }}</span>
-            </p>
           </div>
-          <div class="flex items-center gap-1.5 shrink-0">
-            <button @click="item.qty=Math.max(0,item.qty-1)"
-              class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-600 active:bg-slate-200 text-lg leading-none">−</button>
-            <input v-model.number="item.qty" type="number" min="0"
-              class="w-12 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none"
-              :class="item.qty>0?'border-orange-500 text-orange-600':'border-slate-200 text-slate-800'" />
-            <button @click="item.qty+=1"
-              class="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 active:bg-orange-200 text-lg leading-none">+</button>
+          <!-- 模式欄位 -->
+          <div class="flex gap-3" :class="modeOrder && modeStocktake ? 'items-start' : 'items-center justify-end'">
+            <!-- 叫貨數量 (+/-) -->
+            <div v-if="modeOrder" class="flex items-center gap-1.5 shrink-0" :class="modeStocktake ? 'flex-1 flex-col items-center' : ''">
+              <span v-if="modeStocktake" class="text-[10px] font-bold text-orange-500 mb-1">叫貨</span>
+              <div class="flex items-center gap-1">
+                <button @click="item.qty=Math.max(0,item.qty-1)"
+                  class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-600 active:bg-slate-200 text-lg leading-none">−</button>
+                <input v-model.number="item.qty" type="number" min="0"
+                  class="w-12 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none"
+                  :class="item.qty>0?'border-orange-500 text-orange-600':'border-slate-200 text-slate-800'" />
+                <button @click="item.qty+=1"
+                  class="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 active:bg-orange-200 text-lg leading-none">+</button>
+              </div>
+            </div>
+            <!-- 實盤數量（直接輸入）-->
+            <div v-if="modeStocktake" class="flex-1 flex flex-col items-center">
+              <span class="text-[10px] font-bold text-blue-500 mb-1">實盤</span>
+              <div class="flex items-center gap-1">
+                <input v-model.number="item.actual_qty" type="number" min="0" :placeholder="`原 ${item.current_stock || 0}`"
+                  class="w-20 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none"
+                  :class="item.actual_qty != null && item.actual_qty !== '' ? 'border-blue-500 text-blue-700' : 'border-slate-200 text-slate-400'" />
+                <span class="text-xs text-slate-400">{{ item.unit }}</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -462,18 +554,100 @@ const payBadge = (o) => {
         </div>
       </div>
 
+      <!-- A1: Submit toast -->
+      <div v-if="submitToast"
+        class="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-bold shadow-lg text-white"
+        :style="submitToast.startsWith('⚠') ? 'background:#ef4444' : 'background:#10b981'">
+        {{ submitToast }}
+      </div>
+
+      <!-- A2: Draft toast -->
+      <div v-if="draftToast"
+        class="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-bold shadow-lg text-white"
+        :style="draftToast.startsWith('⚠') ? 'background:#ef4444' : 'background:#64748b'">
+        {{ draftToast }}
+      </div>
+
       <!-- Bottom action bar -->
-      <div class="fixed bottom-16 inset-x-0 bg-white border-t border-slate-200 px-4 py-3 shadow-lg z-20 flex gap-3">
-        <div class="flex-1 flex flex-col justify-center">
-          <p class="text-[10px] text-slate-400 font-bold">已選品項</p>
-          <p class="text-lg font-extrabold text-slate-900">{{ orderedCount }} 項</p>
+      <div class="fixed bottom-16 inset-x-0 bg-white border-t border-slate-200 px-4 py-3 shadow-lg z-20">
+        <div class="flex gap-2 mb-2" v-if="modeStocktake">
+          <button @click="loadStocktakeHistory"
+            class="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl border border-blue-200">
+            📋 查看歷史盤點
+          </button>
+          <button @click="saveDraftToServer" :disabled="draftSaving"
+            class="flex-1 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-40">
+            💾 {{ draftSaving ? '儲存中…' : '暫存草稿' }}
+          </button>
         </div>
-        <button @click="openPreview" :disabled="submitting || orderedCount === 0"
-          class="flex-[2] text-white font-bold py-3 rounded-2xl shadow active:scale-95 disabled:opacity-40 flex items-center justify-center gap-2 text-sm"
-          style="background:#e85d04">
-          <span v-if="submitting">處理中…</span>
-          <span v-else>📋 複製叫貨單</span>
-        </button>
+        <div class="flex gap-3" :class="!modeStocktake ? 'items-center' : ''">
+          <div v-if="!modeStocktake" class="flex-1 flex flex-col justify-center">
+            <p class="text-[10px] text-slate-400 font-bold">已選品項</p>
+            <p class="text-lg font-extrabold text-slate-900">{{ orderedCount }} 項</p>
+          </div>
+          <button v-if="!modeStocktake" @click="saveDraftToServer" :disabled="draftSaving"
+            class="py-3 px-3 bg-slate-100 text-slate-600 text-xs font-bold rounded-2xl border border-slate-200 disabled:opacity-40">
+            💾{{ draftSaving ? '…' : '' }}
+          </button>
+          <button @click="submitPendingReceive" :disabled="submitting || (orderedCount === 0 && !modeStocktake)"
+            class="flex-[2] text-white font-bold py-3 rounded-2xl shadow active:scale-95 disabled:opacity-40 flex items-center justify-center gap-2 text-sm"
+            style="background:#e85d04">
+            <span v-if="submitting">處理中…</span>
+            <span v-else-if="modeOrder && modeStocktake">📤 送出叫貨+盤點</span>
+            <span v-else-if="modeStocktake">📋 送出盤點</span>
+            <span v-else>📤 送出待收貨</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- A2: 盤點歷史底部抽屜 -->
+      <div v-if="showStocktakeHistory" class="fixed inset-0 bg-black/50 z-50 flex items-end" @click.self="showStocktakeHistory=false">
+        <div class="bg-white w-full rounded-t-3xl max-h-[80vh] overflow-y-auto">
+          <div class="flex items-center justify-center w-10 h-1 bg-slate-200 rounded-full mx-auto mt-4 mb-3"></div>
+          <div class="px-5 pb-2 flex items-center justify-between">
+            <h3 class="text-base font-extrabold text-slate-800">最近盤點紀錄</h3>
+            <button @click="showStocktakeHistory=false" class="text-slate-400 text-xl font-bold">✕</button>
+          </div>
+          <div v-if="stocktakeHistoryLoading" class="flex justify-center py-10">
+            <div class="animate-spin h-6 w-6 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+          </div>
+          <div v-else-if="!stocktakeHistory.length" class="text-center py-10 text-slate-400">無歷史盤點紀錄</div>
+          <div v-else class="px-5 pb-8 space-y-3">
+            <div v-for="record in stocktakeHistory" :key="record.id" class="bg-slate-50 rounded-xl p-3">
+              <div class="flex items-start justify-between">
+                <div>
+                  <p class="font-bold text-slate-800 text-sm">
+                    {{ new Date(record.stocktake_date || record.created_at).toLocaleDateString('zh-TW', { month:'numeric',day:'numeric',weekday:'short' }) }}
+                  </p>
+                  <div class="flex items-center gap-1 text-xs text-slate-400 mt-0.5">
+                    <UserBadge :user="record.performed_by" size="sm" />
+                    · {{ record.item_count || (record.items?.length) || '?' }} 品項
+                  </div>
+                </div>
+                <div class="text-right">
+                  <span v-if="(record.diff_count || 0) > 0" class="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">
+                    差異 {{ record.diff_count }} 項
+                  </span>
+                  <span v-else class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">完全吻合</span>
+                </div>
+              </div>
+              <button @click="toggleHistoryExpand(record.id)"
+                class="mt-2 text-xs font-bold text-blue-500 flex items-center gap-1">
+                查看明細 {{ expandedHistoryId===record.id ? '▲' : '▼' }}
+              </button>
+              <div v-if="expandedHistoryId===record.id && record.items?.length" class="mt-2 border-t border-slate-200 pt-2 space-y-1">
+                <div v-for="it in record.items" :key="it.item_id" class="flex items-center justify-between text-xs">
+                  <span class="text-slate-700">{{ it.item_name }}</span>
+                  <span class="text-slate-400">系統 {{ it.system_stock }} → 實盤 {{ it.actual_qty }}</span>
+                  <span :class="(it.diff||0) < 0 ? 'text-red-500 font-bold' : (it.diff||0) > 0 ? 'text-orange-500 font-bold' : 'text-emerald-600'">
+                    {{ (it.diff||0) > 0 ? '+' : '' }}{{ it.diff || 0 }}
+                    {{ (it.diff||0) === 0 ? '✅' : '⚠️' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -514,19 +688,25 @@ const payBadge = (o) => {
                 · {{ order.total_items || '?' }} 項品項
                 <span v-if="order.total_amount"> · ${{ fmtMoney(order.total_amount) }}</span>
               </p>
+              <UserBadge v-if="order.created_by" :user="order.created_by" size="sm" class="mt-0.5" />
             </div>
           </div>
-          <!-- Actions row -->
+          <!-- Actions row（已收貨不顯示編輯/刪除按鈕） -->
           <div class="flex gap-2 mt-3 pt-3 border-t border-slate-100">
-            <button @click="cancelOrder(order)"
-              class="flex-1 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl active:bg-slate-200">
-              🗑 刪除
-            </button>
-            <button @click="openReceive(order)"
-              class="flex-[2] py-2 text-white text-xs font-bold rounded-xl active:scale-95"
-              style="background:#e85d04">
-              ✅ 簽收
-            </button>
+            <template v-if="order.status !== 'received' && order.status !== 'cancelled'">
+              <button @click="cancelOrder(order)"
+                class="flex-1 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl active:bg-slate-200">
+                🗑 刪除
+              </button>
+              <button @click="openReceive(order)"
+                class="flex-[2] py-2 text-white text-xs font-bold rounded-xl active:scale-95"
+                style="background:#e85d04">
+                ✅ 簽收
+              </button>
+            </template>
+            <div v-else class="flex-1 text-center text-xs text-slate-400 py-2">
+              {{ order.status === 'received' ? '✓ 已簽收' : '已取消' }}
+            </div>
           </div>
         </div>
       </div>
@@ -625,6 +805,7 @@ const payBadge = (o) => {
               <p class="text-xs text-slate-400 mt-0.5">
                 {{ fmtDate(order.created_at) }} · 實付 ${{ fmtMoney(order.total_amount) }}
               </p>
+              <UserBadge v-if="order.created_by" :user="order.created_by" size="sm" class="mt-0.5" />
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
               <span v-if="payBadge(order)"

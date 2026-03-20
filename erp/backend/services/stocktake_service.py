@@ -203,6 +203,7 @@ def _format_stocktake(stocktake: Stocktake, items: List[StocktakeItem], db: Sess
     group_name = None
     executor_name = None
 
+    performed_by = None
     if db:
         if stocktake.stocktake_group_id:
             group = db.query(StocktakeGroup).filter(
@@ -213,6 +214,11 @@ def _format_stocktake(stocktake: Stocktake, items: List[StocktakeItem], db: Sess
             user = db.query(User).filter(User.id == stocktake.user_id).first()
             if user:
                 executor_name = user.full_name or user.username
+                performed_by = {
+                    "id": user.id,
+                    "username": "(已刪除)" if user.deleted_at else user.username,
+                    "name": user.full_name or user.username
+                }
 
     formatted_items = []
     for si in items:
@@ -247,6 +253,7 @@ def _format_stocktake(stocktake: Stocktake, items: List[StocktakeItem], db: Sess
         "id": stocktake.id,
         "user_id": stocktake.user_id,
         "executor_name": executor_name,
+        "performed_by": performed_by,
         "stocktake_group_id": stocktake.stocktake_group_id,
         "group_name": group_name,
         "mode": stocktake.mode.value if stocktake.mode else "stocktake",

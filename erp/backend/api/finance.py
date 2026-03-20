@@ -88,6 +88,51 @@ def create_petty_cash(data: PettyCashCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail=str(e))
 
 
+@router.get("/petty-cash/{record_id}")
+def get_petty_cash_record(record_id: int, db: Session = Depends(get_db)):
+    record = db.query(PettyCashRecord).filter(PettyCashRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {
+        "id": record.id,
+        "type": record.type,
+        "amount": float(record.amount or 0),
+        "note": record.note,
+        "vendor_id": record.vendor_id,
+        "is_paid": record.is_paid,
+        "created_at": record.created_at,
+        "attachments": [],
+    }
+
+
+@router.patch("/petty-cash/{record_id}")
+def patch_petty_cash(record_id: int, data: dict, db: Session = Depends(get_db)):
+    record = db.query(PettyCashRecord).filter(PettyCashRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    for key in ['type', 'amount', 'note', 'vendor_id', 'is_paid']:
+        if key in data:
+            setattr(record, key, data[key])
+    if 'recorded_at' in data:
+        from datetime import datetime as dt
+        try:
+            record.created_at = dt.fromisoformat(data['recorded_at'])
+        except Exception:
+            pass
+    db.commit()
+    return {"success": True}
+
+
+@router.delete("/petty-cash/{record_id}")
+def delete_petty_cash(record_id: int, db: Session = Depends(get_db)):
+    record = db.query(PettyCashRecord).filter(PettyCashRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    db.delete(record)
+    db.commit()
+    return {"success": True}
+
+
 # ─────────────────────────────────────────────
 # 金流管理 Endpoints（Phase 3）
 # ─────────────────────────────────────────────
@@ -227,6 +272,16 @@ def create_daily_settlement(data: DailySettlementCreate, db: Session = Depends(g
         "expense_total": float(settlement.expense_total or 0),
         "created_at": settlement.created_at,
     }
+
+
+@router.delete("/daily-settlement/{settlement_id}")
+def delete_daily_settlement(settlement_id: int, db: Session = Depends(get_db)):
+    settlement = db.query(DailySettlement).filter(DailySettlement.id == settlement_id).first()
+    if not settlement:
+        raise HTTPException(status_code=404, detail="Settlement not found")
+    db.delete(settlement)
+    db.commit()
+    return {"success": True}
 
 
 # ─────────────────────────────────────────────

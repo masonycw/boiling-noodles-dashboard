@@ -24,9 +24,11 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
+    username: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
     petty_cash_permission: Optional[bool] = None
+    password: Optional[str] = None
 
 
 class PasswordChange(BaseModel):
@@ -45,7 +47,7 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 @router.get("/")
 def list_users(db: Session = Depends(get_db)) -> List[dict]:
-    users = db.query(User).order_by(User.id).all()
+    users = db.query(User).filter(User.deleted_at == None).order_by(User.id).all()
     return [_format_user(u) for u in users]
 
 
@@ -80,11 +82,38 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    for key, value in data.dict(exclude_none=True).items():
+    update_data = data.dict(exclude_none=True)
+    password = update_data.pop('password', None)
+    if update_data.get('username') and update_data['username'] != user.username:
+        existing = db.query(User).filter(User.username == update_data['username'], User.id != user_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="帳號名稱已被使用")
+    for key, value in update_data.items():
         setattr(user, key, value)
+    if password:
+        user.hashed_password = get_password_hash(password)
     db.commit()
     db.refresh(user)
     return _format_user(user)
+
+
+@router.delete("/{user_id}")
+def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from datetime import datetime as dt
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="SELF_DELETE: 無法刪除自己的帳號")
+    user = db.query(User).filter(User.id == user_id, User.deleted_at == None).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Check if this is the last admin
+    if user.role == 'admin':
+        admin_count = db.query(User).filter(User.role == 'admin', User.deleted_at == None).count()
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="LAST_ADMIN: 系統至少需保留一個管理者帳號")
+    user.deleted_at = dt.utcnow()
+    user.is_active = False
+    db.commit()
+    return {"success": True}
 
 
 @router.put("/{user_id}/password")

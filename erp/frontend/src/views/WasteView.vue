@@ -20,6 +20,7 @@ const sheetError = ref('')
 const search = ref('')
 const showItemDropdown = ref(false)
 const selectedItem = ref(null)
+const isOtherItem = ref(false)
 const qty = ref(1)
 const unit = ref('')
 const reason = ref('過期')
@@ -56,19 +57,29 @@ const filteredItems = computed(() => {
 
 function selectItem(item) {
   selectedItem.value = item
+  isOtherItem.value = false
   unit.value = item.unit || ''
   search.value = item.name
   showItemDropdown.value = false
 }
 
+function selectOtherItem() {
+  selectedItem.value = null
+  isOtherItem.value = true
+  search.value = ''
+  showItemDropdown.value = false
+}
+
 function clearItem() {
   selectedItem.value = null
+  isOtherItem.value = false
   search.value = ''
   unit.value = ''
 }
 
 function openSheet() {
   selectedItem.value = null
+  isOtherItem.value = false
   search.value = ''
   unit.value = ''
   qty.value = 1
@@ -95,12 +106,16 @@ async function loadAll() {
 onMounted(loadAll)
 
 async function submit() {
-  if (!selectedItem.value && !search.value.trim()) {
+  if (!selectedItem.value && !isOtherItem.value) {
     sheetError.value = '請選擇品項'
     return
   }
   if (!qty.value || qty.value <= 0) {
     sheetError.value = '數量必須大於 0'
+    return
+  }
+  if (isOtherItem.value && !noteText.value.trim()) {
+    sheetError.value = '選擇「其他」時，備注為必填欄位'
     return
   }
   submitting.value = true
@@ -115,8 +130,8 @@ async function submit() {
     }
     if (selectedItem.value) {
       payload.item_id = selectedItem.value.id
-    } else {
-      payload.adhoc_name = search.value.trim()
+    } else if (isOtherItem.value) {
+      payload.adhoc_name = '其他（非常規品項）'
     }
     const res = await fetch(`${API_BASE}/waste/`, {
       method: 'POST',
@@ -251,10 +266,12 @@ async function submit() {
           <!-- 品項 -->
           <div>
             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">品項</label>
-            <div v-if="selectedItem"
+            <div v-if="selectedItem || isOtherItem"
               class="flex items-center gap-2 rounded-xl px-4 py-2.5"
               style="background:#fff3ec;border:1.5px solid #fed7aa">
-              <span class="font-bold text-sm flex-1" style="color:#c2410c">{{ selectedItem.name }}</span>
+              <span class="font-bold text-sm flex-1" style="color:#c2410c">
+                {{ isOtherItem ? '其他（非常規品項）' : selectedItem.name }}
+              </span>
               <button @click="clearItem" class="font-bold" style="color:#fb923c">✕</button>
             </div>
             <div v-else>
@@ -262,15 +279,20 @@ async function submit() {
                 placeholder="搜尋品項名稱…"
                 class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2"
                 style="--tw-ring-color:#e85d04" />
-              <div v-if="showItemDropdown && search"
-                class="mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-40 overflow-y-auto">
+              <div v-if="showItemDropdown"
+                class="mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-48 overflow-y-auto">
                 <button v-for="item in filteredItems" :key="item.id"
                   @click="selectItem(item)"
-                  class="w-full text-left px-4 py-3 flex items-center gap-2 border-b border-slate-50 last:border-0 active:bg-orange-50">
+                  class="w-full text-left px-4 py-3 flex items-center gap-2 border-b border-slate-50 active:bg-orange-50">
                   <span class="font-bold text-slate-800 text-sm flex-1">{{ item.name }}</span>
                   <span class="text-xs text-slate-400">{{ item.unit }}</span>
                 </button>
                 <div v-if="filteredItems.length === 0" class="px-4 py-3 text-slate-400 text-sm">查無品項</div>
+                <div class="border-t border-slate-200"></div>
+                <button @click="selectOtherItem"
+                  class="w-full text-left px-4 py-3 flex items-center gap-2 active:bg-orange-50">
+                  <span class="text-sm font-medium text-slate-500">📝 其他（非常規品項）</span>
+                </button>
               </div>
             </div>
           </div>
@@ -279,18 +301,9 @@ async function submit() {
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-bold text-slate-500 uppercase mb-1">數量</label>
-              <div class="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2">
-                <button @click="qty = Math.max(0.5, qty - 0.5)"
-                  class="w-7 h-7 rounded-full bg-slate-100 text-slate-600 font-bold text-lg flex items-center justify-center flex-shrink-0">
-                  −
-                </button>
-                <span class="flex-1 text-center font-bold text-sm">{{ qty }}</span>
-                <button @click="qty += 0.5"
-                  class="w-7 h-7 rounded-full text-white font-bold text-lg flex items-center justify-center flex-shrink-0"
-                  style="background:#e85d04">
-                  ＋
-                </button>
-              </div>
+              <input v-model.number="qty" type="number" min="1" step="1"
+                class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-center font-bold focus:outline-none focus:ring-2"
+                style="--tw-ring-color:#e85d04" />
             </div>
             <div>
               <label class="block text-xs font-bold text-slate-500 uppercase mb-1">單位</label>
@@ -317,9 +330,18 @@ async function submit() {
 
           <!-- 備注 -->
           <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">備注（選填）</label>
-            <textarea v-model="noteText" rows="2" placeholder="說明損耗原因…"
-              class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none resize-none"></textarea>
+            <label class="block text-xs font-bold mb-1"
+              :class="isOtherItem ? 'text-rose-500' : 'text-slate-500 uppercase'">
+              {{ isOtherItem ? '備注 *（必填）' : '備注（選填）' }}
+            </label>
+            <textarea v-model="noteText" rows="2"
+              :placeholder="isOtherItem ? '請描述耗損品項，例如：瓷碗 3 個破裂、湯鍋變形' : '說明損耗原因…'"
+              class="w-full rounded-xl px-4 py-3 text-sm focus:outline-none resize-none"
+              :class="isOtherItem && !noteText.trim() ? 'border-2 border-rose-500' : 'border border-slate-200'">
+            </textarea>
+            <p v-if="isOtherItem && !noteText.trim()" class="text-xs text-rose-500 mt-1">
+              ⚠️ 選擇「其他」時，備注為必填欄位
+            </p>
           </div>
 
           <!-- 損耗估值 -->

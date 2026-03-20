@@ -6,7 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 const auth = useAuthStore()
 const router = useRouter()
 
-// Sub-page: null | 'waste' | 'staff' | 'change-password' | 'notifications'
+// Sub-page: null | 'waste' | 'staff' | 'change-password' | 'notifications' | 'drafts'
 const subPage = ref(null)
 
 // ──────────────────────────────────────────
@@ -145,6 +145,43 @@ function logout() {
   router.push({ name: 'login' })
 }
 
+// ──────────────────────────────────────────
+// 我的暫存草稿
+// ──────────────────────────────────────────
+const drafts = ref([])
+const loadingDrafts = ref(false)
+const deletingDraftId = ref(null)
+
+async function loadDrafts() {
+  subPage.value = 'drafts'
+  loadingDrafts.value = true
+  try {
+    const res = await fetch(`${API_BASE}/drafts`, {
+      headers: { Authorization: `Bearer ${auth.token}` }
+    })
+    if (res.ok) drafts.value = await res.json()
+  } finally { loadingDrafts.value = false }
+}
+
+async function deleteDraft(id) {
+  if (!confirm('確定刪除此草稿？此操作不可復原')) return
+  deletingDraftId.value = id
+  try {
+    await fetch(`${API_BASE}/drafts/${id}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${auth.token}` }
+    })
+    drafts.value = drafts.value.filter(d => d.id !== id)
+  } finally { deletingDraftId.value = null }
+}
+
+function draftTypeLabel(type) {
+  return { order: '📦 叫貨草稿', stocktake: '📋 盤點草稿', both: '📦📋 叫貨+盤點草稿' }[type] || '草稿'
+}
+
+function draftItemCount(d) {
+  return (d.order_items?.length || 0) + (d.stocktake_items?.length || 0)
+}
+
 function fmtDate(d) {
   return d ? new Date(d).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
 }
@@ -161,6 +198,50 @@ const userRole = () => {
 
 <template>
   <div class="min-h-full bg-slate-50 pb-8">
+
+    <!-- ══════════════ 我的暫存草稿 sub-page ══════════════ -->
+    <div v-if="subPage === 'drafts'">
+      <div class="bg-white border-b border-slate-100 px-4 pt-12 pb-4 flex items-center gap-3">
+        <button @click="subPage = null" class="text-orange-500 font-bold">← 返回</button>
+        <h1 class="text-lg font-extrabold text-slate-800">我的暫存草稿</h1>
+      </div>
+      <div v-if="loadingDrafts" class="flex justify-center py-16">
+        <svg class="animate-spin h-8 w-8 text-orange-400" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+        </svg>
+      </div>
+      <div v-else-if="!drafts.length" class="text-center py-16 text-slate-400">
+        <p class="text-4xl mb-3">💾</p>
+        <p class="text-sm">目前沒有暫存草稿</p>
+      </div>
+      <div v-else class="px-4 py-4 space-y-3">
+        <p class="text-xs font-bold text-slate-400 uppercase">共 {{ drafts.length }} 份暫存</p>
+        <div v-for="d in drafts" :key="d.id" class="bg-white rounded-xl shadow-sm p-4">
+          <div class="flex items-start justify-between mb-2">
+            <div>
+              <p class="font-bold text-slate-800 text-sm">{{ draftTypeLabel(d.type) }}</p>
+              <p class="text-xs text-slate-400 mt-0.5">{{ d.vendor_name || d.group_name || '未指定廠商' }}</p>
+              <p class="text-xs text-slate-400">
+                {{ fmtDate(d.updated_at || d.created_at) }}
+                · {{ d.created_by_name || '未知' }}
+                · {{ draftItemCount(d) }} 品項
+              </p>
+            </div>
+          </div>
+          <div class="flex gap-2 pt-2 border-t border-slate-100">
+            <button @click="deleteDraft(d.id)" :disabled="deletingDraftId===d.id"
+              class="flex-1 py-2 bg-slate-100 text-slate-500 text-xs font-bold rounded-xl disabled:opacity-40">
+              🗑 刪除
+            </button>
+            <button @click="router.push('/inventory'); subPage = null"
+              class="flex-[2] py-2 bg-orange-500 text-white text-xs font-bold rounded-xl">
+              繼續編輯
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- ══════════════ 損耗紀錄 sub-page ══════════════ -->
     <div v-if="subPage === 'waste'">
@@ -346,12 +427,19 @@ const userRole = () => {
         <!-- ─── 每日操作 ─── -->
         <div>
           <p class="font-bold text-slate-400 uppercase mb-2" style="font-size:11px">每日操作</p>
-          <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div class="bg-white rounded-xl shadow-sm overflow-hidden divide-y divide-slate-100">
             <button @click="router.push('/waste')"
               class="w-full flex items-center gap-3 px-4 py-3.5 active:bg-slate-50 transition-colors"
               style="min-height:44px">
               <span style="font-size:16px;flex-shrink:0">🗑</span>
               <span class="font-semibold text-slate-700 flex-1 text-left" style="font-size:13px">損耗紀錄</span>
+              <span class="text-slate-300" style="font-size:16px">›</span>
+            </button>
+            <button @click="loadDrafts"
+              class="w-full flex items-center gap-3 px-4 py-3.5 active:bg-slate-50 transition-colors"
+              style="min-height:44px">
+              <span style="font-size:16px;flex-shrink:0">💾</span>
+              <span class="font-semibold text-slate-700 flex-1 text-left" style="font-size:13px">我的暫存草稿</span>
               <span class="text-slate-300" style="font-size:16px">›</span>
             </button>
           </div>

@@ -23,34 +23,44 @@ const navGroups = [
   {
     label: '庫存管理',
     items: [
-      { name: 'vendors',   label: '供應商管理', icon: '🏪' },
-      { name: 'items',     label: '品項管理',   icon: '📦' },
-      { name: 'orders',    label: '叫貨 / 收貨', icon: '🚚' },
-      { name: 'stocktake',        label: '盤點紀錄',   icon: '🗂️' },
-      { name: 'stocktake-groups', label: '盤點群組',   icon: '🏷️' },
-      { name: 'waste',     label: '損耗紀錄',   icon: '🗑️' },
-      { name: 'categories', label: '分類管理', icon: '🏷️' },
+      { name: 'inventory-orders',    label: '叫貨／收貨',  icon: '🚚' },
+      { name: 'inventory-stocktakes',label: '盤點紀錄',    icon: '🗂️' },
+      { name: 'inventory-groups',    label: '盤點群組',    icon: '🏷️' },
+      { name: 'inventory-waste',     label: '耗損紀錄',    icon: '🗑️' },
+      { name: 'inventory-vendors',   label: '供應商管理',  icon: '🏪' },
+      { name: 'inventory-items',     label: '品項管理',    icon: '📦' },
+    ]
+  },
+  {
+    label: '金流管理',
+    items: [
+      { name: 'cashflow-overview',    label: '金流總覽',    icon: '💳' },
+      { name: 'cashflow-transactions',label: '金流紀錄',    icon: '📋' },
+      { name: 'cashflow-petty-cash',  label: '零用金管理',  icon: '💰' },
+      { name: 'cashflow-payables',    label: '應付帳款',    icon: '🧾' },
+      { name: 'cashflow-recurring',   label: '重複預約設定', icon: '🔁' },
+      { name: 'cashflow-ratio-costs', label: '比例費用設定', icon: '📐' },
     ]
   },
   {
     label: '財務管理',
     items: [
-      { name: 'finance', label: '零用金管理', icon: '💰' },
-      { name: 'cash-flow-overview', label: '金流總覽', icon: '📊' },
-      { name: 'recurring-charges', label: '重複預約', icon: '🔁' },
-      { name: 'proportional-fees', label: '比例費用設定', icon: '📐' },
-      { name: 'reports', label: '損益報表', icon: '📈' },
+      { name: 'financial-pl', label: '損益報表', icon: '📈' },
     ]
   },
   {
     label: '系統管理',
     items: [
-      { name: 'notifications', label: '通知管理', icon: '🔔' },
-      { name: 'users', label: '人員管理', icon: '👥' },
+      { name: 'settings-accounts', label: '帳號管理',  icon: '👥' },
+      { name: 'settings-finance',  label: '財務參數',  icon: '⚙️' },
+      { name: 'settings-display',  label: '顯示設置',  icon: '🖥️' },
+      { name: 'settings-features', label: '功能開關',  icon: '🔧' },
+      { name: 'settings-api',      label: '串接管理',  icon: '🔌' },
     ]
-  }
+  },
 ]
 
+const allItems = navGroups.flatMap(g => g.items)
 const isActive = (name) => route.name === name
 
 function logout() {
@@ -71,11 +81,11 @@ function logout() {
       <!-- Logo -->
       <div class="px-5 py-5 border-b border-[#2d3748]">
         <h1 class="text-lg font-extrabold text-white">🍜 滾麵 ERP</h1>
-        <p class="text-xs text-gray-500 mt-0.5">管理後台 v3.0</p>
+        <p class="text-xs text-gray-500 mt-0.5">管理後台 v4.0</p>
       </div>
 
       <!-- Nav -->
-      <nav class="flex-1 py-4 px-2 space-y-5">
+      <nav class="flex-1 py-4 px-2 space-y-4">
         <div v-for="group in navGroups" :key="group.label">
           <p class="text-[11px] font-bold text-gray-500 uppercase tracking-widest px-3 mb-1.5">
             {{ group.label }}
@@ -83,7 +93,7 @@ function logout() {
           <router-link
             v-for="item in group.items" :key="item.name"
             :to="{ name: item.name }"
-            class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all mb-0.5"
+            class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all mb-0.5"
             :class="isActive(item.name)
               ? 'bg-blue-500/10 text-blue-400 border-l-2 border-blue-400 pl-[10px]'
               : 'text-gray-400 hover:bg-[#1f2937] hover:text-gray-200'"
@@ -101,7 +111,7 @@ function logout() {
         </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-bold text-gray-200 truncate">{{ auth.user?.full_name || auth.user?.username }}</p>
-          <p class="text-xs text-gray-500">{{ auth.user?.role === 'admin' ? '管理員' : '員工' }}</p>
+          <p class="text-xs text-gray-500">{{ auth.user?.role === 'admin' ? '管理員' : auth.user?.role === 'manager' ? '店長' : '員工' }}</p>
         </div>
         <button @click="logout" title="登出" class="text-gray-500 hover:text-red-400 transition-colors text-lg">⏻</button>
       </div>
@@ -112,7 +122,7 @@ function logout() {
       <!-- Topbar -->
       <header class="h-14 bg-[#0f1117] border-b border-[#2d3748] flex items-center justify-between px-6 shrink-0">
         <h2 class="text-base font-semibold text-gray-200">
-          {{ navGroups.flatMap(g => g.items).find(i => i.name === route.name)?.label || '滾麵後台' }}
+          {{ allItems.find(i => i.name === route.name)?.label || '滾麵後台' }}
         </h2>
         <div class="flex items-center gap-3">
           <span class="text-sm text-gray-500">{{ new Date().toLocaleDateString('zh-TW') }}</span>

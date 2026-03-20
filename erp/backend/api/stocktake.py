@@ -78,6 +78,15 @@ def delete_stocktake_group(group_id: int, db: Session = Depends(get_db)):
 # 盤點單 Endpoints
 # ─────────────────────────────────────────────
 
+@router.get("/history")
+def list_stocktakes_history(
+    days_limit: Optional[int] = None,
+    limit: int = 10,
+    db: Session = Depends(get_db)
+):
+    return stocktake_service.get_stocktakes(db, days_limit=days_limit, limit=limit)
+
+
 @router.get("/monthly-kpi")
 def get_monthly_kpi(db: Session = Depends(get_db)):
     return stocktake_service.get_stocktake_monthly_kpi(db)
@@ -131,3 +140,55 @@ def submit_stocktake(stocktake_id: int, db: Session = Depends(get_db)):
         return stocktake_service.submit_stocktake(db, stocktake_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+class StocktakeItemPatch(BaseModel):
+    item_id: int
+    counted_qty: float
+
+
+class StocktakePatch(BaseModel):
+    stocktake_date: Optional[str] = None
+    performed_by: Optional[int] = None
+    note: Optional[str] = None
+    items: Optional[List[StocktakeItemPatch]] = None
+
+
+@router.patch("/{stocktake_id}")
+def patch_stocktake(stocktake_id: int, data: StocktakePatch, db: Session = Depends(get_db)):
+    from erp.backend.db.models import Stocktake, StocktakeItem
+    from datetime import datetime as dt
+    record = db.query(Stocktake).filter(Stocktake.id == stocktake_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Stocktake not found")
+    if data.stocktake_date:
+        try:
+            record.created_at = dt.fromisoformat(data.stocktake_date)
+        except Exception:
+            pass
+    if data.performed_by is not None:
+        record.user_id = data.performed_by
+    if data.note is not None:
+        record.note = data.note
+    if data.items is not None:
+        for item_patch in data.items:
+            si = db.query(StocktakeItem).filter(
+                StocktakeItem.stocktake_id == stocktake_id,
+                StocktakeItem.item_id == item_patch.item_id
+            ).first()
+            if si:
+                si.counted_qty = item_patch.counted_qty
+    db.commit()
+    return {"success": True}
+
+
+@router.delete("/{stocktake_id}")
+def delete_stocktake(stocktake_id: int, db: Session = Depends(get_db)):
+    from erp.backend.db.models import Stocktake, StocktakeItem
+    record = db.query(Stocktake).filter(Stocktake.id == stocktake_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Stocktake not found")
+    db.query(StocktakeItem).filter(StocktakeItem.stocktake_id == stocktake_id).delete()
+    db.delete(record)
+    db.commit()
+    return {"success": True}

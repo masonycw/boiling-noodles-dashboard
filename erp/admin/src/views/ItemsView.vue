@@ -129,6 +129,40 @@ async function save() {
     saving.value = false
   }
 }
+
+// B1: Drag & Drop 排序
+const isDragging = computed(() => !!search.value.trim() || !!filterCategory.value || !!filterVendor.value)
+const dragFromIdx = ref(null)
+const dragOverIdx = ref(null)
+
+function onDragStart(idx) {
+  if (isDragging.value) return
+  dragFromIdx.value = idx
+}
+
+function onDragOver(idx) {
+  if (isDragging.value) return
+  dragOverIdx.value = idx
+}
+
+function onDragEnd() {
+  if (isDragging.value || dragFromIdx.value === null || dragOverIdx.value === null || dragFromIdx.value === dragOverIdx.value) {
+    dragFromIdx.value = null; dragOverIdx.value = null; return
+  }
+  const arr = [...items.value]
+  const [moved] = arr.splice(dragFromIdx.value, 1)
+  arr.splice(dragOverIdx.value, 0, moved)
+  items.value = arr.map((it, i) => ({ ...it, sort_order: i + 1 }))
+  dragFromIdx.value = null; dragOverIdx.value = null
+  saveReorder()
+}
+
+async function saveReorder() {
+  const payload = { items: items.value.map((it, i) => ({ id: it.id, sort_order: i + 1 })) }
+  await fetch(`${API_BASE}/inventory/items/reorder`, {
+    method: 'PATCH', headers: authHeaders(), body: JSON.stringify(payload)
+  }).catch(() => {})
+}
 </script>
 
 <template>
@@ -165,6 +199,7 @@ async function save() {
       <table v-else class="w-full text-sm">
         <thead>
           <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase tracking-wider">
+            <th class="px-2 py-3 text-center" style="width:30px"></th>
             <th class="px-4 py-3 text-left" style="width:150px">品項名稱</th>
             <th class="px-4 py-3 text-left" style="width:80px">分類</th>
             <th class="px-4 py-3 text-left" style="width:100px">主要供應商</th>
@@ -177,7 +212,17 @@ async function save() {
           </tr>
         </thead>
         <tbody class="divide-y divide-[#2d3748]">
-          <tr v-for="item in filtered" :key="item.id" class="hover:bg-[#1f2937] transition-colors">
+          <tr v-for="(item, idx) in filtered" :key="item.id"
+            class="hover:bg-[#1f2937] transition-colors"
+            :class="dragOverIdx === idx ? 'bg-[#1e3a5f]' : ''"
+            :draggable="!isDragging"
+            @dragstart="onDragStart(idx)"
+            @dragover.prevent="onDragOver(idx)"
+            @dragend="onDragEnd">
+            <td class="px-2 py-3 text-center">
+              <span :class="isDragging ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 cursor-grab'"
+                title="拖曳排序（搜尋/篩選狀態下不可拖曳）">⠿</span>
+            </td>
             <td class="px-4 py-3 font-semibold text-gray-200">{{ item.name }}</td>
             <td class="px-4 py-3 text-gray-400">{{ item.category || '—' }}</td>
             <td class="px-4 py-3 text-gray-400">{{ vendorName(item.vendor_id) }}</td>
@@ -205,7 +250,7 @@ async function save() {
             </td>
           </tr>
           <tr v-if="filtered.length === 0">
-            <td colspan="9" class="px-4 py-10 text-center text-gray-600">無品項資料</td>
+            <td colspan="10" class="px-4 py-10 text-center text-gray-600">無品項資料</td>
           </tr>
         </tbody>
       </table>

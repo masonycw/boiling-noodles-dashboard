@@ -78,33 +78,104 @@ function selectVendor(v) {
   }
 }
 
+// B1: 兩步驟新增供應商
+const showNewModal = ref(false)
+const newStep = ref(1)
+const newVendorId = ref(null)
+const newVendorName = ref('')
+
+// B1: Step 2 — 品項關聯
+const allItems = ref([])
+const itemSearch = ref('')
+const selectedItemIds = ref(new Set())
+const itemPrices = ref({})  // item_id → unit_price
+
+const filteredItems = computed(() => {
+  if (!itemSearch.value.trim()) return allItems.value
+  const q = itemSearch.value.toLowerCase()
+  return allItems.value.filter(i => i.name.toLowerCase().includes(q))
+})
+
 function openNew() {
-  isNew.value = true
-  selectedId.value = null
+  showNewModal.value = true
+  newStep.value = 1
+  newVendorId.value = null
+  newVendorName.value = ''
+  selectedItemIds.value = new Set()
+  itemPrices.value = {}
+  itemSearch.value = ''
   saveError.value = ''
   form.value = emptyForm()
 }
 
-async function save() {
+async function saveStep1() {
   if (!form.value.name.trim()) { saveError.value = '請填入供應商名稱'; return }
-  if (!form.value.contact_person.trim()) { saveError.value = '請填入聯絡人'; return }
-  if (!form.value.phone.trim()) { saveError.value = '請填入電話'; return }
   saving.value = true
   saveError.value = ''
   try {
-    const url = isNew.value
-      ? `${API_BASE}/inventory/vendors`
-      : `${API_BASE}/inventory/vendors/${selectedId.value}`
-    const method = isNew.value ? 'POST' : 'PUT'
-    const res = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(form.value) })
+    const res = await fetch(`${API_BASE}/inventory/vendors`, {
+      method: 'POST', headers: authHeaders(), body: JSON.stringify(form.value)
+    })
     if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '儲存失敗') }
     const saved = await res.json()
+    newVendorId.value = saved.id
+    newVendorName.value = saved.name
+    // load items for step 2
+    const itemsRes = await fetch(`${API_BASE}/inventory/items?limit=500`, { headers: authHeaders() })
+    if (itemsRes.ok) allItems.value = await itemsRes.json()
+    newStep.value = 2
+  } catch (e) {
+    saveError.value = e.message
+  } finally {
+    saving.value = false
+  }
+}
+
+async function saveStep2() {
+  saving.value = true
+  try {
+    const vendorItems = [...selectedItemIds.value].map(id => ({
+      item_id: id,
+      unit_price: parseFloat(itemPrices.value[id]) || null
+    }))
+    if (vendorItems.length > 0) {
+      await fetch(`${API_BASE}/inventory/vendors/${newVendorId.value}/items`, {
+        method: 'POST', headers: authHeaders(), body: JSON.stringify({ items: vendorItems })
+      })
+    }
+    showNewModal.value = false
+    showToast('✓ 供應商已建立')
+    await load()
+    selectedId.value = newVendorId.value
+    isNew.value = false
+    const v = vendors.value.find(v => v.id === newVendorId.value)
+    if (v) selectVendor(v)
+  } catch (e) {
+    showToast('⚠ 品項關聯儲存失敗')
+    showNewModal.value = false
+    await load()
+  } finally {
+    saving.value = false
+  }
+}
+
+function toggleItem(id) {
+  if (selectedItemIds.value.has(id)) selectedItemIds.value.delete(id)
+  else selectedItemIds.value.add(id)
+  selectedItemIds.value = new Set(selectedItemIds.value)
+}
+
+async function save() {
+  if (!form.value.name.trim()) { saveError.value = '請填入供應商名稱'; return }
+  saving.value = true
+  saveError.value = ''
+  try {
+    const res = await fetch(`${API_BASE}/inventory/vendors/${selectedId.value}`, {
+      method: 'PUT', headers: authHeaders(), body: JSON.stringify(form.value)
+    })
+    if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '儲存失敗') }
     showToast('✓ 供應商已儲存')
     await load()
-    if (isNew.value) {
-      isNew.value = false
-      selectedId.value = saved.id
-    }
   } catch (e) {
     saveError.value = e.message
   } finally {
@@ -146,6 +217,101 @@ async function deleteVendor() {
             class="bg-[#63b3ed] hover:bg-blue-400 text-black font-bold px-4 py-2 rounded-lg text-sm transition-colors whitespace-nowrap">
             + 新增供應商
           </button>
+
+          <!-- B1: 兩步驟新增 Modal -->
+          <div v-if="showNewModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" @click.self="showNewModal=false">
+            <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl w-full max-w-xl max-h-[85vh] overflow-y-auto">
+              <div class="px-6 py-4 border-b border-[#2d3748] flex items-center justify-between">
+                <div>
+                  <h3 class="text-base font-bold text-gray-100">新增供應商</h3>
+                  <p class="text-xs text-gray-500 mt-0.5">步驟 {{ newStep }} / 2</p>
+                </div>
+                <div class="flex gap-2">
+                  <span class="w-6 h-6 rounded-full text-xs flex items-center justify-center font-bold"
+                    :class="newStep >= 1 ? 'bg-[#63b3ed] text-black' : 'bg-[#2d3748] text-gray-500'">1</span>
+                  <span class="w-6 h-6 rounded-full text-xs flex items-center justify-center font-bold"
+                    :class="newStep >= 2 ? 'bg-[#63b3ed] text-black' : 'bg-[#2d3748] text-gray-500'">2</span>
+                </div>
+              </div>
+
+              <!-- Step 1: 基本資料 -->
+              <div v-if="newStep === 1" class="p-6 space-y-4 text-sm">
+                <div>
+                  <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">供應商名稱 <span class="text-red-400">*</span></label>
+                  <input v-model="form.name" type="text" maxlength="50"
+                    class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">聯絡人（選填）</label>
+                    <input v-model="form.contact_person" type="text"
+                      class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+                  </div>
+                  <div>
+                    <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">電話（選填）</label>
+                    <input v-model="form.phone" type="text"
+                      class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+                  </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">交貨週期（選填）</label>
+                    <input v-model="form.order_cycle" type="text" placeholder="如 D+2"
+                      class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+                  </div>
+                  <div>
+                    <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">付款條件（選填）</label>
+                    <select v-model="form.payment_terms"
+                      class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
+                      <option v-for="o in paymentTermsOptions" :key="o" :value="o">{{ o }}</option>
+                    </select>
+                  </div>
+                </div>
+                <div v-if="saveError" class="text-red-400 text-xs">{{ saveError }}</div>
+                <div class="flex gap-3 pt-2">
+                  <button @click="showNewModal=false" class="flex-1 py-2.5 rounded-xl border border-[#2d3748] text-gray-400 font-bold text-sm">取消</button>
+                  <button @click="saveStep1" :disabled="saving"
+                    class="flex-[2] py-2.5 rounded-xl bg-[#63b3ed] text-black font-bold text-sm disabled:opacity-40">
+                    {{ saving ? '儲存中…' : '下一步：設定供應品項 →' }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Step 2: 供應品項 -->
+              <div v-else-if="newStep === 2" class="p-6 space-y-4 text-sm">
+                <p class="text-gray-400">供應商：<span class="text-gray-200 font-bold">{{ newVendorName }}</span></p>
+                <p class="text-gray-500 text-xs">從品項庫勾選此供應商的供應品項，並輸入採購單價（選填）</p>
+                <input v-model="itemSearch" type="text" placeholder="搜尋品項名稱..."
+                  class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+                <div class="max-h-64 overflow-y-auto space-y-1 border border-[#2d3748] rounded-xl p-2">
+                  <div v-if="!allItems.length" class="text-center py-4 text-gray-600">無品項資料</div>
+                  <div v-for="item in filteredItems" :key="item.id"
+                    class="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-[#0f1117] cursor-pointer"
+                    @click="toggleItem(item.id)">
+                    <input type="checkbox" :checked="selectedItemIds.has(item.id)"
+                      class="w-4 h-4 accent-[#63b3ed]" @click.stop="toggleItem(item.id)" />
+                    <span class="flex-1 text-gray-200">{{ item.name }}</span>
+                    <span class="text-gray-500 text-xs">{{ item.unit }}</span>
+                    <input v-if="selectedItemIds.has(item.id)"
+                      v-model.number="itemPrices[item.id]"
+                      type="number" placeholder="採購價" min="0" @click.stop
+                      class="w-20 bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-[#63b3ed]" />
+                  </div>
+                </div>
+                <div class="text-xs text-gray-500">已勾選 {{ selectedItemIds.size }} 項</div>
+                <div class="flex gap-3 pt-2">
+                  <button @click="saveStep2" :disabled="saving"
+                    class="flex-[2] py-2.5 rounded-xl bg-[#63b3ed] text-black font-bold text-sm disabled:opacity-40">
+                    {{ saving ? '儲存中…' : '完成建立供應商' }}
+                  </button>
+                  <button @click="saveStep2" :disabled="saving"
+                    class="flex-1 py-2.5 rounded-xl border border-[#2d3748] text-gray-400 font-bold text-sm disabled:opacity-40">
+                    略過，直接完成
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">

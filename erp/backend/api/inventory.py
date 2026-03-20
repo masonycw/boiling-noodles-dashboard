@@ -73,11 +73,21 @@ def update_order(order_id: int, order_data: OrderCreate, db: Session = Depends(g
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.get("/orders")
-def list_orders(days_limit: int = None, status: str = None, db: Session = Depends(get_db)):
+def list_orders(days_limit: int = None, status: str = None, limit: int = 500, db: Session = Depends(get_db)):
+    from erp.backend.db.models import User
     orders = inventory_service.get_orders(db, days_limit=days_limit, status=status)
     result = []
     for order in orders:
         vendor = db.query(inventory_service.Vendor).filter(inventory_service.Vendor.id == order.vendor_id).first()
+        created_by = None
+        if order.user_id:
+            user = db.query(User).filter(User.id == order.user_id).first()
+            if user:
+                created_by = {
+                    "id": user.id,
+                    "username": "(已刪除)" if user.deleted_at else user.username,
+                    "name": user.full_name or user.username
+                }
         result.append({
             "id": order.id,
             "vendor_id": order.vendor_id,
@@ -88,7 +98,8 @@ def list_orders(days_limit: int = None, status: str = None, db: Session = Depend
             "expected_delivery_date": order.expected_delivery_date,
             "total_amount": order.total_amount,
             "amount_paid": order.amount_paid,
-            "is_paid": order.is_paid
+            "is_paid": order.is_paid,
+            "created_by": created_by
         })
     return result
 
@@ -132,6 +143,42 @@ def get_upload_file(filename: str):
     if os.path.exists(file_path):
         return FileResponse(file_path)
     raise HTTPException(status_code=404, detail="File not found")
+
+class OrderPatch(BaseModel):
+    status: Optional[str] = None
+    note: Optional[str] = None
+    ordered_at: Optional[str] = None
+    items: Optional[List[OrderItemCreate]] = None
+
+@router.patch("/orders/{order_id}")
+def patch_order(order_id: int, data: OrderPatch, db: Session = Depends(get_db)):
+    from erp.backend.db.models import PurchaseOrder, PurchaseOrderDetail
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if data.status is not None:
+        order.status = data.status
+    if data.note is not None:
+        order.note = data.note
+    if data.ordered_at is not None:
+        from datetime import datetime as dt
+        try:
+            order.created_at = dt.fromisoformat(data.ordered_at)
+        except Exception:
+            pass
+    if data.items is not None:
+        db.query(PurchaseOrderDetail).filter(PurchaseOrderDetail.order_id == order_id).delete()
+        for item in data.items:
+            db.add(PurchaseOrderDetail(
+                order_id=order_id,
+                item_id=item.item_id,
+                adhoc_name=item.adhoc_name,
+                adhoc_unit=item.adhoc_unit,
+                qty=item.qty
+            ))
+        order.total_items = len(data.items)
+    db.commit()
+    return {"success": True}
 
 @router.delete("/orders/{order_id}")
 def delete_order(order_id: int, db: Session = Depends(get_db)):

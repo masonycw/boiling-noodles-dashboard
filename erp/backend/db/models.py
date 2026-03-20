@@ -44,6 +44,8 @@ class User(Base):
     last_login = Column(DateTime(timezone=True))
     # Phase 3 新增
     petty_cash_permission = Column(Boolean, default=False)  # 零用金提領授權
+    # E5: Soft delete
+    deleted_at = Column(DateTime(timezone=True), nullable=True, default=None)
 
 
 class UserDevice(Base):

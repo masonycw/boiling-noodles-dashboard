@@ -1,15 +1,35 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import UserBadge from '@/components/UserBadge.vue'
 
 const auth = useAuthStore()
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 
 const orders = ref([])
 const vendors = ref([])
+const allItems = ref([])
 const loading = ref(true)
 const expandedId = ref(null)
 const orderDetails = ref({})
+
+// ── Edit Order ──
+const showEditModal = ref(false)
+const editOrderId = ref(null)
+const editOrderVendorName = ref('')
+const editOrderForm = ref({ status: '', ordered_at: '', note: '', items: [] })
+const editOrderSubmitting = ref(false)
+const editOrderError = ref('')
+
+// ── Delete Order ──
+const showDeleteModal = ref(false)
+const deleteOrderRecord = ref(null)
+const deleteOrderSubmitting = ref(false)
+
+// ── Lightbox ──
+const showLightbox = ref(false)
+const lightboxImages = ref([])
+const lightboxIndex = ref(0)
 
 // Filters
 const filterDateFrom = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10))
@@ -27,12 +47,14 @@ function authHeaders() {
 
 async function load() {
   loading.value = true
-  const [ordRes, vendRes] = await Promise.all([
+  const [ordRes, vendRes, itemsRes] = await Promise.all([
     fetch(`${API_BASE}/inventory/orders?limit=500`, { headers: authHeaders() }),
     fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/inventory/items?limit=500`, { headers: authHeaders() }),
   ])
   if (ordRes.ok) orders.value = await ordRes.json()
   if (vendRes.ok) vendors.value = await vendRes.json()
+  if (itemsRes.ok) allItems.value = await itemsRes.json()
   loading.value = false
 }
 
@@ -77,6 +99,112 @@ async function toggleExpand(order) {
       orderDetails.value[order.id] = Array.isArray(d) ? d : (d.items || [])
     }
   }
+}
+
+async function openEditOrder(order, e) {
+  e.stopPropagation()
+  editOrderId.value = order.id
+  editOrderVendorName.value = order.vendor_name
+  editOrderError.value = ''
+  editOrderForm.value = {
+    status: order.status,
+    ordered_at: order.created_at?.slice(0, 10) || '',
+    note: order.note || '',
+    items: []
+  }
+  if (!orderDetails.value[order.id]) {
+    const res = await fetch(`${API_BASE}/inventory/orders/${order.id}`, { headers: authHeaders() })
+    if (res.ok) {
+      const d = await res.json()
+      orderDetails.value[order.id] = Array.isArray(d) ? d : (d.items || [])
+    }
+  }
+  editOrderForm.value.items = (orderDetails.value[order.id] || []).map(i => ({
+    item_id: i.item_id || null,
+    adhoc_name: i.adhoc_name || null,
+    name: i.name || i.adhoc_name,
+    qty: parseFloat(i.qty) || 0,
+    unit: i.unit || i.adhoc_unit || ''
+  }))
+  showEditModal.value = true
+}
+
+function addEditItem() {
+  if (allItems.value.length === 0) return
+  const item = allItems.value[0]
+  editOrderForm.value.items.push({ item_id: item.id, adhoc_name: null, name: item.name, qty: 1, unit: item.unit || '' })
+}
+
+function removeEditItem(idx) {
+  editOrderForm.value.items.splice(idx, 1)
+}
+
+function onEditItemSelect(idx, itemId) {
+  const item = allItems.value.find(i => i.id === parseInt(itemId))
+  if (item) {
+    editOrderForm.value.items[idx].item_id = item.id
+    editOrderForm.value.items[idx].name = item.name
+    editOrderForm.value.items[idx].unit = item.unit || ''
+    editOrderForm.value.items[idx].adhoc_name = null
+  }
+}
+
+async function saveEditOrder() {
+  editOrderSubmitting.value = true
+  editOrderError.value = ''
+  try {
+    const res = await fetch(`${API_BASE}/inventory/orders/${editOrderId.value}`, {
+      method: 'PATCH',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: editOrderForm.value.status,
+        note: editOrderForm.value.note,
+        ordered_at: editOrderForm.value.ordered_at,
+        items: editOrderForm.value.items.map(i => ({
+          item_id: i.item_id,
+          adhoc_name: i.adhoc_name,
+          adhoc_unit: null,
+          qty: parseFloat(i.qty) || 0
+        }))
+      })
+    })
+    if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '儲存失敗') }
+    showEditModal.value = false
+    delete orderDetails.value[editOrderId.value]
+    await load()
+  } catch (e) {
+    editOrderError.value = e.message
+  } finally {
+    editOrderSubmitting.value = false
+  }
+}
+
+async function openDeleteOrder(order, e) {
+  e.stopPropagation()
+  deleteOrderRecord.value = order
+  deleteOrderSubmitting.value = false
+  showDeleteModal.value = true
+}
+
+async function confirmDeleteOrder() {
+  deleteOrderSubmitting.value = true
+  try {
+    const res = await fetch(`${API_BASE}/inventory/orders/${deleteOrderRecord.value.id}`, {
+      method: 'DELETE', headers: authHeaders()
+    })
+    if (!res.ok) throw new Error('刪除失敗')
+    showDeleteModal.value = false
+    if (expandedId.value === deleteOrderRecord.value.id) expandedId.value = null
+    delete orderDetails.value[deleteOrderRecord.value.id]
+    await load()
+  } catch (e) { alert(e.message) }
+  finally { deleteOrderSubmitting.value = false }
+}
+
+function openLightbox(imgs, idx = 0) {
+  lightboxImages.value = imgs
+  lightboxIndex.value = idx
+  showLightbox.value = true
 }
 
 const statusLabel = (s) => ({ draft: '草稿', confirmed: '已確認', received: '已收貨', pending: '待送出', shipped: '已送出' }[s] || s)
@@ -127,11 +255,13 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
             <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase tracking-wider">
               <th class="px-4 py-3 text-left">日期</th>
               <th class="px-4 py-3 text-left">供應商</th>
+              <th class="px-4 py-3 text-left">送出人</th>
               <th class="px-4 py-3 text-center">品項數</th>
               <th class="px-4 py-3 text-right">總金額</th>
               <th class="px-4 py-3 text-center">狀態</th>
               <th class="px-4 py-3 text-center">付款</th>
               <th class="px-4 py-3 text-center">查看</th>
+              <th class="px-4 py-3 text-center">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -140,6 +270,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
                 @click="toggleExpand(o)">
                 <td class="px-4 py-3 text-gray-400 text-xs">{{ fmtDate(o.created_at) }}</td>
                 <td class="px-4 py-3 font-semibold text-gray-200">{{ o.vendor_name }}</td>
+                <td class="px-4 py-3"><UserBadge :user="o.created_by" size="sm" /></td>
                 <td class="px-4 py-3 text-center text-gray-400">{{ o.total_items }}</td>
                 <td class="px-4 py-3 text-right font-mono text-gray-300">${{ fmtMoney(o.total_amount) }}</td>
                 <td class="px-4 py-3 text-center">
@@ -155,10 +286,24 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
                 <td class="px-4 py-3 text-center text-[#63b3ed] text-xs font-bold">
                   {{ expandedId === o.id ? '▲' : '查看' }}
                 </td>
+                <td class="px-4 py-3 text-center" @click.stop>
+                  <button @click="openEditOrder(o, $event)"
+                    class="text-xs px-2 py-1 rounded bg-[#2d3748] text-[#63b3ed] hover:bg-[#3d4f63] mr-1">
+                    編輯
+                  </button>
+                  <button @click="openDeleteOrder(o, $event)"
+                    class="text-xs px-2 py-1 rounded bg-[#2d3748] text-red-400 hover:bg-red-900/30">
+                    刪除
+                  </button>
+                </td>
               </tr>
               <!-- Expanded detail -->
               <tr v-if="expandedId === o.id" class="border-b border-[#2d3748] bg-[#0f1117]">
-                <td colspan="7" class="px-6 py-4">
+                <td colspan="9" class="px-6 py-4">
+                  <div class="flex items-center gap-4 mb-3 text-xs">
+                    <span class="text-gray-500">送出人：</span>
+                    <UserBadge :user="o.created_by" size="md" />
+                  </div>
                   <div v-if="!orderDetails[o.id]" class="text-gray-500 text-sm">載入中…</div>
                   <table v-else class="w-full text-xs">
                     <thead>
@@ -189,7 +334,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               </tr>
             </template>
             <tr v-if="filtered.length === 0">
-              <td colspan="7" class="px-5 py-10 text-center text-gray-600">無叫貨紀錄</td>
+              <td colspan="9" class="px-5 py-10 text-center text-gray-600">無叫貨紀錄</td>
             </tr>
           </tbody>
         </table>
@@ -215,5 +360,126 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
         </div>
       </template>
     </div>
+  <!-- Edit Order Modal -->
+  <div v-if="showEditModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center px-4">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-[#2d3748]">
+        <h3 class="text-base font-bold text-gray-200">編輯叫貨單</h3>
+        <button @click="showEditModal = false" class="text-gray-500 hover:text-gray-300 text-xl">✕</button>
+      </div>
+      <div class="px-6 py-5 space-y-4">
+        <!-- 廠商（唯讀） -->
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">供應商（不可更改）</label>
+          <p class="text-gray-400 text-sm px-3 py-2 bg-[#0f1117] rounded-lg">{{ editOrderVendorName }}</p>
+          <p class="text-xs text-yellow-600 mt-1">若需更換廠商，請刪除此單後重新建立</p>
+        </div>
+        <!-- 狀態 -->
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">狀態</label>
+          <select v-model="editOrderForm.status"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
+            <option value="pending">待送出</option>
+            <option value="shipped">已送出</option>
+            <option value="received">已收貨</option>
+            <option value="cancelled">已取消</option>
+            <option value="draft">草稿</option>
+          </select>
+        </div>
+        <!-- 叫貨日期 -->
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">叫貨日期</label>
+          <input v-model="editOrderForm.ordered_at" type="date"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]" />
+        </div>
+        <!-- 品項 -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs text-gray-500">品項明細</label>
+            <button @click="addEditItem" class="text-xs text-[#63b3ed] hover:text-blue-300">＋ 新增品項</button>
+          </div>
+          <div class="space-y-2">
+            <div v-for="(item, idx) in editOrderForm.items" :key="idx"
+              class="flex items-center gap-2 bg-[#0f1117] rounded-lg px-3 py-2">
+              <select @change="onEditItemSelect(idx, $event.target.value)"
+                class="flex-1 bg-[#1a202c] border border-[#2d3748] text-gray-300 rounded px-2 py-1 text-xs focus:outline-none">
+                <option v-for="ai in allItems" :key="ai.id" :value="ai.id" :selected="ai.id === item.item_id">
+                  {{ ai.name }}
+                </option>
+              </select>
+              <input v-model.number="item.qty" type="number" min="0" step="0.5" placeholder="數量"
+                class="w-20 bg-[#1a202c] border border-[#2d3748] text-gray-300 rounded px-2 py-1 text-xs text-center focus:outline-none" />
+              <span class="text-xs text-gray-500 w-8">{{ item.unit }}</span>
+              <button @click="removeEditItem(idx)" class="text-red-400 hover:text-red-300 text-sm">✕</button>
+            </div>
+          </div>
+        </div>
+        <!-- 備注 -->
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">備注</label>
+          <input v-model="editOrderForm.note" type="text" placeholder="備注說明…"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]" />
+        </div>
+        <p v-if="editOrderError" class="text-red-400 text-sm text-center">{{ editOrderError }}</p>
+      </div>
+      <div class="flex gap-3 px-6 pb-6">
+        <button @click="showEditModal = false"
+          class="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-[#2d3748] text-gray-400 hover:bg-[#0f1117]">
+          取消
+        </button>
+        <button @click="saveEditOrder" :disabled="editOrderSubmitting"
+          class="flex-1 py-2.5 rounded-xl text-sm font-bold bg-[#63b3ed] text-black hover:bg-blue-400 disabled:opacity-40">
+          {{ editOrderSubmitting ? '儲存中…' : '儲存修改' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Order Dialog -->
+  <div v-if="showDeleteModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center px-4">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl w-full max-w-sm p-6">
+      <h3 class="text-base font-bold text-gray-200 mb-4">⚠️ 確認刪除叫貨單</h3>
+      <div class="bg-[#0f1117] rounded-xl p-4 mb-4 space-y-1 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">供應商</span>
+          <span class="text-gray-300">{{ deleteOrderRecord?.vendor_name }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-gray-500">日期</span>
+          <span class="text-gray-300">{{ fmtDate(deleteOrderRecord?.created_at) }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-gray-500">品項數</span>
+          <span class="text-gray-300">{{ deleteOrderRecord?.total_items }} 項</span>
+        </div>
+      </div>
+      <p class="text-xs text-red-400 mb-1">• 刪除後無法復原</p>
+      <p v-if="deleteOrderRecord?.status === 'received'" class="text-xs text-amber-400 mb-4">
+        ⚠️ 此叫貨單已收貨，相關收貨紀錄亦將一併刪除
+      </p>
+      <div class="flex gap-3 mt-4">
+        <button @click="showDeleteModal = false"
+          class="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-[#2d3748] text-gray-400 hover:bg-[#0f1117]">
+          取消
+        </button>
+        <button @click="confirmDeleteOrder" :disabled="deleteOrderSubmitting"
+          class="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-600 text-white hover:bg-red-500 disabled:opacity-40">
+          {{ deleteOrderSubmitting ? '刪除中…' : '確認刪除' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lightbox -->
+  <div v-if="showLightbox" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center"
+    @click.self="showLightbox=false">
+    <button @click="showLightbox=false" class="absolute top-4 right-4 text-white text-2xl">✕</button>
+    <button v-if="lightboxIndex > 0" @click="lightboxIndex--" class="absolute left-4 text-white text-3xl">‹</button>
+    <img :src="lightboxImages[lightboxIndex]" class="max-w-full max-h-full rounded-xl object-contain" />
+    <button v-if="lightboxIndex < lightboxImages.length-1" @click="lightboxIndex++"
+      class="absolute right-4 text-white text-3xl">›</button>
+    <p class="absolute bottom-4 text-white text-sm">{{ lightboxIndex+1 }} / {{ lightboxImages.length }}</p>
+  </div>
+
   </div>
 </template>

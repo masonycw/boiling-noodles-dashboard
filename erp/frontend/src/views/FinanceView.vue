@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { compressImage } from '@/composables/useImageCompress'
 
 const auth = useAuthStore()
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
@@ -12,15 +13,17 @@ const todayIncome = ref(0)
 const todayExpense = ref(0)
 const todayRecords = ref([])
 const yesterdayRecords = ref([])
-const lastSettlement = ref(null)
+const settlements = ref([])  // A3: 多次日結記錄
 const vendors = ref([])
 
-// ---- Daily settlement ----
+// ---- Daily settlement (A3: 多次日結) ----
 const showSettleModal = ref(false)
 const settleSubmitting = ref(false)
 const settleError = ref('')
-const todaySettled = ref(false)
+const canSettle = ref(true)        // A3: 是否可再次日結
 const settleToast = ref(false)
+const settlementCount = ref(0)    // A3: 今日日結次數
+const unsettledCount = ref(0)     // A3: 未日結紀錄數
 
 // ---- Finance sheet modal ----
 const showSheet = ref(false)
@@ -37,6 +40,42 @@ const sheetForm = ref({
 const sheetError = ref('')
 const sheetSubmitting = ref(false)
 
+// A3: 附件上傳
+const attachmentFiles = ref([])   // { file: File, preview: string }[]
+const attachmentUploading = ref(false)
+
+// A3: Lightbox
+const lightboxImages = ref([])
+const lightboxIndex = ref(0)
+const showLightbox = ref(false)
+
+function openLightbox(imgs, idx = 0) {
+  lightboxImages.value = imgs
+  lightboxIndex.value = idx
+  showLightbox.value = true
+}
+
+async function handleAttachmentSelect(e) {
+  const files = Array.from(e.target.files)
+  if (attachmentFiles.value.length + files.length > 3) {
+    alert('每筆紀錄最多 3 張照片')
+    return
+  }
+  for (const file of files) {
+    try {
+      const compressed = await compressImage(file)
+      const preview = URL.createObjectURL(compressed)
+      attachmentFiles.value.push({ file: compressed, preview })
+    } catch { console.warn('compress failed', file.name) }
+  }
+  e.target.value = ''
+}
+
+function removeAttachment(idx) {
+  URL.revokeObjectURL(attachmentFiles.value[idx].preview)
+  attachmentFiles.value.splice(idx, 1)
+}
+
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
 }
@@ -48,12 +87,13 @@ async function loadAll() {
     const today = new Date().toISOString().slice(0, 10)
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
 
-    const [balRes, todayRes, yestRes, vendRes, settleRes] = await Promise.all([
+    const [balRes, todayRes, yestRes, vendRes, settleRes, canSettleRes] = await Promise.all([
       fetch(`${API_BASE}/finance/petty-cash/balance`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/petty-cash?date=${today}&limit=100`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/petty-cash?date=${yesterday}&limit=100`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/inventory/vendors`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/daily-settlement/today`, { headers: { Authorization: `Bearer ${auth.token}` } }),
+      fetch(`${API_BASE}/finance/daily-settlement/can-settle`, { headers: { Authorization: `Bearer ${auth.token}` } }).catch(() => null),
     ])
 
     if (balRes.ok) pettyBalance.value = (await balRes.json()).balance
@@ -72,7 +112,23 @@ async function loadAll() {
     if (vendRes.ok) vendors.value = await vendRes.json()
     if (settleRes.ok) {
       const sd = await settleRes.json()
-      todaySettled.value = sd.settled === true
+      // A3: support multiple settlements
+      if (Array.isArray(sd)) {
+        settlements.value = sd
+        settlementCount.value = sd.length
+      } else {
+        settlements.value = sd.settled ? [sd] : []
+        settlementCount.value = sd.settled ? 1 : 0
+      }
+    }
+    // A3: check if can settle again
+    if (canSettleRes?.ok) {
+      const cs = await canSettleRes.json()
+      canSettle.value = cs.can_settle !== false
+      unsettledCount.value = cs.unsettled_count || 0
+    } else {
+      // fallback: if no settlements today, can settle
+      canSettle.value = settlementCount.value === 0 || unsettledCount.value > 0
     }
   } finally {
     isLoading.value = false
@@ -105,8 +161,25 @@ async function submitSheet() {
       const d = await res.json()
       throw new Error(d.detail || '儲存失敗')
     }
+    const newRecord = await res.json()
+
+    // A3: upload attachments if any
+    if (attachmentFiles.value.length && newRecord?.id) {
+      attachmentUploading.value = true
+      for (const { file } of attachmentFiles.value) {
+        const fd = new FormData()
+        fd.append('file', file)
+        await fetch(`${API_BASE}/finance/petty-cash/${newRecord.id}/attachments`, {
+          method: 'POST', headers: { Authorization: `Bearer ${auth.token}` }, body: fd
+        }).catch(() => {})
+      }
+      attachmentUploading.value = false
+    }
+
     showSheet.value = false
     sheetForm.value = { amount: '', description: '', date: new Date().toISOString().slice(0, 10), vendor_id: '', is_paid: true, income_source: '', withdrawal_purpose: 'bank' }
+    attachmentFiles.value.forEach(a => URL.revokeObjectURL(a.preview))
+    attachmentFiles.value = []
     await loadAll()
   } catch (e) {
     sheetError.value = e.message
@@ -115,7 +188,7 @@ async function submitSheet() {
   }
 }
 
-// ---- Daily settlement submit ----
+// ---- Daily settlement submit (A3: 多次日結) ----
 async function submitSettle() {
   settleSubmitting.value = true
   settleError.value = ''
@@ -134,7 +207,6 @@ async function submitSettle() {
       throw new Error(d.detail || '日結失敗')
     }
     showSettleModal.value = false
-    todaySettled.value = true
     settleToast.value = true
     setTimeout(() => { settleToast.value = false }, 3000)
     await loadAll()
@@ -145,10 +217,37 @@ async function submitSettle() {
   }
 }
 
+// ---- E1: 零用金紀錄詳情 ----
+const showDetailSheet = ref(false)
+const detailRecord = ref(null)
+const detailLoading = ref(false)
+
+async function openDetail(r) {
+  detailRecord.value = r
+  showDetailSheet.value = true
+  // fetch full detail (includes creator name, category, payment_method if not in list)
+  detailLoading.value = true
+  try {
+    const res = await fetch(`${API_BASE}/finance/petty-cash/${r.id}`, { headers: { Authorization: `Bearer ${auth.token}` } })
+    if (res.ok) detailRecord.value = await res.json()
+  } catch { /* use already-loaded data */ }
+  finally { detailLoading.value = false }
+}
+
+function typeLabel(type) {
+  if (type === 'income') return '收入'
+  if (type === 'withdrawal') return '提領'
+  return '支出'
+}
+
 // ---- Helpers ----
 function fmtDate(d) {
   if (!d) return ''
   return new Date(d).toLocaleString('zh-TW', { hour: '2-digit', minute: '2-digit' })
+}
+function fmtFullDate(d) {
+  if (!d) return ''
+  return new Date(d).toLocaleString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 function fmtMoney(n) {
   return Number(n || 0).toLocaleString('zh-TW')
@@ -211,19 +310,20 @@ function txSubtitle(r) {
             <p class="font-black text-red-500 mt-0.5" style="font-size:16px">−${{ fmtMoney(todayExpense) }}</p>
           </div>
           <div class="rounded-xl shadow-sm p-2.5 flex flex-col items-center justify-center"
-            :style="todaySettled ? 'background:#f0fdf4;border:1.5px solid #86efac' : 'background:#fff8f0;border:1.5px solid #e85d04'">
-            <p class="font-bold" style="font-size:9px" :style="todaySettled ? 'color:#16a34a' : 'color:#e85d04'">今日帳目</p>
-            <button v-if="todaySettled"
-              disabled
-              class="mt-1 font-extrabold rounded-md px-2 py-0.5"
-              style="font-size:11px;background:#86efac;color:#14532d;opacity:0.9">
-              ✓ 已日結
-            </button>
-            <button v-else @click="showSettleModal = true"
+            :style="canSettle ? 'background:#fff8f0;border:1.5px solid #e85d04' : 'background:#f1f5f9;border:1.5px solid #cbd5e1'">
+            <p class="font-bold" style="font-size:9px" :style="canSettle ? 'color:#e85d04' : 'color:#94a3b8'">今日帳目</p>
+            <!-- A3: 多次日結按鈕 -->
+            <button v-if="canSettle" @click="showSettleModal = true"
               class="mt-1 text-white font-extrabold rounded-md px-2 py-0.5 active:scale-95 transition-transform"
               style="font-size:11px;background:#e85d04">
-              🔒 日結
+              🔒 {{ settlementCount > 0 ? `第${settlementCount+1}次日結` : '日結' }}
             </button>
+            <button v-else disabled
+              class="mt-1 font-extrabold rounded-md px-2 py-0.5"
+              style="font-size:10px;background:#e2e8f0;color:#94a3b8">
+              無新紀錄
+            </button>
+            <p v-if="settlementCount > 0" class="text-[8px] text-slate-400 mt-0.5">已日結 {{ settlementCount }} 次</p>
           </div>
         </div>
       </div>
@@ -233,13 +333,22 @@ function txSubtitle(r) {
         <p class="font-bold text-slate-600 mb-2" style="font-size:12px">
           今日流水 — {{ new Date().toLocaleDateString('zh-TW', { month:'numeric', day:'numeric' }) }}
         </p>
-        <!-- Settlement divider -->
-        <div v-if="todaySettled" class="flex items-center gap-2 mb-2">
-          <div class="flex-1 h-px bg-orange-200"></div>
-          <span class="text-xs font-bold px-3 py-1 rounded-full" style="background:#fff8f0;color:#e85d04;border:1px solid #fed7aa">
-            🔒 日結完成
-          </span>
-          <div class="flex-1 h-px bg-orange-200"></div>
+        <!-- A3: 多次日結分隔線（含餘額快照） -->
+        <div v-for="(s, si) in settlements" :key="s.id || si" class="my-3">
+          <div class="border-2 border-orange-200 rounded-xl px-3 py-2 bg-orange-50">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-extrabold text-orange-600">🔒 第 {{ s.settlement_number || (si+1) }} 次日結</span>
+              <span class="text-xs text-slate-400">{{ s.settled_at ? fmtDate(s.settled_at) : '' }}</span>
+            </div>
+            <div class="flex items-center justify-between mt-1">
+              <span class="text-xs text-slate-500">{{ s.settled_by_name || '' }}</span>
+              <span v-if="s.closing_balance != null"
+                class="text-sm font-black"
+                :class="s.closing_balance >= 0 ? 'text-emerald-600' : 'text-red-500'">
+                結算餘額 ${{ fmtMoney(s.closing_balance) }}
+              </span>
+            </div>
+          </div>
         </div>
 
         <div v-if="todayRecords.length === 0" class="text-center py-6 text-slate-400 text-sm bg-white rounded-xl">
@@ -247,18 +356,30 @@ function txSubtitle(r) {
         </div>
         <div v-else class="space-y-2">
           <div v-for="r in todayRecords" :key="r.id"
-            class="bg-white rounded-xl px-4 py-3 flex items-center gap-3 shadow-sm">
-            <span style="font-size:20px">{{ txIcon(r) }}</span>
-            <div class="flex-1 min-w-0">
-              <p class="font-bold text-slate-800 truncate" style="font-size:13px">
-                {{ r.note || r.vendor_name || '零用金紀錄' }}
+            class="bg-white rounded-xl px-4 py-3 shadow-sm cursor-pointer active:scale-[0.98] transition-transform"
+            @click="openDetail(r)">
+            <div class="flex items-center gap-3">
+              <span style="font-size:20px">{{ txIcon(r) }}</span>
+              <div class="flex-1 min-w-0">
+                <p class="font-bold text-slate-800 truncate" style="font-size:13px">
+                  {{ r.note || r.vendor_name || '零用金紀錄' }}
+                </p>
+                <p class="text-slate-400" style="font-size:11px">{{ txSubtitle(r) }}</p>
+              </div>
+              <p class="font-black shrink-0" style="font-size:14px"
+                :class="r.type === 'income' ? 'text-emerald-500' : 'text-red-500'">
+                {{ r.type === 'income' ? '+' : '−' }}${{ fmtMoney(r.amount) }}
               </p>
-              <p class="text-slate-400" style="font-size:11px">{{ txSubtitle(r) }}</p>
             </div>
-            <p class="font-black shrink-0" style="font-size:14px"
-              :class="r.type === 'income' ? 'text-emerald-500' : 'text-red-500'">
-              {{ r.type === 'income' ? '+' : '−' }}${{ fmtMoney(r.amount) }}
-            </p>
+            <!-- A3: 附件縮圖 -->
+            <div v-if="r.attachments?.length" class="mt-2 flex gap-1.5 flex-wrap" @click.stop>
+              <button v-for="(att, aidx) in r.attachments" :key="att.id"
+                @click="openLightbox(r.attachments.map(a=>a.file_url), aidx)"
+                class="w-10 h-10 rounded-lg overflow-hidden border border-slate-200 flex-shrink-0">
+                <img :src="att.file_url" class="w-full h-full object-cover" />
+              </button>
+              <span class="text-[10px] text-slate-400 self-center">📎 {{ r.attachments.length }} 張</span>
+            </div>
           </div>
         </div>
       </div>
@@ -278,9 +399,10 @@ function txSubtitle(r) {
         </p>
         <div class="space-y-2">
           <div v-for="r in yesterdayRecords" :key="r.id"
-            class="rounded-xl px-4 py-3 flex items-center gap-3 shadow-sm"
+            class="rounded-xl px-4 py-3 flex items-center gap-3 shadow-sm cursor-pointer active:scale-[0.98] transition-transform"
             :class="r.type === 'withdrawal' ? '' : 'bg-white'"
-            :style="r.type === 'withdrawal' ? 'background:#fff8f0;border:1px solid #fed7aa' : ''">
+            :style="r.type === 'withdrawal' ? 'background:#fff8f0;border:1px solid #fed7aa' : ''"
+            @click="openDetail(r)">
             <span style="font-size:20px">{{ txIcon(r) }}</span>
             <div class="flex-1 min-w-0">
               <p class="font-bold text-slate-800 truncate" style="font-size:13px">
@@ -407,22 +529,59 @@ function txSubtitle(r) {
 
           <p class="text-center text-slate-400" style="font-size:10px">科目由系統依廠商自動對應，無需手動選擇</p>
 
+          <!-- A3: 附件上傳 -->
+          <div>
+            <label class="block text-xs font-bold text-slate-500 uppercase mb-2">單據附件（最多 3 張）</label>
+            <div class="flex gap-2 flex-wrap">
+              <div v-for="(att, idx) in attachmentFiles" :key="idx"
+                class="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200">
+                <img :src="att.preview" class="w-full h-full object-cover" />
+                <button @click="removeAttachment(idx)"
+                  class="absolute top-0.5 right-0.5 w-5 h-5 bg-black/60 text-white rounded-full text-xs flex items-center justify-center">✕</button>
+              </div>
+              <label v-if="attachmentFiles.length < 3"
+                class="w-16 h-16 rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer text-slate-400 hover:border-orange-400 hover:text-orange-400">
+                <span class="text-lg">📷</span>
+                <span class="text-[9px] font-bold">拍照</span>
+                <input type="file" accept="image/*" capture="environment" class="hidden" @change="handleAttachmentSelect" />
+              </label>
+              <label v-if="attachmentFiles.length < 3"
+                class="w-16 h-16 rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center cursor-pointer text-slate-400 hover:border-orange-400 hover:text-orange-400">
+                <span class="text-lg">📁</span>
+                <span class="text-[9px] font-bold">相簿</span>
+                <input type="file" accept="image/*" class="hidden" @change="handleAttachmentSelect" />
+              </label>
+            </div>
+          </div>
+
           <div v-if="sheetError" class="text-red-500 text-sm text-center">{{ sheetError }}</div>
 
-          <button @click="submitSheet" :disabled="sheetSubmitting"
+          <button @click="submitSheet" :disabled="sheetSubmitting || attachmentUploading"
             class="w-full text-white font-bold py-4 rounded-2xl active:scale-95 transition-transform disabled:opacity-40"
             style="background:#e85d04">
-            {{ sheetSubmitting ? '送出中…' : '送出紀錄' }}
+            {{ attachmentUploading ? '上傳附件中…' : sheetSubmitting ? '送出中…' : '送出紀錄' }}
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- A3: Lightbox -->
+    <div v-if="showLightbox" class="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center"
+      @click.self="showLightbox=false">
+      <button @click="showLightbox=false" class="absolute top-4 right-4 text-white text-2xl">✕</button>
+      <button v-if="lightboxIndex > 0" @click="lightboxIndex--"
+        class="absolute left-4 text-white text-3xl">‹</button>
+      <img :src="lightboxImages[lightboxIndex]" class="max-w-full max-h-full rounded-xl object-contain" />
+      <button v-if="lightboxIndex < lightboxImages.length-1" @click="lightboxIndex++"
+        class="absolute right-4 text-white text-3xl">›</button>
+      <p class="absolute bottom-4 text-white text-sm">{{ lightboxIndex+1 }} / {{ lightboxImages.length }}</p>
     </div>
 
     <!-- Daily Settlement Modal -->
     <div v-if="showSettleModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center px-4">
       <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden">
         <div class="px-6 pt-6 pb-2">
-          <h3 class="text-lg font-extrabold text-slate-800">確認日結</h3>
+          <h3 class="text-lg font-extrabold text-slate-800">確認{{ settlementCount > 0 ? `第 ${settlementCount+1} 次` : '' }}日結</h3>
           <p class="text-xs text-slate-500 mt-1">
             {{ new Date().toLocaleDateString('zh-TW', { year:'numeric', month:'numeric', day:'numeric' }) }}
           </p>
@@ -468,6 +627,93 @@ function txSubtitle(r) {
             class="flex-1 py-3 rounded-2xl font-bold text-white active:scale-95 transition-transform disabled:opacity-40"
             style="background:#e85d04">
             {{ settleSubmitting ? '日結中…' : '確認日結' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- E1: 零用金紀錄詳情 Bottom Sheet -->
+    <div v-if="showDetailSheet" class="fixed inset-0 bg-black/50 z-50 flex items-end justify-center"
+      @click.self="showDetailSheet = false">
+      <div class="bg-white w-full max-w-md rounded-t-3xl max-h-[85vh] overflow-y-auto">
+        <div class="flex justify-center pt-3 pb-1">
+          <div class="w-10 h-1 bg-slate-200 rounded-full"></div>
+        </div>
+        <div class="px-5 py-3 flex items-center justify-between border-b border-slate-100">
+          <h3 class="text-base font-extrabold text-slate-800">零用金紀錄詳情</h3>
+          <button @click="showDetailSheet = false" class="text-slate-400 text-xl font-bold">✕</button>
+        </div>
+
+        <div v-if="detailLoading" class="flex justify-center py-8">
+          <svg class="animate-spin h-6 w-6 text-orange-400" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+        </div>
+
+        <div v-else-if="detailRecord" class="px-5 pb-8 space-y-5">
+          <!-- 類型大字 + 金額 -->
+          <div class="flex items-center justify-between pt-2">
+            <span class="text-xl font-extrabold"
+              :class="detailRecord.type === 'income' ? 'text-emerald-600' : detailRecord.type === 'withdrawal' ? 'text-orange-500' : 'text-red-500'">
+              {{ typeLabel(detailRecord.type) }}
+            </span>
+            <span class="text-2xl font-black"
+              :class="detailRecord.type === 'income' ? 'text-emerald-600' : 'text-red-500'">
+              {{ detailRecord.type === 'income' ? '+' : '−' }}NT$ {{ fmtMoney(detailRecord.amount) }}
+            </span>
+          </div>
+
+          <!-- 欄位列表 -->
+          <div class="rounded-2xl bg-slate-50 divide-y divide-slate-100 overflow-hidden">
+            <div v-if="detailRecord.account_category" class="flex items-center justify-between px-4 py-3">
+              <span class="text-sm text-slate-500">科目分類</span>
+              <span class="text-sm font-bold text-slate-800">{{ detailRecord.account_category }}</span>
+            </div>
+            <div v-if="detailRecord.payment_method" class="flex items-center justify-between px-4 py-3">
+              <span class="text-sm text-slate-500">付款方式</span>
+              <span class="text-sm font-bold text-slate-800">{{ detailRecord.payment_method }}</span>
+            </div>
+            <div v-if="detailRecord.vendor_name" class="flex items-center justify-between px-4 py-3">
+              <span class="text-sm text-slate-500">廠商</span>
+              <span class="text-sm font-bold text-slate-800">{{ detailRecord.vendor_name }}</span>
+            </div>
+            <div class="flex items-center justify-between px-4 py-3">
+              <span class="text-sm text-slate-500">記錄時間</span>
+              <span class="text-sm font-bold text-slate-800">{{ fmtFullDate(detailRecord.created_at) }}</span>
+            </div>
+            <div v-if="detailRecord.created_by_name" class="flex items-center justify-between px-4 py-3">
+              <span class="text-sm text-slate-500">建立人</span>
+              <span class="text-sm font-bold text-slate-800">{{ detailRecord.created_by_name }}</span>
+            </div>
+          </div>
+
+          <!-- 備注 -->
+          <div>
+            <p class="text-xs font-bold text-slate-500 uppercase mb-2">備注</p>
+            <div v-if="detailRecord.note"
+              class="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-800 border border-slate-100">
+              {{ detailRecord.note }}
+            </div>
+            <p v-else class="text-sm text-slate-400">無備注</p>
+          </div>
+
+          <!-- 附件照片 -->
+          <div>
+            <p class="text-xs font-bold text-slate-500 uppercase mb-2">附件照片</p>
+            <div v-if="detailRecord.attachments?.length" class="flex gap-2 flex-wrap">
+              <button v-for="(att, aidx) in detailRecord.attachments" :key="att.id"
+                @click="openLightbox(detailRecord.attachments.map(a=>a.file_url), aidx)"
+                class="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0">
+                <img :src="att.file_url" class="w-full h-full object-cover" />
+              </button>
+            </div>
+            <p v-else class="text-sm text-slate-400">無附件</p>
+          </div>
+
+          <button @click="showDetailSheet = false"
+            class="w-full py-3 rounded-2xl border border-slate-200 text-slate-600 font-bold text-sm">
+            關閉
           </button>
         </div>
       </div>
