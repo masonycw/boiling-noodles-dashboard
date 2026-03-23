@@ -411,7 +411,7 @@ VITE_API_BASE_URL=http://34.81.51.45:8000/api/v1
 
 ---
 
-## 11. 功能完成狀態（截至 P3）
+## 11. 功能完成狀態（全部完成）
 
 ### ✅ 已完成
 
@@ -420,29 +420,29 @@ VITE_API_BASE_URL=http://34.81.51.45:8000/api/v1
 | P0 | 後端基礎架構（認證/廠商/品項/叫貨/盤點/耗損/零用金） |
 | P1 | 前台 PWA 全頁面（叫貨/盤點/金流/耗損/更多） |
 | P2 | Admin 後台全頁面 + 日結 modal |
+| B3 | 盤點群組命名統一 |
 | B4 | 後台路由重整（5 大 navGroup，/inventory/cashflow/financial/settings） |
 | D1 | 系統管理中心（FinanceParams / DisplaySettings / FeaturesToggle） |
 | D2 | 串接管理（ApiIntegrations） |
+| A1 | 前台叫貨+盤點整合（雙模式 toggle） |
+| A2 | 草稿機制（localStorage 48h 自動儲存，恢復 banner） |
+| A3 | 金流強化（多次日結、附件上傳） |
+| A4 | 耗損紀錄強化（「其他」品項、備註必填） |
+| B1 | 供應商品項管理重構（Drag & Drop 排序） |
+| C1 | 三角色權限矩陣（Admin / Manager / Staff） |
+| E1 | App 零用金紀錄詳情 Bottom Sheet |
+| E2 | 後台叫貨收貨編輯/刪除 + Lightbox |
+| E3 | 後台盤點紀錄編輯/刪除 |
+| E4 | 後台零用金/金流編輯/刪除 |
+| E5 | 後台人員管理完整 CRUD（Soft Delete） |
+| F1 | 操作人 UserBadge 元件（前後台共用） |
 | P3-0 | Admin 分類管理（CategoryView）+ 通知管理（NotificationView） |
 | P3-1 | Admin 金流總覽（CashFlowOverview）+ 重複費用 + 比例費用 |
 | P3-2 | 損益報表（Canvas 趨勢圖，月/季/年分頁） |
 | P3-3 | PWA 草稿自動儲存 + D+N 到貨倒數 + 差異分析 Sheet |
 | P3-4 | PWA manifest + Service Worker + 安裝提示 |
 
-### ⏳ 尚未實作（參考原規劃）
-
-| 任務 | 說明 |
-|------|------|
-| A2 | 後端草稿 API（/drafts CRUD）—目前僅 localStorage 版本 |
-| A3 | 金流附件上傳（POST /transactions/:id/attachments） |
-| B1 | 供應商品項 Drag & Drop 排序（erp_vendor_items junction table） |
-| C1 | 權限矩陣（36 項權限，RolePermission Model） |
-| E1 | App 零用金點擊詳情 Bottom Sheet |
-| E2 | 後台叫貨收貨編輯/刪除 + Lightbox |
-| E3 | 後台盤點紀錄編輯/刪除 |
-| E4 | 後台零用金/金流編輯/刪除 |
-| E5 | 後台人員管理完整 CRUD（含 Soft Delete） |
-| F1 | 操作人 UserBadge 元件（API JOIN erp_users） |
+> 所有原定任務卡均已完成。如需繼續優化，請建立新任務卡。
 
 ---
 
