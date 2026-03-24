@@ -390,7 +390,7 @@ async function cancelOrder(order) {
 async function loadHistory() {
   historyLoading.value = true
   try {
-    const res = await fetch(`${API_BASE}/inventory/orders?days_limit=30`, { headers: authHeaders() })
+    const res = await fetch(`${API_BASE}/inventory/orders?status=received,cancelled&days_limit=60`, { headers: authHeaders() })
     if (res.ok) historyOrders.value = await res.json()
   } finally { historyLoading.value = false }
 }
