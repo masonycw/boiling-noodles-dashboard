@@ -123,11 +123,16 @@ const receiveSubmitting = ref(false)
 const receiveError = ref('')
 
 // ── 歷史紀錄 tab ──────────────────────────────
+const historyTab = ref('orders')  // 'orders' | 'stocktake'
 const historyOrders = ref([])
 const historyLoading = ref(false)
 const historySearch = ref('')
 const expandedOrderId = ref(null)
 const expandedItems = ref([])
+// 盤點歷史
+const historySessions = ref([])
+const historyStocktakeLoading = ref(false)
+const expandedSessions = ref(new Set())
 
 const filteredHistory = computed(() => {
   if (!historySearch.value.trim()) return historyOrders.value
@@ -395,6 +400,26 @@ async function loadHistory() {
   } finally { historyLoading.value = false }
 }
 
+async function loadStocktakeHistory() {
+  historyStocktakeLoading.value = true
+  try {
+    const res = await fetch(`${API_BASE}/stocktake/?days_limit=60&limit=50`, { headers: authHeaders() })
+    if (res.ok) historySessions.value = await res.json()
+  } finally { historyStocktakeLoading.value = false }
+}
+
+function toggleSession(id) {
+  const s = new Set(expandedSessions.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  expandedSessions.value = s
+}
+
+function switchHistoryTab(tab) {
+  historyTab.value = tab
+  if (tab === 'orders' && !historyOrders.value.length) loadHistory()
+  if (tab === 'stocktake' && !historySessions.value.length) loadStocktakeHistory()
+}
+
 async function toggleExpand(orderId) {
   if (expandedOrderId.value === orderId) { expandedOrderId.value = null; return }
   expandedOrderId.value = orderId
@@ -408,7 +433,10 @@ async function toggleExpand(orderId) {
 function switchTab(tab) {
   subTab.value = tab
   if (tab === 'pending') loadPending()
-  if (tab === 'history' && !historyOrders.value.length) loadHistory()
+  if (tab === 'history') {
+    historyTab.value = 'orders'
+    if (!historyOrders.value.length) loadHistory()
+  }
 }
 
 function fmtDate(d) { return d ? new Date(d).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' }) : '' }
@@ -840,56 +868,107 @@ const payBadge = (o) => {
     <!-- ═══ 歷史紀錄 Tab ═══ -->
     <div v-else-if="subTab==='history'" class="flex-1 pb-4">
 
-      <!-- Search bar -->
-      <div class="px-4 py-3 bg-white border-b border-slate-100 sticky top-[120px] z-10">
-        <div class="relative">
-          <input v-model="historySearch" type="text" placeholder="🔍 搜尋廠商 / 日期…"
-            class="w-full bg-slate-100 rounded-xl py-2.5 pl-4 pr-4 text-sm font-medium focus:ring-2 focus:ring-orange-400 focus:outline-none" />
+      <!-- 內 tab：已收貨 / 盤點歷史 -->
+      <div class="bg-white border-b border-slate-100 sticky top-[120px] z-10">
+        <div class="flex">
+          <button @click="switchHistoryTab('orders')"
+            class="flex-1 py-2.5 text-sm font-bold transition-colors"
+            :style="historyTab==='orders' ? 'color:#e85d04;border-bottom:2px solid #e85d04' : 'color:#94a3b8'">
+            已收貨
+          </button>
+          <button @click="switchHistoryTab('stocktake')"
+            class="flex-1 py-2.5 text-sm font-bold transition-colors"
+            :style="historyTab==='stocktake' ? 'color:#e85d04;border-bottom:2px solid #e85d04' : 'color:#94a3b8'">
+            盤點歷史
+          </button>
         </div>
       </div>
 
-      <div v-if="historyLoading" class="flex justify-center py-16">
-        <div class="animate-spin h-7 w-7 border-4 border-orange-500 border-t-transparent rounded-full"></div>
-      </div>
-      <div v-else-if="!filteredHistory.length" class="text-center py-16">
-        <p class="text-5xl mb-3">📋</p>
-        <p class="text-slate-400 font-bold">{{ historySearch ? '查無符合紀錄' : '近 30 天無紀錄' }}</p>
-      </div>
-      <div v-else class="divide-y divide-slate-100">
-        <div v-for="order in filteredHistory" :key="order.id" class="bg-white">
-          <button @click="toggleExpand(order.id)" class="w-full px-4 py-4 flex items-center gap-3 active:bg-slate-50">
-            <span class="text-xl shrink-0">📦</span>
-            <div class="flex-1 min-w-0 text-left">
-              <p class="font-extrabold text-slate-800 text-sm">{{ order.vendor_name }}</p>
-              <p class="text-xs text-slate-400 mt-0.5">
-                {{ fmtDate(order.created_at) }} · 實付 ${{ fmtMoney(order.total_amount) }}
-              </p>
-              <UserBadge v-if="order.created_by" :user="order.created_by" size="sm" class="mt-0.5" />
+      <!-- ── 已收貨 ── -->
+      <div v-if="historyTab==='orders'" class="px-4 py-3">
+        <div class="mb-3">
+          <input v-model="historySearch" type="text" placeholder="🔍 搜尋廠商 / 日期…"
+            class="w-full bg-slate-100 rounded-xl py-2.5 pl-4 pr-4 text-sm font-medium focus:ring-2 focus:ring-orange-400 focus:outline-none" />
+        </div>
+        <div v-if="historyLoading" class="flex justify-center py-16">
+          <div class="animate-spin h-7 w-7 border-4 border-orange-500 border-t-transparent rounded-full"></div>
+        </div>
+        <div v-else-if="!filteredHistory.length" class="text-center py-16">
+          <p class="text-5xl mb-3">📋</p>
+          <p class="text-slate-400 font-bold">{{ historySearch ? '查無符合紀錄' : '近 60 天無收貨紀錄' }}</p>
+        </div>
+        <div v-else class="space-y-2">
+          <div v-for="order in filteredHistory" :key="order.id" class="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <div @click="toggleExpand(order.id)" class="px-4 py-3 cursor-pointer active:bg-slate-50">
+              <div class="flex items-center justify-between mb-1">
+                <p class="font-extrabold text-slate-800">{{ order.vendor_name }}</p>
+                <p class="text-xs text-slate-400">{{ fmtDate(order.created_at) }}</p>
+              </div>
+              <div class="flex items-center justify-between text-xs text-slate-500">
+                <span>
+                  <span v-if="order.ordered_by">叫貨：{{ order.ordered_by.name }}</span>
+                  <span v-if="order.received_by"> · 簽收：{{ order.received_by.name }}</span>
+                </span>
+                <span class="font-bold" style="color:#e85d04">
+                  {{ order.total_items }} 品項 · ${{ fmtMoney(order.total_amount) }}
+                </span>
+              </div>
+              <div class="flex items-center justify-between mt-1">
+                <span class="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                  :style="order.is_paid ? 'background:#f0fdf4;color:#16a34a' : 'background:#fef9c3;color:#92400e'">
+                  {{ order.is_paid ? '已付款 ✓' : '未付款' }}
+                </span>
+                <span class="text-slate-400 text-xs">{{ expandedOrderId===order.id ? '▲' : '▼' }}</span>
+              </div>
             </div>
-            <div class="flex items-center gap-1.5 shrink-0">
-              <span v-if="payBadge(order)"
-                class="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                :class="payBadge(order).cls">
-                {{ payBadge(order).label }}
-              </span>
-              <span v-else class="text-xs font-bold px-2 py-1 rounded-full" :class="statusColor(order.status)">
-                {{ statusLabel(order.status) }}
-              </span>
-              <svg class="w-4 h-4 text-slate-300 transition-transform"
-                :class="expandedOrderId===order.id?'rotate-90':''"
-                fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-              </svg>
-            </div>
-          </button>
-          <div v-if="expandedOrderId===order.id" class="px-4 pb-3 bg-slate-50 border-t border-slate-100 space-y-1">
-            <div v-for="(item,idx) in expandedItems" :key="idx" class="flex justify-between text-sm py-1">
-              <span class="text-slate-700">{{ item.name || item.adhoc_name }}</span>
-              <span class="text-slate-500 font-bold">{{ item.qty }} {{ item.unit || item.adhoc_unit }}</span>
+            <div v-if="expandedOrderId===order.id" class="border-t border-slate-100 px-4 py-3 space-y-1">
+              <div v-for="(item,idx) in expandedItems" :key="idx" class="flex justify-between text-sm py-0.5">
+                <span class="text-slate-700">{{ item.name || item.adhoc_name }}</span>
+                <span class="text-slate-500 text-xs">{{ item.qty }} {{ item.unit || item.adhoc_unit }}</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      <!-- ── 盤點歷史 ── -->
+      <div v-else class="px-4 py-3">
+        <div v-if="historyStocktakeLoading" class="flex justify-center py-16">
+          <div class="animate-spin h-7 w-7 border-4 border-orange-500 border-t-transparent rounded-full"></div>
+        </div>
+        <div v-else-if="historySessions.length === 0" class="text-center py-16">
+          <p class="text-5xl mb-3">📋</p>
+          <p class="text-slate-400 font-bold">近 60 天無盤點紀錄</p>
+        </div>
+        <div v-else class="space-y-2">
+          <div v-for="s in historySessions" :key="s.id" class="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <div @click="toggleSession(s.id)" class="px-4 py-3 cursor-pointer active:bg-slate-50">
+              <div class="flex items-center justify-between mb-1">
+                <p class="font-extrabold text-slate-800">{{ s.group_name || '全部品項' }}</p>
+                <p class="text-xs text-slate-400">{{ fmtDate(s.created_at) }}</p>
+              </div>
+              <div class="flex items-center justify-between text-xs text-slate-500">
+                <span v-if="s.performed_by">執行人：{{ s.performed_by.name || s.performed_by }}</span>
+                <span>{{ s.total_items || 0 }} 品項</span>
+              </div>
+              <div class="flex items-center justify-between mt-1">
+                <span class="text-[10px] font-bold"
+                  :class="(s.discrepancy_count || 0) > 0 ? 'text-red-500' : 'text-emerald-600'">
+                  {{ (s.discrepancy_count || 0) > 0 ? `差異 ${s.discrepancy_count} 項` : '無差異 ✓' }}
+                </span>
+                <span class="text-slate-400 text-xs">{{ expandedSessions.has(s.id) ? '▲' : '▼' }}</span>
+              </div>
+            </div>
+            <div v-if="expandedSessions.has(s.id) && s.discrepancies?.length" class="border-t border-slate-100 px-4 py-3 space-y-1">
+              <div v-for="d in s.discrepancies" :key="d.item_id" class="flex items-center justify-between text-sm">
+                <span class="text-slate-700">{{ d.item_name }}</span>
+                <span class="text-red-500 text-xs font-bold">系統 {{ d.system_qty }} / 實盤 {{ d.counted_qty }} {{ d.unit }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- ═══ Order Preview Bottom Sheet ═══ -->
