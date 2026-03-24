@@ -162,13 +162,13 @@ onMounted(loadOrders)
               <p class="text-xs text-slate-400">{{ fmtDate(s.created_at) }}</p>
             </div>
             <div class="flex items-center justify-between text-xs text-slate-500">
-              <span v-if="s.created_by">執行人：{{ s.created_by.name || s.created_by }}</span>
+              <span v-if="s.performed_by">執行人：{{ s.performed_by.name || s.performed_by }}</span>
               <span>{{ s.total_items || 0 }} 品項</span>
             </div>
             <div class="flex items-center justify-between mt-1">
               <span class="text-[10px] font-bold"
-                :class="(s.diff_count || 0) > 0 ? 'text-red-500' : 'text-emerald-600'">
-                {{ (s.diff_count || 0) > 0 ? `差異 ${s.diff_count} 項` : '無差異 ✓' }}
+                :class="(s.discrepancy_count || 0) > 0 ? 'text-red-500' : 'text-emerald-600'">
+                {{ (s.discrepancy_count || 0) > 0 ? `差異 ${s.discrepancy_count} 項` : '無差異 ✓' }}
               </span>
               <span class="text-slate-400 text-xs">{{ expandedSessions.has(s.id) ? '▲' : '▼' }}</span>
             </div>
