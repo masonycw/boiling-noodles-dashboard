@@ -45,8 +45,13 @@ const estimatedDeliveryLabel = computed(() => {
 
 // ── 草稿自動儲存 (P3-3) ──────────────────────────
 const draftBanner = ref(null)
-const DRAFT_KEY = () => `draft:order:${auth.user?.id || 'anon'}`
+const DRAFT_PREFIX = () => `draft:order:${auth.user?.id || 'anon'}:`
+const DRAFT_KEY = (vendorId) => `${DRAFT_PREFIX()}${vendorId || 'none'}`
 const DRAFT_TTL = 48 * 60 * 60 * 1000
+
+// 草稿選單
+const showDraftSheet = ref(false)
+const draftsList = ref([])
 
 function saveDraft() {
   if (!selectedVendor.value || orderedCount.value === 0) return
@@ -59,25 +64,43 @@ function saveDraft() {
       adHocItems: toRaw(adHocItems.value),
       expectedDeliveryDate: expectedDeliveryDate.value
     }
-    localStorage.setItem(DRAFT_KEY(), JSON.stringify(draft))
+    localStorage.setItem(DRAFT_KEY(selectedVendor.value.id), JSON.stringify(draft))
   } catch (e) {
     console.error('Draft save failed:', e)
   }
 }
 
-function loadDraftBanner() {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY())
-    if (!raw) return
-    const draft = JSON.parse(raw)
-    if (Date.now() - draft.timestamp > DRAFT_TTL) { localStorage.removeItem(DRAFT_KEY()); return }
-    draftBanner.value = draft
-  } catch { localStorage.removeItem(DRAFT_KEY()) }
+function getAllDrafts() {
+  const prefix = DRAFT_PREFIX()
+  const drafts = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (!key?.startsWith(prefix)) continue
+    try {
+      const d = JSON.parse(localStorage.getItem(key))
+      if (Date.now() - d.timestamp <= DRAFT_TTL) {
+        drafts.push({ ...d, _key: key })
+      } else {
+        localStorage.removeItem(key)
+      }
+    } catch { localStorage.removeItem(key) }
+  }
+  return drafts.sort((a, b) => b.timestamp - a.timestamp)
 }
 
-async function resumeDraft() {
-  const draft = draftBanner.value
-  if (!draft) return
+function openDraftSheet() {
+  draftsList.value = getAllDrafts()
+  showDraftSheet.value = true
+}
+
+function loadDraftBanner() {
+  // 向後相容：掃描是否有任一草稿，有就顯示 banner（onMounted 用）
+  const drafts = getAllDrafts()
+  if (drafts.length) draftBanner.value = drafts[0]
+}
+
+async function resumeDraft(draft) {
+  showDraftSheet.value = false
   draftBanner.value = null
   const v = vendors.value.find(v => v.id === draft.vendorId)
   if (v) {
@@ -89,12 +112,14 @@ async function resumeDraft() {
     adHocItems.value = draft.adHocItems || []
     if (draft.expectedDeliveryDate) expectedDeliveryDate.value = draft.expectedDeliveryDate
   }
-  localStorage.removeItem(DRAFT_KEY())
+  localStorage.removeItem(draft._key || DRAFT_KEY(draft.vendorId))
 }
 
-function discardDraft() {
-  localStorage.removeItem(DRAFT_KEY())
+function discardDraft(draft) {
+  localStorage.removeItem(draft?._key || DRAFT_KEY(draft?.vendorId))
   draftBanner.value = null
+  draftsList.value = getAllDrafts()
+  if (!draftsList.value.length) showDraftSheet.value = false
 }
 
 let _draftTimer = null
@@ -195,14 +220,6 @@ function saveDraftToServer() {
   setTimeout(() => { draftToast.value = '' }, 2000)
 }
 
-const hasSavedDraft = computed(() => {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY())
-    if (!raw) return false
-    const d = JSON.parse(raw)
-    return Date.now() - d.timestamp <= DRAFT_TTL
-  } catch { return false }
-})
 
 // A2: 盤點歷史底部抽屜
 const showStocktakeHistory = ref(false)
@@ -500,8 +517,8 @@ const payBadge = (o) => {
       <div v-if="draftBanner" class="mx-3 mt-3 rounded-xl px-3 py-2.5 bg-amber-50 border border-amber-200">
         <p class="text-xs font-bold text-amber-800">📌 發現未完成的叫貨草稿（{{ draftBanner.vendorName }}）</p>
         <div class="flex gap-2 mt-1.5">
-          <button @click="resumeDraft" class="flex-1 bg-orange-500 text-white text-xs font-bold py-1.5 rounded-lg">繼續編輯</button>
-          <button @click="discardDraft" class="flex-1 bg-slate-200 text-slate-600 text-xs font-bold py-1.5 rounded-lg">丟棄草稿</button>
+          <button @click="resumeDraft(draftBanner)" class="flex-1 bg-orange-500 text-white text-xs font-bold py-1.5 rounded-lg">繼續編輯</button>
+          <button @click="discardDraft(draftBanner)" class="flex-1 bg-slate-200 text-slate-600 text-xs font-bold py-1.5 rounded-lg">丟棄草稿</button>
         </div>
       </div>
 
@@ -523,10 +540,11 @@ const payBadge = (o) => {
           </button>
         </div>
 
-        <!-- 草稿提示按鈕（有草稿時才顯示） -->
-        <button v-if="hasSavedDraft && !draftBanner" @click="loadDraftBanner"
-          class="w-full py-2 rounded-xl text-xs font-bold bg-amber-50 border border-amber-300 text-amber-700 flex items-center justify-center gap-1.5">
-          📌 有未完成草稿，點此載入
+        <!-- 草稿選單按鈕 -->
+        <button @click="openDraftSheet"
+          class="w-full py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5"
+          :class="getAllDrafts().length ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-400'">
+          📌 草稿{{ getAllDrafts().length ? `（${getAllDrafts().length}）` : '（無）' }}
         </button>
 
         <!-- Vendor chips -->
@@ -759,6 +777,37 @@ const payBadge = (o) => {
                 </div>
               </div>
             </template>
+          </div>
+        </div>
+      </div>
+      <!-- 草稿選單底部抽屜 -->
+      <div v-if="showDraftSheet" class="fixed inset-0 bg-black/50 z-[60] flex items-end" @click.self="showDraftSheet=false">
+        <div class="bg-white w-full rounded-t-3xl max-h-[70vh] flex flex-col">
+          <div class="flex-shrink-0 px-5 pt-4 pb-3">
+            <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+            <div class="flex items-center justify-between">
+              <h3 class="text-base font-extrabold text-slate-800">已存草稿</h3>
+              <button @click="showDraftSheet=false" class="text-slate-400 text-xl font-bold">✕</button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-y-auto px-5 pb-6 space-y-3">
+            <div v-if="!draftsList.length" class="text-center py-10 text-slate-400 text-sm">無已存草稿</div>
+            <div v-for="d in draftsList" :key="d._key"
+              class="bg-slate-50 rounded-xl p-4 flex items-center justify-between gap-3">
+              <div class="flex-1 min-w-0">
+                <p class="font-bold text-slate-800 text-sm">{{ d.vendorName }}</p>
+                <p class="text-xs text-slate-400 mt-0.5">
+                  {{ d.qtys.length + (d.adHocItems?.length || 0) }} 品項
+                  · {{ new Date(d.timestamp).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}
+                </p>
+              </div>
+              <div class="flex gap-2 shrink-0">
+                <button @click="discardDraft(d)"
+                  class="px-3 py-1.5 bg-slate-200 text-slate-500 text-xs font-bold rounded-lg">刪除</button>
+                <button @click="resumeDraft(d)"
+                  class="px-3 py-1.5 text-white text-xs font-bold rounded-lg" style="background:#e85d04">載入</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
