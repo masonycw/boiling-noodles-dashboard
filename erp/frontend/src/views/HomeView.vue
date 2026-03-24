@@ -67,7 +67,7 @@ function fmtTime(d) {
 </script>
 
 <template>
-  <div class="min-h-full bg-slate-50 pb-8">
+  <div class="min-h-full bg-slate-50 pb-24">
 
     <!-- 橘色問候語橫幅 -->
     <div style="background:#e85d04" class="text-white px-5 pt-12 pb-6">

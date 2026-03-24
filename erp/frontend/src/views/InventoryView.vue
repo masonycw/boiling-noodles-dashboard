@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, onUnmounted } from 'vue'
+import { ref, onMounted, computed, onUnmounted, toRaw } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import UserBadge from '@/components/UserBadge.vue'
@@ -50,15 +50,19 @@ const DRAFT_TTL = 48 * 60 * 60 * 1000
 
 function saveDraft() {
   if (!selectedVendor.value || orderedCount.value === 0) return
-  const draft = {
-    timestamp: Date.now(),
-    vendorId: selectedVendor.value.id,
-    vendorName: selectedVendor.value.name,
-    qtys: items.value.filter(i => i.qty > 0).map(i => ({ id: i.id, qty: i.qty })),
-    adHocItems: adHocItems.value,
-    expectedDeliveryDate: expectedDeliveryDate.value
+  try {
+    const draft = {
+      timestamp: Date.now(),
+      vendorId: selectedVendor.value.id,
+      vendorName: selectedVendor.value.name,
+      qtys: toRaw(items.value).filter(i => i.qty > 0).map(i => ({ id: i.id, qty: i.qty })),
+      adHocItems: toRaw(adHocItems.value),
+      expectedDeliveryDate: expectedDeliveryDate.value
+    }
+    localStorage.setItem(DRAFT_KEY(), JSON.stringify(draft))
+  } catch (e) {
+    console.error('Draft save failed:', e)
   }
-  localStorage.setItem(DRAFT_KEY(), JSON.stringify(draft))
 }
 
 function loadDraftBanner() {
@@ -259,11 +263,27 @@ async function submitPendingReceive() {
       }
     }
 
-    // Reset + show toast + go to pending tab
+    // Auto-copy LINE message and switch to pending tab
+    if (modeOrder.value && allItems.length > 0) {
+      try {
+        const lineMsg = buildLineMessage(
+          selectedVendor.value?.name || '',
+          items.value.filter(i => i.qty > 0),
+          adHocItems.value,
+          expectedDeliveryDate.value
+        )
+        await navigator.clipboard.writeText(lineMsg)
+        submitToast.value = '已複製 LINE 訊息 ✓'
+      } catch {
+        submitToast.value = '✓ 已送出！訂單進入待收貨清單'
+      }
+    } else {
+      submitToast.value = '✓ 已送出！'
+    }
+    // Reset form
     items.value.forEach(i => { i.qty = 0; i.actual_qty = null })
     adHocItems.value = []
     localStorage.removeItem(DRAFT_KEY())
-    submitToast.value = '✓ 已送出！訂單進入待收貨清單'
     setTimeout(() => { submitToast.value = ''; switchTab('pending') }, 1800)
   } catch (e) {
     submitToast.value = `⚠ ${e.message || '送出失敗'}`
@@ -273,11 +293,46 @@ async function submitPendingReceive() {
   }
 }
 
+// Build LINE message for an order
+function buildLineMessage(vendorName, orderItems, adHocList, date) {
+  const today = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: 'numeric', day: 'numeric' })
+  let text = `【叫貨單】${vendorName}\n日期：${today}\n──────────\n`
+  orderItems.forEach(i => { text += `${i.name} × ${i.qty} ${i.unit || ''}\n` })
+  adHocList.forEach(i => { text += `${i.name} × ${i.qty} ${i.unit || ''}\n` })
+  text += `──────────`
+  if (date) text += `\n預計到貨：${date}`
+  return text
+}
+
 // Legacy - kept for backward compat but hidden from UI
 async function openPreview() { await submitPendingReceive() }
 async function copyAndClose() { showPreviewSheet.value = false }
 
 // ── 待收貨 ──────────────────────────────────
+async function copyOrderLineMsg(order) {
+  try {
+    // Fetch order items
+    const res = await fetch(`${API_BASE}/inventory/orders/${order.id}`, { headers: authHeaders() })
+    let orderItems = []
+    if (res.ok) {
+      const data = await res.json()
+      orderItems = Array.isArray(data) ? data : (data.items || [])
+    }
+    const lineMsg = buildLineMessage(
+      order.vendor_name || '',
+      orderItems,
+      [],
+      order.expected_delivery_date
+    )
+    await navigator.clipboard.writeText(lineMsg)
+    submitToast.value = '已複製 LINE 訊息 ✓'
+    setTimeout(() => { submitToast.value = '' }, 2000)
+  } catch {
+    submitToast.value = '複製失敗'
+    setTimeout(() => { submitToast.value = '' }, 2000)
+  }
+}
+
 async function loadPending() {
   pendingLoading.value = true
   try {
@@ -369,7 +424,7 @@ const payBadge = (o) => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 flex flex-col pb-16">
+  <div class="min-h-screen bg-slate-50 flex flex-col pb-24">
 
     <!-- Header + sub-tabs -->
     <header class="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -697,6 +752,10 @@ const payBadge = (o) => {
               <button @click="cancelOrder(order)"
                 class="flex-1 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl active:bg-slate-200">
                 🗑 刪除
+              </button>
+              <button @click="copyOrderLineMsg(order)"
+                class="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl active:scale-95 border border-blue-100">
+                📋 複製訊息
               </button>
               <button @click="openReceive(order)"
                 class="flex-[2] py-2 text-white text-xs font-bold rounded-xl active:scale-95"

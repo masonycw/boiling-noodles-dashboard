@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, toRaw } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -202,15 +202,20 @@ const DRAFT_TTL = 48 * 60 * 60 * 1000
 
 function saveDraft() {
   if (Object.keys(counts.value).length === 0) return
-  const draft = {
-    timestamp: Date.now(),
-    groupId: selectedGroup.value?.id || null,
-    groupName: selectedGroup.value?.name || '全部品項',
-    counts: counts.value,
-    modeStocktake: modeStocktake.value,
-    modeOrder: modeOrder.value
+  try {
+    const rawCounts = toRaw(counts.value)
+    const draft = {
+      timestamp: Date.now(),
+      groupId: selectedGroup.value?.id || null,
+      groupName: selectedGroup.value?.name || '全部品項',
+      counts: rawCounts,
+      modeStocktake: modeStocktake.value,
+      modeOrder: modeOrder.value
+    }
+    localStorage.setItem(DRAFT_KEY(), JSON.stringify(draft))
+  } catch (e) {
+    console.error('Draft save failed:', e)
   }
-  localStorage.setItem(DRAFT_KEY(), JSON.stringify(draft))
 }
 
 function loadDraftBanner() {

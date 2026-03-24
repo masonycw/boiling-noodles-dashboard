@@ -127,8 +127,15 @@ async function loadAll() {
       canSettle.value = cs.can_settle !== false
       unsettledCount.value = cs.unsettled_count || 0
     } else {
-      // fallback: if no settlements today, can settle
-      canSettle.value = settlementCount.value === 0 || unsettledCount.value > 0
+      // fallback: check if there are new transactions since last settlement
+      if (!settlements.value.length) {
+        canSettle.value = true
+      } else {
+        const lastSettlementTime = new Date(settlements.value[0].settled_at || settlements.value[0].created_at)
+        canSettle.value = todayRecords.value.some(t =>
+          new Date(t.created_at) > lastSettlementTime
+        )
+      }
     }
   } finally {
     isLoading.value = false
@@ -243,7 +250,12 @@ function typeLabel(type) {
 // ---- Helpers ----
 function fmtDate(d) {
   if (!d) return ''
-  return new Date(d).toLocaleString('zh-TW', { hour: '2-digit', minute: '2-digit' })
+  const dt = new Date(d)
+  const mm = String(dt.getMonth() + 1).padStart(2, '0')
+  const dd = String(dt.getDate()).padStart(2, '0')
+  const hh = String(dt.getHours()).padStart(2, '0')
+  const min = String(dt.getMinutes()).padStart(2, '0')
+  return `${mm}/${dd} ${hh}:${min}`
 }
 function fmtFullDate(d) {
   if (!d) return ''
@@ -333,21 +345,21 @@ function txSubtitle(r) {
         <p class="font-bold text-slate-600 mb-2" style="font-size:12px">
           今日流水 — {{ new Date().toLocaleDateString('zh-TW', { month:'numeric', day:'numeric' }) }}
         </p>
-        <!-- A3: 多次日結分隔線（含餘額快照） -->
+        <!-- A3: 多次日結分隔線（非可展開，純樣式分隔） -->
         <div v-for="(s, si) in settlements" :key="s.id || si" class="my-3">
-          <div class="border-2 border-orange-200 rounded-xl px-3 py-2 bg-orange-50">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-extrabold text-orange-600">🔒 第 {{ s.settlement_number || (si+1) }} 次日結</span>
-              <span class="text-xs text-slate-400">{{ s.settled_at ? fmtDate(s.settled_at) : '' }}</span>
+          <div class="flex items-center gap-2">
+            <div class="flex-1 h-px bg-orange-200"></div>
+            <div class="flex items-center gap-1.5 text-[10px] font-bold text-orange-600 bg-orange-50 border border-orange-200 rounded-full px-3 py-1 whitespace-nowrap">
+              <span>🔒</span>
+              <span>第 {{ s.settlement_number || (si+1) }} 次日結</span>
+              <span class="text-orange-400">·</span>
+              <span>{{ s.settled_at ? fmtDate(s.settled_at) : '' }}</span>
+              <span v-if="s.settled_by_name" class="text-orange-400">·</span>
+              <span v-if="s.settled_by_name">{{ s.settled_by_name }}</span>
+              <span v-if="s.closing_balance != null" class="text-orange-400">·</span>
+              <span v-if="s.closing_balance != null">NT${{ fmtMoney(s.closing_balance) }}</span>
             </div>
-            <div class="flex items-center justify-between mt-1">
-              <span class="text-xs text-slate-500">{{ s.settled_by_name || '' }}</span>
-              <span v-if="s.closing_balance != null"
-                class="text-sm font-black"
-                :class="s.closing_balance >= 0 ? 'text-emerald-600' : 'text-red-500'">
-                結算餘額 ${{ fmtMoney(s.closing_balance) }}
-              </span>
-            </div>
+            <div class="flex-1 h-px bg-orange-200"></div>
           </div>
         </div>
 

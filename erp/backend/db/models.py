@@ -440,3 +440,22 @@ class ProportionalFeeRule(Base):
     is_active = Column(Boolean, default=True)
     note = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─────────────────────────────────────────────
+# LINE Integration
+# ─────────────────────────────────────────────
+
+class SystemSetting(Base):
+    __tablename__ = "erp_system_settings"
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, default="")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class LinePendingGroup(Base):
+    __tablename__ = "erp_line_pending_groups"
+    id = Column(Integer, primary_key=True)
+    group_id = Column(String(100), unique=True)
+    first_seen = Column(DateTime(timezone=True), server_default=func.now())
+    matched = Column(Boolean, default=False)
