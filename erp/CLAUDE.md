@@ -1,8 +1,8 @@
 # 滾麵 ERP — Claude Code 開發指南
 
-> 最後更新：2026-03-24（O1–O8 全部完成，O9 部分完成）
+> 最後更新：2026-03-25
 > Git 倉庫：https://github.com/masonycw/boiling-noodles-dashboard
-> 最新 commit：ab87899（O5 + O7 完成：首頁待盤點清單 + 權限系統強化）
+> 維護規則：每次改動邏輯、目錄結構、業務規則，**必須同步更新本文件對應章節**，底部只保留最近進度摘要（舊的刪除）
 
 ---
 
@@ -65,12 +65,12 @@ erp/                                ← 本 CLAUDE.md 所在位置
 │       ├── views/
 │       │   ├── LoginView.vue
 │       │   ├── HomeView.vue        ← 待收貨 + 待盤點清單（O5）；低庫存警示
-│       │   ├── InventoryView.vue   ← 叫貨（含草稿自動儲存 P3-3、D+N 倒數）
+│       │   ├── InventoryView.vue   ← 3-tab：叫貨（草稿/D+N）/ 待收貨 / 歷史紀錄（子tab：已收貨+盤點歷史）
 │       │   ├── StocktakeView.vue   ← 盤點（singleMode compact；route.query.group 自動選；O5 次日 Modal）
 │       │   ├── FinanceView.vue     ← 零用金 + 日結
 │       │   ├── WasteView.vue       ← 2-tab：記錄耗損 / 歷史紀錄（O4）
 │       │   ├── MoreView.vue        ← 含 PWA 安裝按鈕 P3-4
-│       │   ├── HistoryView.vue     ← 2-tab：叫貨紀錄（status=received）/ 盤點紀錄（O2）
+│       │   ├── HistoryView.vue     ← 獨立歷史頁（/history）；前台叫貨/盤點歷史已整合進 InventoryView
 │       │   └── ManagementView.vue
 │       ├── stores/auth.js          ← Pinia auth store（JWT token + user.role）
 │       └── router/index.js         ← 路由守衛（login/role 雙重守衛，O7）
@@ -266,7 +266,7 @@ erp/                                ← 本 CLAUDE.md 所在位置
 | ItemCategory | erp_item_categories | id, name, display_order |
 | StocktakeGroup | erp_stocktake_groups | id, name, display_order, is_active, stocktake_cycle_days, next_stocktake_due（O5） |
 | Item | erp_items | id, name, unit, vendor_id FK, category_id FK, current_stock, min_stock, price |
-| PurchaseOrder | erp_purchase_orders | id, vendor_id FK, status, ordered_at, updated_at, user_id FK（叫貨人）, receive_user_id FK（簽收人，O2） |
+| PurchaseOrder | erp_purchase_orders | id, vendor_id FK, **status**（CHECK: confirmed/received/cancelled）, ordered_at, updated_at, user_id FK（叫貨人）, receive_user_id FK（簽收人） |
 | PurchaseOrderDetail | erp_purchase_order_details | order_id FK, item_id FK, qty, actual_qty |
 | InventoryTransaction | erp_inventory_transactions | item_id FK, qty, type |
 | Stocktake | erp_stocktakes | id, group_id FK, mode, status |
@@ -391,7 +391,8 @@ function hasRole(userRole, required) {
 - 主色：`#e85d04`（品牌橘）
 - 字型：Inter / system-ui
 - 圓角：`rounded-xl`（卡片）/ `rounded-2xl`（按鈕）
-- 底部 Bottom Sheet：`fixed inset-0 bg-black/50 z-50 flex items-end`
+- 底部 Bottom Sheet：`fixed inset-0 bg-black/50 z-50 flex items-end`；內部 `max-h-[92vh] flex flex-col`，header `flex-shrink-0`，內容 `flex-1 overflow-y-auto`，按鈕 `flex-shrink-0`
+- 固定在頁面底部的 action bar：用 `style="bottom: calc(4rem + max(16px, env(safe-area-inset-bottom))); will-change: transform;"` 而非 `fixed bottom-16`（避免 iOS safe-area 遮擋）
 
 ### 8.2 Admin 後台設計系統
 
@@ -428,6 +429,7 @@ db.query(User).filter(User.deleted_at == None).all()
 
 | 規則 | 適用範圍 | 後端要求 |
 |------|----------|----------|
+| **叫貨單 status 只有三種：confirmed / received / cancelled** | DB | 送出即 confirmed，簽收變 received；舊的 pending 已全部 migrate 為 confirmed，CHECK constraint 已更新 |
 | 已收貨訂單不可在 App 編輯/刪除 | 前台 | PUT/DELETE /orders/:id → 403 if status=received |
 | 今天之前的盤點不可在 App 編輯/刪除 | 前台 | PUT/DELETE /stocktakes/:id → 403 if date < today |
 | App 零用金不可編輯/刪除 | 前台 | 前端不提供按鈕 |
@@ -437,7 +439,7 @@ db.query(User).filter(User.deleted_at == None).all()
 | CashFlowRecurring.category 為 VARCHAR | DB | 不是 FK，直接存字串分類名稱 |
 | erp_item_categories 需 display_order | DB | 已 ALTER TABLE 加欄位（2026-03-24） |
 | SW 只在 HTTPS 或 localhost 運作 | PWA | 本地開發用 localhost，正式環境需 HTTPS |
-| HistoryView 叫貨紀錄只顯示 status=received 訂單 | 前台 | 待收貨不在歷史紀錄 Tab 中（O2） |
+| InventoryView 歷史紀錄 tab 分 2 子 tab | 前台 | 已收貨（status=received）/ 盤點歷史；confirmed 只在「待收貨」tab 顯示 |
 | 支出類金流紀錄的 category_id 應有值 | DB | 無值則後台列表顯示 ⚠️ 未分科目（O6） |
 | 收入/提領類金流不歸科目 | 後台 | category_id 只適用 expense 類型（O6） |
 | LINE Channel Secret / Access Token 存 DB | 後端 | 不寫死在程式，從 erp_system_settings 讀取（O9） |
@@ -465,50 +467,28 @@ VITE_API_BASE_URL=http://34.81.51.45:8000/api/v1
 
 ---
 
-## 11. 功能完成狀態（全部完成）
+## 11. 功能進度
 
-### ✅ 已完成
-
-| 批次 | 功能 |
-|------|------|
-| P0 | 後端基礎架構（認證/廠商/品項/叫貨/盤點/耗損/零用金） |
-| P1 | 前台 PWA 全頁面（叫貨/盤點/金流/耗損/更多） |
-| P2 | Admin 後台全頁面 + 日結 modal |
-| B3 | 盤點群組命名統一 |
-| B4 | 後台路由重整（5 大 navGroup，/inventory/cashflow/financial/settings） |
-| D1 | 系統管理中心（FinanceParams / DisplaySettings / FeaturesToggle） |
-| D2 | 串接管理（ApiIntegrations） |
-| A1 | 前台叫貨+盤點整合（雙模式 toggle） |
-| A2 | 草稿機制（localStorage 48h 自動儲存，恢復 banner） |
-| A3 | 金流強化（多次日結、附件上傳） |
-| A4 | 耗損紀錄強化（「其他」品項、備註必填） |
-| B1 | 供應商品項管理重構（Drag & Drop 排序） |
-| C1 | 三角色權限矩陣（Admin / Manager / Staff） |
-| E1 | App 零用金紀錄詳情 Bottom Sheet |
-| E2 | 後台叫貨收貨編輯/刪除 + Lightbox |
-| E3 | 後台盤點紀錄編輯/刪除 |
-| E4 | 後台零用金/金流編輯/刪除 |
-| E5 | 後台人員管理完整 CRUD（Soft Delete） |
-| F1 | 操作人 UserBadge 元件（前後台共用） |
-| P3-0 | Admin 分類管理（CategoryView）+ 通知管理（NotificationView） |
-| P3-1 | Admin 金流總覽（CashFlowOverview）+ 重複費用 + 比例費用 |
-| P3-2 | 損益報表（Canvas 趨勢圖，月/季/年分頁） |
-| P3-3 | PWA 草稿自動儲存 + D+N 到貨倒數 + 差異分析 Sheet |
-| P3-4 | PWA manifest + Service Worker + 安裝提示 |
-
-### O 系列優化任務（2026-03-24 起）
+### O 系列優化任務
 
 | 任務 | 說明 | 狀態 |
 |------|------|------|
-| O1 | 前台叫貨送出流程修正 + 暫存修復 + 臨時品項連續新增 | ✅ 已完成 |
-| O2 | HistoryView 2-tab 重構（叫貨只顯示 received + 操作人顯示） | ✅ 已完成 |
-| O3 | 金流日結排序/多次日結/日期顯示修正 | ✅ 已完成 |
-| O4 | WasteView 2-tab（記錄耗損/歷史紀錄）+ StocktakeView singleMode 緊湊版 | ✅ 已完成 |
-| O5 | 首頁待盤點清單（依週期天數 + next_stocktake_due 提醒） | ✅ 已完成 |
-| O6 | 後台金流科目化（日期篩選/手動新增/廠商預設科目/inline 編輯/小計） | ✅ 已完成 |
-| O7 | 權限系統強化（路由守衛生效、cashier 角色） | ✅ 已完成 |
-| O8 | 底部遮擋修正（scroll container pb-24） | ✅ 已完成（含入 O1/O3 調整） |
-| O9 | LINE 訊息自動發送（叫貨送出推播至廠商群組） | 🔨 部分完成（Webhook 驗證通過；廠商 group_id 管理待串） |
+| O1 | 叫貨送出流程（送出即 confirmed，直進待收貨）+ 草稿/臨時品項 | ✅ |
+| O2 | 叫貨歷史操作人（performed_by）+ discrepancy_count 欄位修正 | ✅ |
+| O3 | 日結多次/排序/closing_balance/settled_by；移除 UNIQUE constraint | ✅ |
+| O4 | WasteView 2-tab + StocktakeView singleMode 緊湊版 | ✅ |
+| O5 | 首頁待盤點清單（next_stocktake_due + cycle_days 提醒） | ✅ |
+| O6 | 後台金流科目化（日期篩選/手動新增/廠商預設科目/inline 編輯） | ✅ |
+| O7 | 權限系統（cashier 角色、路由守衛、nav items 過濾） | ✅ |
+| O8 | iOS bottom action bar 固定位置（safe-area-inset-bottom） | ✅ |
+| O9 | LINE 訊息推播至廠商群組 | 🔨 Webhook 驗證通過，group_id UI 管理待串 |
+
+### 最近進度（2026-03-25）
+
+- **叫貨單 status 體系重整**：DB CHECK constraint 從 `pending/ordered/received/cancelled` 改為 `confirmed/received/cancelled`；所有舊 pending 資料已 migrate 為 confirmed
+- **InventoryView 歷史紀錄 tab**：新增 2 子 tab（已收貨 / 盤點歷史）
+- **iOS action bar 定位**：`fixed bottom-16` → `calc(4rem + max(16px, env(safe-area-inset-bottom)))` + `will-change: transform`
+- **admin 密碼**：已重設為 `admin123`
 
 ---
 
