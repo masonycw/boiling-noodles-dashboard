@@ -160,7 +160,7 @@ class PurchaseOrder(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("erp_users.id"))
     vendor_id = Column(Integer, ForeignKey("erp_vendors.id"))
-    status = Column(String, default="pending")               # pending / confirmed / received / cancelled
+    status = Column(String, default="confirmed")              # confirmed（待收貨）/ received（已收貨）/ cancelled（已取消）
     total_items = Column(Integer, default=0)
     note = Column(String)
     expected_delivery_date = Column(DateTime(timezone=True))

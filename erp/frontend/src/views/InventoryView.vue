@@ -336,7 +336,7 @@ async function copyOrderLineMsg(order) {
 async function loadPending() {
   pendingLoading.value = true
   try {
-    const res = await fetch(`${API_BASE}/inventory/orders?status=pending,confirmed`, { headers: authHeaders() })
+    const res = await fetch(`${API_BASE}/inventory/orders?status=confirmed`, { headers: authHeaders() })
     if (res.ok) pendingOrders.value = await res.json()
   } finally { pendingLoading.value = false }
 }
@@ -413,8 +413,8 @@ function switchTab(tab) {
 
 function fmtDate(d) { return d ? new Date(d).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' }) : '' }
 function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
-const statusLabel = s => ({ pending: '待確認', confirmed: '待收貨', received: '已收貨', cancelled: '已取消' }[s] || s)
-const statusColor = s => ({ pending: 'bg-gray-100 text-gray-500', confirmed: 'bg-amber-100 text-amber-600', received: 'bg-emerald-100 text-emerald-600', cancelled: 'bg-red-100 text-red-400' }[s] || 'bg-gray-100 text-gray-400')
+const statusLabel = s => ({ confirmed: '待收貨', received: '已收貨', cancelled: '已取消' }[s] || s)
+const statusColor = s => ({ confirmed: 'bg-amber-100 text-amber-600', received: 'bg-emerald-100 text-emerald-600', cancelled: 'bg-red-100 text-red-400' }[s] || 'bg-gray-100 text-gray-400')
 const payBadge = (o) => {
   if (o.status !== 'received') return null
   if (o.is_paid) return { label: '已付', cls: 'bg-emerald-100 text-emerald-600' }
