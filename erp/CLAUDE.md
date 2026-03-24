@@ -1,8 +1,8 @@
 # 滾麵 ERP — Claude Code 開發指南
 
-> 最後更新：2026-03-24（P3 實作完成後）
+> 最後更新：2026-03-24（O 系列優化 + LINE 串接基礎建設）
 > Git 倉庫：https://github.com/masonycw/boiling-noodles-dashboard
-> 最新 commit：257c7e7（P3-0 ~ P3-4 全部完成）
+> 最新 commit：ff31624（O8/O1/O3 + LINE webhook + ngrok）
 
 ---
 
@@ -34,12 +34,18 @@ erp/                                ← 本 CLAUDE.md 所在位置
 │   ├── api/
 │   │   ├── auth.py                 ← prefix: /api/v1/auth
 │   │   ├── inventory.py            ← prefix: /api/v1/inventory（叫貨/收貨/廠商/品項/分類/差異分析）
-│   │   ├── finance.py              ← prefix: /api/v1（金流/零用金/日結/重複費用/比例費用/金流總覽）
+│   │   ├── finance.py              ← prefix: /api/v1（金流/零用金/日結/重複費用/比例費用）
 │   │   ├── stocktake.py            ← prefix: /api/v1（盤點）
 │   │   ├── waste.py                ← prefix: /api/v1（耗損）
 │   │   ├── users.py                ← prefix: /api/v1（人員管理）
 │   │   ├── notifications.py        ← prefix: /api/v1（通知 + 通知設定）
-│   │   └── reports.py              ← prefix: /api/v1（損益報表）
+│   │   ├── reports.py              ← prefix: /api/v1（損益報表）
+│   │   ├── webhook.py              ← prefix: /api/v1/webhook（LINE webhook）
+│   │   └── admin/
+│   │       └── settings.py         ← prefix: /api/v1/admin/settings（後台系統設定 KV 存取）
+│   ├── services/
+│   │   ├── inventory_service.py    ← 庫存/叫貨業務邏輯
+│   │   └── line_service.py         ← LINE Push Message 發送服務
 │   ├── db/
 │   │   ├── models.py               ← 所有 SQLAlchemy ORM Model（23 個表格）
 │   │   ├── session.py              ← DB Session / engine
@@ -392,6 +398,10 @@ db.query(User).filter(User.deleted_at == None).all()
 | CashFlowRecurring.category 為 VARCHAR | DB | 不是 FK，直接存字串分類名稱 |
 | erp_item_categories 需 display_order | DB | 已 ALTER TABLE 加欄位（2026-03-24） |
 | SW 只在 HTTPS 或 localhost 運作 | PWA | 本地開發用 localhost，正式環境需 HTTPS |
+| HistoryView 只顯示已收貨訂單 | 前台 | status=received，待收貨留在 InventoryView |
+| CashFlowRecord 支出類需有 category_id | 後台 | 廠商到貨自動帶入 default_category_id，無則 NULL |
+| 廠商 default_category_id 參照 erp_cash_flow_categories | DB | FK nullable |
+| LINE 憑證存在 erp_system_settings table（KV） | 後台 | key: line_channel_secret, line_channel_access_token |
 
 ---
 
@@ -442,15 +452,114 @@ VITE_API_BASE_URL=http://34.81.51.45:8000/api/v1
 | P3-3 | PWA 草稿自動儲存 + D+N 到貨倒數 + 差異分析 Sheet |
 | P3-4 | PWA manifest + Service Worker + 安裝提示 |
 
-> 所有原定任務卡均已完成。如需繼續優化，請建立新任務卡。
+> P 系列全部完成。O 系列優化進行中（見下表）。
+
+### 🔄 O 系列優化（進行中）
+
+| 任務卡 | 說明 | 狀態 |
+|--------|------|------|
+| O1 | 叫貨送出自動複製、切換待收貨 tab、草稿修復 | ✅ 已實作（待驗證） |
+| O2 | HistoryView 兩 Tab（叫貨/盤點），只顯示已收貨 | ✅ 已實作 |
+| O3 | 金流日結排序、可再次日結、日結線資訊 | ✅ 已實作（待驗證） |
+| O4 | StocktakeView 單模式緊湊卡片、WasteView 歷史 Tab | ✅ 已實作 |
+| O5 | 首頁待盤點清單（週期提醒 + 防漂移錨點） | ⏳ 待實作 |
+| O6 | 後台金流日期篩選、新增紀錄、科目小計、廠商預設科目 | ✅ 已實作 |
+| O7 | 路由守衛生效、新增 cashier 角色 | ⏳ 待實作 |
+| O8 | 各頁面底部 pb-24 / pb-safe，防導覽列遮擋 | ✅ 已實作（待驗證） |
+| O9 | LINE 訊息自動發送（基礎建設完成） | 🔨 部分完成（見下節） |
 
 ---
 
-## 12. 快速 Debug 指令
+## 12. 對外 HTTPS — ngrok 設定
+
+### 架構
+```
+LINE → https://preoffensive-chasteningly-taunya.ngrok-free.dev
+         ↓ ngrok tunnel（GCP 伺服器主動連出，不需開防火牆）
+       FastAPI port 8000
+```
+
+### ngrok 服務管理
+```bash
+# 查看狀態
+sudo systemctl status ngrok
+
+# 重啟
+sudo systemctl restart ngrok
+
+# 查看 log
+journalctl -u ngrok -n 50
+
+# service 設定位置
+/etc/systemd/system/ngrok.service
+```
+
+### 重要資訊
+| 項目 | 值 |
+|------|-----|
+| 靜態網址 | `https://preoffensive-chasteningly-taunya.ngrok-free.dev` |
+| Authtoken | `3BNKwNKgQy3Jxq8OJ3Z2qnwLZp4_4GJdTeBGpK3BUcWB4VccT` |
+| Config 位置 | `~/.config/ngrok/ngrok.yml` |
+| 開機自動啟動 | ✅ systemd enabled |
+
+> ⚠️ Authtoken 等同帳號鑰匙，不要貼在公開的地方（GitHub, Slack 等）
+
+---
+
+## 13. LINE Messaging API 串接
+
+### 目前完成狀態
+| 項目 | 狀態 | 說明 |
+|------|------|------|
+| ngrok HTTPS 通道 | ✅ | 開機自動啟動 |
+| Webhook 端點 | ✅ | `POST /api/v1/webhook/line` |
+| LINE 驗證通過 | ✅ | 147.92.x.x → 200 OK |
+| Channel Secret | ✅ | 存入 erp_system_settings |
+| Channel Access Token | ✅ | 存入 erp_system_settings |
+| 後台設定 API | ✅ | `GET/PUT /api/v1/admin/settings/` |
+
+### 尚未完成（O9 剩餘工作）
+1. **Bot 加入廠商 LINE 群組** — 需人工操作，掃 QR 加 Bot 為好友再邀入群組
+2. **取得 group_id** — Bot 加入群組後 webhook 自動記錄，後台顯示給管理員配對廠商
+3. **廠商管理加 LINE Group ID 欄位** — admin VendorsView 新增欄位
+4. **叫貨送出時自動推播** — inventory API receive_order → line_service.push_message()
+
+### LINE 帳號資訊
+| 項目 | 值 |
+|------|-----|
+| Channel ID | `2009581286` |
+| Channel Secret | 存於 `erp_system_settings.line_channel_secret` |
+| Channel Access Token | 存於 `erp_system_settings.line_channel_access_token` |
+| Webhook URL | `https://preoffensive-chasteningly-taunya.ngrok-free.dev/api/v1/webhook/line` |
+
+### 系統設定 API
+```
+GET  /api/v1/admin/settings/              → { line_channel_secret, line_channel_access_token, ... }
+PUT  /api/v1/admin/settings/{key}         → 更新單一設定值
+```
+
+換 LINE 帳號時只需在後台更新這兩個值，不需修改程式碼。
+
+### line_service.py 使用方式
+```python
+from erp.backend.services.line_service import push_line_message
+
+# 發送訊息到群組
+await push_line_message(
+    group_id="C1234567890abcdef",  # 廠商的 LINE 群組 ID
+    message="叫貨通知訊息內容"
+)
+```
+
+---
+
+## 14. 快速 Debug 指令
+
+## 14. 快速 Debug 指令
 
 ```bash
 # 查看後端 log
-tail -f /tmp/uvicorn.log
+tail -f /home/mason_ycw/boiling-noodles-dashboard/erp/backend/backend.log
 
 # 測試 API（需先登入取 token）
 curl -s http://localhost:8000/api/v1/finance/overview

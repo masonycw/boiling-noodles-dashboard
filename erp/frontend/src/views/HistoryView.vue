@@ -1,450 +1,189 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
-const orders = ref([])
-const isLoading = ref(true)
+const auth = useAuthStore()
+const router = useRouter()
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 
-const selectedOrder = ref(null)
-const selectedOrderDetails = ref([])
-const isDetailLoading = ref(false)
-const isEditing = ref(false)
-const isSaving = ref(false)
+const activeTab = ref('orders') // 'orders' | 'stocktake'
 
-const activeTab = ref('today') // today, received, history, future
-const getTodayStr = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }).substring(0, 10)
+// Orders tab
+const orders = ref([])
+const ordersLoading = ref(false)
+const expandedOrders = ref(new Set())
+const orderItems = ref({})  // { orderId: [...items] }
 
-const deleteOrder = async (orderId) => {
-  if (!confirm('確定要刪除這筆叫貨單嗎？刪除後無法復原。')) return
-  try {
-    const res = await fetch(`${API_BASE}/inventory/orders/${orderId}`, { method: 'DELETE' })
-    if (res.ok) {
-      alert('已刪除！')
-      selectedOrder.value = null // close modal if open
-      fetchOrders()
-    }
-  } catch(err) {
-    alert('刪除失敗')
-  }
+// Stocktake tab
+const sessions = ref([])
+const stocktakeLoading = ref(false)
+const expandedSessions = ref(new Set())
+
+function authHeaders() {
+  return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
 }
 
-const saveOrder = async () => {
-  if (!confirm('確定要更新這筆叫貨單嗎？\n(如果有多筆同時間的相同廠商單據，將合併為一筆)。')) return
-  isSaving.value = true
-  
-  const payload = {
-    vendor_id: selectedOrder.value.vendor_id,
-    expected_delivery_date: selectedOrder.value.orders[0].expected_delivery_date || null,
-    items: selectedOrderDetails.value.map(i => ({
-      item_id: i.item_id || null,
-      adhoc_name: i.adhoc_name || (i.item_id ? null : i.name),
-      adhoc_unit: i.adhoc_unit || (i.item_id ? null : i.unit),
-      qty: i.qty
-    })).filter(i => i.qty > 0)
-  }
-  
-  const mainOrderId = selectedOrder.value.ids[0]
-  
-  try {
-    const res = await fetch(`${API_BASE}/inventory/orders/${mainOrderId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-    
-    if (res.ok) {
-      for(let i = 1; i < selectedOrder.value.ids.length; i++) {
-        await fetch(`${API_BASE}/inventory/orders/${selectedOrder.value.ids[i]}`, { method: 'DELETE' })
-      }
-      alert('已成功修改！')
-      isEditing.value = false
-      selectedOrder.value = null
-      fetchOrders()
-    } else {
-      alert('修改失敗')
-    }
-  } catch(err) {
-    alert('修改發生錯誤')
-  } finally {
-    isSaving.value = false
-  }
+function fmtDate(d) {
+  if (!d) return ''
+  const dt = new Date(d)
+  return `${String(dt.getMonth()+1).padStart(2,'0')}/${String(dt.getDate()).padStart(2,'0')}`
 }
 
-const fetchOrders = async () => {
-  try {
-    const res = await fetch(`${API_BASE}/inventory/orders?days_limit=7`)
-    orders.value = await res.json()
-  } catch (err) {
-    console.error('Failed to fetch history:', err)
-  } finally {
-    isLoading.value = false
-  }
+function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
+
+async function loadOrders() {
+  ordersLoading.value = true
+  const res = await fetch(`${API_BASE}/inventory/orders?status=received&days_limit=60&limit=100`, { headers: authHeaders() })
+  if (res.ok) orders.value = await res.json()
+  ordersLoading.value = false
 }
 
-const groupedOrders = computed(() => {
-  const groups = {}
-  orders.value.forEach(order => {
-    // Treat null expected delivery date as just its created_at date for grouping
-    const dateStr = order.expected_delivery_date 
-      ? order.expected_delivery_date.substring(0, 10) 
-      : order.created_at.substring(0, 10)
-    
-    const key = `${order.vendor_name}_${dateStr}`
-    if (!groups[key]) {
-      groups[key] = {
-        ids: [],
-        vendor_id: order.vendor_id,
-        vendor_name: order.vendor_name,
-        dateStr: dateStr,
-        created_at: order.created_at,
-        total_items: 0,
-        status: 'received',
-        orders: [],
+async function loadStocktake() {
+  stocktakeLoading.value = true
+  const res = await fetch(`${API_BASE}/stocktake/?days_limit=60&limit=50`, { headers: authHeaders() })
+  if (res.ok) sessions.value = await res.json()
+  stocktakeLoading.value = false
+}
+
+async function toggleOrder(order) {
+  const s = new Set(expandedOrders.value)
+  if (s.has(order.id)) {
+    s.delete(order.id)
+  } else {
+    s.add(order.id)
+    if (!orderItems.value[order.id]) {
+      const res = await fetch(`${API_BASE}/inventory/orders/${order.id}`, { headers: authHeaders() })
+      if (res.ok) {
+        const data = await res.json()
+        orderItems.value[order.id] = data.items || []
       }
     }
-    groups[key].ids.push(order.id)
-    groups[key].orders.push(order)
-    groups[key].total_items += order.total_items
-    if (order.status === 'pending' || order.status === 'ordered') {
-      groups[key].status = 'pending'
-    }
-  })
-  
-  return Object.values(groups).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-})
-
-const displayedOrders = computed(() => {
-  const today = getTodayStr()
-  return groupedOrders.value.filter(group => {
-    const isPending = group.status === 'pending'
-    const isReceived = group.status === 'received'
-    
-    if (activeTab.value === 'today') return isPending && group.dateStr <= today
-    if (activeTab.value === 'future') return isPending && group.dateStr > today
-    if (activeTab.value === 'received') return isReceived && group.dateStr === today
-    if (activeTab.value === 'history') return isReceived && group.dateStr < today
-    return false
-  })
-})
-
-const showDetails = async (groupedOrder) => {
-  selectedOrder.value = groupedOrder
-  isDetailLoading.value = true
-  isEditing.value = false
-  selectedOrderDetails.value = []
-  
-  try {
-    const allDetails = []
-    for (const id of groupedOrder.ids) {
-      const res = await fetch(`${API_BASE}/inventory/orders/${id}`)
-      const data = await res.json()
-      allDetails.push(...data)
-    }
-    
-    const agg = {}
-    allDetails.forEach(item => {
-      const k = `${item.name}_${item.unit}`
-      if (!agg[k]) agg[k] = { ...item }
-      else agg[k].qty += item.qty
-    })
-    selectedOrderDetails.value = Object.values(agg)
-  } catch (err) {
-    console.error('Failed to fetch details:', err)
-  } finally {
-    isDetailLoading.value = false
   }
+  expandedOrders.value = s
 }
 
-onMounted(fetchOrders)
-
-const showReceiveModal = ref(false)
-const receivingOrder = ref(null)
-const receiveForm = ref({ total_amount: '', is_paid: true, note: '', file: null })
-const isReceiving = ref(false)
-
-const getFile = (e) => {
-  receiveForm.value.file = e.target.files[0]
+function toggleSession(id) {
+  const s = new Set(expandedSessions.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  expandedSessions.value = s
 }
 
-const openReceiveModal = (order) => {
-  receivingOrder.value = order
-  receiveForm.value = { total_amount: '', is_paid: true, note: '', file: null }
-  showReceiveModal.value = true
+async function switchTab(tab) {
+  activeTab.value = tab
+  if (tab === 'orders' && orders.value.length === 0) await loadOrders()
+  if (tab === 'stocktake' && sessions.value.length === 0) await loadStocktake()
 }
 
-const submitReceive = async () => {
-  if (receiveForm.value.total_amount === '') {
-    alert('請輸入帳單總金額 (若為0請輸入0)')
-    return
-  }
-  
-  isReceiving.value = true
-  try {
-    let first = true
-    for (const id of receivingOrder.value.ids) {
-      // Only attach full amount & payment to the first order ID in the group to avoid duplicate accounting
-      const tAmount = first ? Number(receiveForm.value.total_amount) : 0
-      const aPaid = (first && receiveForm.value.is_paid) ? tAmount : 0
-      const note = first ? receiveForm.value.note : '(合併收貨)'
-      
-      const res = await fetch(`${API_BASE}/inventory/orders/${id}/receive`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          amount_paid: aPaid,
-          total_amount: tAmount,
-          is_paid: receiveForm.value.is_paid,
-          note: note 
-        })
-      })
-      if (!res.ok) throw new Error('部分收貨失敗')
-      
-      // Upload receipt to the first order ID if file exists
-      if (first && receiveForm.value.file) {
-        const formData = new FormData()
-        formData.append('file', receiveForm.value.file)
-        await fetch(`${API_BASE}/inventory/orders/${id}/receipt`, {
-          method: 'POST',
-          body: formData
-        })
-      }
-      
-      first = false
-    }
-    
-    showReceiveModal.value = false
-    alert('點收完畢，已同步更新後台紀錄！')
-    fetchOrders()
-  } catch (err) {
-    alert('網路錯誤或部分失敗，請重新整理查看')
-  } finally {
-    isReceiving.value = false
-  }
-}
-
-const formatDate = (dateStr) => {
-  return new Date(dateStr).toLocaleString('zh-TW', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
-const getStatusColor = (status) => {
-  switch (status) {
-    case 'pending': return 'bg-amber-100 text-amber-700'
-    case 'ordered': return 'bg-blue-100 text-blue-700'
-    case 'received': return 'bg-emerald-100 text-emerald-700'
-    default: return 'bg-slate-100 text-slate-700'
-  }
-}
+onMounted(loadOrders)
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 pb-24">
-    <header class="bg-white border-b border-slate-200 sticky top-0 z-10 px-4 pt-6 pb-4">
-      <h2 class="text-2xl font-black text-slate-900 mb-4">收貨與紀錄</h2>
-      
-      <!-- Tabs -->
-      <div class="flex space-x-2 overflow-x-auto custom-scrollbar pb-2">
-        <button 
-          @click="activeTab = 'today'"
-          :class="['whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition-all', activeTab === 'today' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200']"
-        >
-          今日到貨
-        </button>
-        <button 
-          @click="activeTab = 'future'"
-          :class="['whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition-all', activeTab === 'future' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200']"
-        >
-          未來到貨
-        </button>
-        <button 
-          @click="activeTab = 'received'"
-          :class="['whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition-all', activeTab === 'received' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200']"
-        >
-          今日已簽收
-        </button>
-        <button 
-          @click="activeTab = 'history'"
-          :class="['whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition-all', activeTab === 'history' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200']"
-        >
-          歷史到貨
+  <div class="min-h-full pb-24" style="background:#f8f9fb">
+
+    <!-- Header + Tabs -->
+    <div class="bg-white border-b border-slate-100 px-4 pt-12 pb-0">
+      <div class="flex items-center gap-3 pb-3">
+        <h1 class="text-lg font-extrabold text-slate-800">歷史紀錄</h1>
+      </div>
+      <div class="flex border-b border-slate-100">
+        <button v-for="t in [{k:'orders',l:'叫貨紀錄'},{k:'stocktake',l:'盤點紀錄'}]" :key="t.k"
+          @click="switchTab(t.k)"
+          class="flex-1 py-2.5 text-sm font-bold transition-colors"
+          :style="activeTab===t.k ? 'color:#e85d04;border-bottom:2px solid #e85d04' : 'color:#94a3b8'">
+          {{ t.l }}
         </button>
       </div>
-    </header>
+    </div>
 
-    <main class="px-4 py-6">
-      <div v-if="isLoading" class="flex flex-col items-center justify-center py-20">
-        <div class="animate-spin h-8 w-8 border-4 border-orange-500 border-t-transparent rounded-full mb-4"></div>
-        <p class="text-slate-400">載入紀錄中...</p>
+    <!-- ── 叫貨紀錄 Tab ── -->
+    <div v-if="activeTab === 'orders'" class="px-4 py-4">
+      <div v-if="ordersLoading" class="flex justify-center py-12">
+        <div class="animate-spin h-6 w-6 border-4 border-orange-500 border-t-transparent rounded-full"></div>
       </div>
-
-      <div v-else-if="displayedOrders.length === 0" class="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-300">
-        <p class="text-slate-400 font-bold">目前分頁尚無資料</p>
+      <div v-else-if="orders.length === 0" class="text-center py-12 text-slate-400 text-sm">
+        近 60 天無已收貨紀錄
       </div>
-
-      <div v-else class="space-y-4">
-        <div 
-          v-for="order in displayedOrders" 
-          :key="order.ids.join('_')"
-          class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between"
-        >
-          <div class="space-y-1">
-            <div class="flex items-center space-x-2">
-              <span class="font-black text-slate-900 text-lg">{{ order.vendor_name }}</span>
-              <span :class="['text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider', getStatusColor(order.status)]">
-                {{ order.status === 'pending' ? '待收貨' : '已收貨' }}
+      <div v-else class="space-y-2">
+        <div v-for="o in orders" :key="o.id" class="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <!-- Card header -->
+          <div @click="toggleOrder(o)" class="px-4 py-3 cursor-pointer active:bg-slate-50">
+            <div class="flex items-center justify-between mb-1">
+              <p class="font-extrabold text-slate-800">{{ o.vendor_name }}</p>
+              <p class="text-xs text-slate-400">{{ fmtDate(o.created_at) }}</p>
+            </div>
+            <div class="flex items-center justify-between text-xs text-slate-500">
+              <span>
+                <span v-if="o.ordered_by">叫貨：{{ o.ordered_by.name }}</span>
+                <span v-if="o.received_by"> · 簽收：{{ o.received_by.name }}</span>
+              </span>
+              <span class="font-bold" style="color:#e85d04">
+                {{ o.total_items }} 品項 · ${{ fmtMoney(o.total_amount) }}
               </span>
             </div>
-            <p class="text-xs text-slate-400 font-bold">預計到貨日: {{ order.dateStr }}</p>
-            <p class="text-[10px] text-slate-300">共 {{ order.ids.length }} 筆合併叫貨單</p>
-          </div>
-          
-          <div class="text-right flex flex-col items-end justify-between h-full">
-            <p class="text-lg font-black text-slate-900">{{ order.total_items }} <span class="text-xs font-normal text-slate-400">總品項</span></p>
-            <div class="mt-2 flex space-x-2">
-              <button 
-                v-if="order.status === 'pending'"
-                @click="openReceiveModal(order)" 
-                class="bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm hover:bg-emerald-400 transition-colors"
-              >
-                點收/上傳
-              </button>
-              <button @click="showDetails(order)" class="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-200">管理</button>
+            <div class="flex items-center justify-between mt-1">
+              <span class="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                :style="o.is_paid ? 'background:#f0fdf4;color:#16a34a' : 'background:#fef9c3;color:#92400e'">
+                {{ o.is_paid ? '已付款 ✓' : '未付款' }}
+              </span>
+              <span class="text-slate-400 text-xs">{{ expandedOrders.has(o.id) ? '▲' : '▼' }}</span>
             </div>
           </div>
-        </div>
-      </div>
-    </main>
-
-    <!-- Modal for Order Details -->
-    <div v-if="selectedOrder" class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div @click="selectedOrder = null" class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
-      
-      <div class="relative w-full max-w-lg bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300">
-        <div class="p-8 pb-10">
-          <div class="flex justify-between items-start mb-6">
-            <div>
-              <h3 class="text-2xl font-black text-slate-900">{{ selectedOrder.vendor_name }}</h3>
-              <p class="text-slate-400 text-sm italic">{{ formatDate(selectedOrder.created_at) }}</p>
-            </div>
-            <button @click="selectedOrder = null" class="bg-slate-100 p-2 rounded-full text-slate-400 hover:bg-slate-200">
-              <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <div v-if="isDetailLoading" class="py-12 flex justify-center">
-             <div class="animate-spin h-8 w-8 border-4 border-orange-500 border-t-transparent rounded-full"></div>
-          </div>
-
-          <div v-else class="space-y-4 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-            <div v-for="item in selectedOrderDetails" :key="item.name" class="flex justify-between items-center py-3 border-b border-slate-50">
-              <span class="text-slate-700 font-bold">{{ item.name }}</span>
-              <span v-if="!isEditing" class="text-slate-900 font-black">{{ item.qty }} <span class="text-xs font-normal text-slate-400">{{ item.unit }}</span></span>
-              <div v-else class="flex items-center space-x-2">
-                 <button @click="item.qty = Math.max(0, item.qty - 1)" class="w-8 h-8 bg-slate-100 rounded-full font-black text-slate-600">-</button>
-                 <input v-model.number="item.qty" type="number" class="w-12 bg-slate-50 border-none rounded text-center font-bold px-1 py-1" />
-                 <button @click="item.qty += 1" class="w-8 h-8 bg-slate-100 rounded-full font-black text-slate-600">+</button>
-                 <span class="text-xs font-normal text-slate-400">{{ item.unit }}</span>
+          <!-- Expanded items -->
+          <div v-if="expandedOrders.has(o.id)" class="border-t border-slate-100 px-4 py-3">
+            <div v-if="!orderItems[o.id]" class="text-center text-slate-400 text-xs py-2">載入中…</div>
+            <div v-else class="space-y-1">
+              <div v-for="item in orderItems[o.id]" :key="item.id"
+                class="flex items-center justify-between text-sm py-0.5">
+                <span class="text-slate-700">{{ item.name }}</span>
+                <span class="text-slate-500 text-xs">
+                  叫 {{ item.ordered_qty }} / 到 {{ item.received_qty ?? item.ordered_qty }} {{ item.unit }}
+                </span>
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
 
-          <div class="mt-8 flex flex-col space-y-3">
-            <template v-if="selectedOrder.status === 'pending' && !isEditing">
-              <button @click="isEditing = true" class="w-full bg-orange-50 text-orange-500 font-bold py-3.5 rounded-2xl border border-orange-100 active:bg-orange-100 transition-all text-sm">
-                修改此單
-              </button>
-              <button @click="deleteOrder(selectedOrder.ids[0])" class="w-full bg-rose-50 text-rose-500 font-bold py-3.5 rounded-2xl border border-rose-100 active:bg-rose-100 transition-all text-sm">
-                刪除此單 (重叫)
-              </button>
-            </template>
-            <template v-else-if="selectedOrder.status === 'pending' && isEditing">
-              <button @click="saveOrder" :disabled="isSaving" class="w-full bg-emerald-500 text-white font-bold py-3.5 rounded-2xl shadow-lg transition-all text-sm disabled:opacity-50">
-                {{ isSaving ? '儲存中...' : '儲存修改' }}
-              </button>
-              <button @click="isEditing = false" class="w-full bg-slate-100 text-slate-500 font-bold py-3.5 rounded-2xl border border-slate-200 active:bg-slate-200 transition-all text-sm">
-                取消編輯
-              </button>
-            </template>
-            <button v-if="!isEditing" @click="selectedOrder = null" class="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl active:scale-95 transition-all">
-              關閉視窗
-            </button>
+    <!-- ── 盤點紀錄 Tab ── -->
+    <div v-else class="px-4 py-4">
+      <div v-if="stocktakeLoading" class="flex justify-center py-12">
+        <div class="animate-spin h-6 w-6 border-4 border-orange-500 border-t-transparent rounded-full"></div>
+      </div>
+      <div v-else-if="sessions.length === 0" class="text-center py-12 text-slate-400 text-sm">
+        近 60 天無盤點紀錄
+      </div>
+      <div v-else class="space-y-2">
+        <div v-for="s in sessions" :key="s.id" class="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div @click="toggleSession(s.id)" class="px-4 py-3 cursor-pointer active:bg-slate-50">
+            <div class="flex items-center justify-between mb-1">
+              <p class="font-extrabold text-slate-800">{{ s.group_name || '全部品項' }}</p>
+              <p class="text-xs text-slate-400">{{ fmtDate(s.created_at) }}</p>
+            </div>
+            <div class="flex items-center justify-between text-xs text-slate-500">
+              <span v-if="s.created_by">執行人：{{ s.created_by.name || s.created_by }}</span>
+              <span>{{ s.total_items || 0 }} 品項</span>
+            </div>
+            <div class="flex items-center justify-between mt-1">
+              <span class="text-[10px] font-bold"
+                :class="(s.diff_count || 0) > 0 ? 'text-red-500' : 'text-emerald-600'">
+                {{ (s.diff_count || 0) > 0 ? `差異 ${s.diff_count} 項` : '無差異 ✓' }}
+              </span>
+              <span class="text-slate-400 text-xs">{{ expandedSessions.has(s.id) ? '▲' : '▼' }}</span>
+            </div>
+          </div>
+          <!-- Expanded diff items -->
+          <div v-if="expandedSessions.has(s.id) && s.discrepancies?.length" class="border-t border-slate-100 px-4 py-3 space-y-1">
+            <div v-for="d in s.discrepancies" :key="d.item_id"
+              class="flex items-center justify-between text-sm">
+              <span class="text-slate-700">{{ d.item_name }}</span>
+              <span class="text-red-500 text-xs font-bold">系統 {{ d.system_qty }} / 實盤 {{ d.counted_qty }} {{ d.unit }}</span>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Modal for Receiving Order -->
-    <div v-if="showReceiveModal" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div @click="showReceiveModal = false" class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
-      
-      <div class="relative w-full max-w-sm bg-white rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300 p-8 pb-10">
-        <h3 class="text-2xl font-black text-slate-900 mb-2">相機收貨點收</h3>
-        <p class="text-slate-500 text-sm mb-6">{{ receivingOrder.vendor_name }} | 預計: {{ receivingOrder.dateStr }}</p>
-        
-        <div class="space-y-5 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
-          
-          <!-- File Upload -->
-          <div class="bg-slate-50 p-4 rounded-xl border border-slate-100 flex flex-col items-center justify-center relative overflow-hidden">
-            <input type="file" accept="image/*" capture="environment" @change="getFile" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-            <svg class="w-8 h-8 text-slate-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            <span v-if="!receiveForm.file" class="text-sm font-bold text-slate-500">點擊拍照上傳收據 (選填)</span>
-            <span v-else class="text-sm font-bold text-emerald-500 break-all text-center">已選擇相片: {{ receiveForm.file.name }}</span>
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-slate-500 mb-2">請輸入帳單總金額</label>
-            <input v-model.number="receiveForm.total_amount" type="number" class="w-full bg-slate-50 border-none rounded-xl py-3 px-4 text-lg font-bold focus:ring-2 focus:ring-emerald-500/20" placeholder="$ 0" />
-          </div>
-          
-          <div class="flex items-center justify-between bg-slate-50 p-3 rounded-xl">
-            <label class="text-sm font-bold text-slate-700">本次是否已經付款？</label>
-            <label class="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" v-model="receiveForm.is_paid" class="sr-only peer">
-              <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-            </label>
-          </div>
-          <p v-if="!receiveForm.is_paid" class="text-[10px] text-rose-500 font-bold -mt-2">注意：將建立一筆未付帳款紀錄</p>
-
-          <div>
-            <label class="block text-xs font-bold text-slate-500 mb-1">備註提醒</label>
-            <textarea v-model="receiveForm.note" class="w-full bg-slate-50 border-none rounded-xl py-3 px-4 focus:ring-2 focus:ring-emerald-500/20 text-sm" rows="2" placeholder="(選填) 取代品或少送紀錄"></textarea>
-          </div>
-        </div>
-
-        <div class="flex space-x-3 mt-6">
-          <button @click="showReceiveModal = false" class="flex-1 bg-slate-100 text-slate-500 font-bold py-4 rounded-2xl">取消</button>
-          <button 
-            @click="submitReceive" 
-            :disabled="isReceiving"
-            class="flex-[2] bg-emerald-500 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-500/20 disabled:opacity-50 flex items-center justify-center"
-          >
-            <span v-if="isReceiving" class="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2"></span>
-            確認歸檔紀錄
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
-
-<style scoped>
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 10px;
-}
-</style>

@@ -11,6 +11,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api
 const loading = ref(true)
 const lowStockItems = ref([])
 const pendingOrders = ref([])
+const pendingStocktakeGroups = ref([])
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}` }
@@ -40,9 +41,10 @@ const overdueReceive = computed(() => {
 
 async function loadData() {
   try {
-    const [itemsRes, ordersRes] = await Promise.all([
+    const [itemsRes, ordersRes, stocktakeRes] = await Promise.all([
       fetch(`${API_BASE}/inventory/items?limit=500`, { headers: authHeaders() }),
       fetch(`${API_BASE}/inventory/orders?status=confirmed&limit=20`, { headers: authHeaders() }),
+      fetch(`${API_BASE}/stocktake/pending-groups`, { headers: authHeaders() }),
     ])
     if (itemsRes.ok) {
       const allItems = await itemsRes.json()
@@ -52,6 +54,9 @@ async function loadData() {
     }
     if (ordersRes.ok) {
       pendingOrders.value = await ordersRes.json()
+    }
+    if (stocktakeRes.ok) {
+      pendingStocktakeGroups.value = await stocktakeRes.json()
     }
   } finally {
     loading.value = false
@@ -63,6 +68,21 @@ onMounted(loadData)
 function fmtTime(d) {
   if (!d) return ''
   return new Date(d).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function stocktakeDueLabel(group) {
+  const od = group.overdue_days
+  if (od > 0) return `逾期 ${od} 天`
+  const due = group.next_stocktake_due
+  const today = new Date().toISOString().split('T')[0]
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+  if (due === today) return '今天到期'
+  if (due === tomorrow) return '明天到期'
+  return '即將到期'
+}
+
+function goToStocktake(groupId) {
+  router.push({ name: 'stocktake', query: { group: groupId } })
 }
 </script>
 
@@ -126,27 +146,65 @@ function fmtTime(d) {
       </div>
 
       <!-- 待簽收訂單卡片 -->
-      <div v-if="pendingOrders.length === 0" class="text-center py-8 text-slate-400 text-sm">
+      <div v-if="pendingOrders.length === 0 && pendingStocktakeGroups.length === 0"
+        class="text-center py-8 text-slate-400 text-sm">
         今日無待辦事項 🎉
       </div>
-      <div v-else class="space-y-3">
-        <button
-          v-for="order in pendingOrders.slice(0, 5)" :key="order.id"
-          @click="router.push({ name: 'order' })"
-          class="w-full bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:bg-slate-50 transition-colors text-left"
-          style="border-radius:12px">
-          <span style="font-size:28px">🚚</span>
-          <div class="flex-1 min-w-0">
-            <p class="font-bold text-slate-800" style="font-size:14px">{{ order.vendor_name }} — 待簽收</p>
-            <p class="mt-0.5" style="font-size:12px;color:#999">
-              {{ order.expected_delivery_date ? fmtTime(order.expected_delivery_date) : '時間未定' }}
-              · {{ order.total_items || '?' }} 項品項
-            </p>
-          </div>
-          <span class="font-bold shrink-0" style="background:#fff7ed;color:#ea580c;border-radius:12px;font-size:11px;padding:4px 10px">待收</span>
-          <span style="color:#ccc;font-size:16px">›</span>
-        </button>
+
+      <!-- 📦 待收貨 -->
+      <div v-if="pendingOrders.length > 0" class="mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-extrabold text-slate-500 uppercase tracking-wide">📦 待收貨</span>
+          <span class="text-xs font-bold text-orange-500">{{ pendingOrders.length }} 筆</span>
+        </div>
+        <div class="space-y-2">
+          <button
+            v-for="order in pendingOrders.slice(0, 5)" :key="order.id"
+            @click="router.push({ name: 'order' })"
+            class="w-full bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:bg-slate-50 transition-colors text-left"
+            style="border-radius:12px">
+            <span style="font-size:24px">🚚</span>
+            <div class="flex-1 min-w-0">
+              <p class="font-bold text-slate-800" style="font-size:14px">{{ order.vendor_name }}</p>
+              <p class="mt-0.5" style="font-size:12px;color:#999">
+                {{ order.expected_delivery_date ? fmtTime(order.expected_delivery_date) : '時間未定' }}
+                · {{ order.total_items || '?' }} 項品項
+              </p>
+            </div>
+            <span class="font-bold shrink-0" style="background:#fff7ed;color:#ea580c;border-radius:12px;font-size:11px;padding:4px 10px">待收</span>
+            <span style="color:#ccc;font-size:16px">›</span>
+          </button>
+        </div>
       </div>
+
+      <!-- 📋 待盤點 -->
+      <div v-if="pendingStocktakeGroups.length > 0" class="mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-extrabold text-slate-500 uppercase tracking-wide">📋 待盤點</span>
+          <span class="text-xs font-bold text-blue-500">{{ pendingStocktakeGroups.length }} 組</span>
+        </div>
+        <div class="space-y-2">
+          <button
+            v-for="group in pendingStocktakeGroups" :key="group.group_id"
+            @click="goToStocktake(group.group_id)"
+            class="w-full bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:bg-slate-50 transition-colors text-left"
+            style="border-radius:12px">
+            <span style="font-size:24px">📋</span>
+            <div class="flex-1 min-w-0">
+              <p class="font-bold text-slate-800" style="font-size:14px">{{ group.group_name }}</p>
+              <p class="mt-0.5" style="font-size:12px;color:#999">{{ stocktakeDueLabel(group) }}</p>
+            </div>
+            <span class="font-bold shrink-0"
+              :style="group.overdue_days > 0
+                ? 'background:#fef2f2;color:#dc2626;border-radius:12px;font-size:11px;padding:4px 10px'
+                : 'background:#eff6ff;color:#2563eb;border-radius:12px;font-size:11px;padding:4px 10px'">
+              {{ group.overdue_days > 0 ? '逾期' : '待盤' }}
+            </span>
+            <span style="color:#ccc;font-size:16px">›</span>
+          </button>
+        </div>
+      </div>
+
     </div>
 
     <!-- Loading state -->

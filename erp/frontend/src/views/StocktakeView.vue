@@ -1,10 +1,11 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, toRaw } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 
 // ── State ──────────────────────────────────────
@@ -34,7 +35,20 @@ onMounted(async () => {
     const res = await fetch(`${API_BASE}/stocktake/groups`, { headers: authHeaders() })
     if (res.ok) groups.value = await res.json()
   } catch {}
-  await loadItems(null)
+
+  // O5: 讀取 route.query.group 自動選取群組
+  const queryGroupId = parseInt(route.query.group)
+  if (queryGroupId && groups.value.length) {
+    const g = groups.value.find(g => g.id === queryGroupId)
+    if (g) {
+      await loadItems(g)
+    } else {
+      await loadItems(null)
+    }
+  } else {
+    await loadItems(null)
+  }
+
   // Draft auto-save (P3-3)
   loadDraftBanner()
   _draftTimer = setInterval(() => { saveDraft() }, 30000)
@@ -117,6 +131,7 @@ const diffCount = computed(() =>
 const pendingOrderCount = computed(() =>
   items.value.filter(i => (getOrder(i.id) ?? 0) > 0).length
 )
+const singleMode = computed(() => modeStocktake.value !== modeOrder.value)
 const progressPct = computed(() =>
   items.value.length > 0 ? Math.round((filledCount.value / items.value.length) * 100) : 0
 )
@@ -174,9 +189,16 @@ async function submit() {
     }
     await fetch(`${API_BASE}/stocktake/${session.id}/submit`, { method: 'PUT', headers: authHeaders() })
 
+    // O5: 是否需要顯示下次盤點日 dialog
+    _pendingNextDue = shouldShowNextDue()
+    if (_pendingNextDue) computeNextDue()
+
     if (modeOrder.value && pendingOrderCount.value > 0) {
       buildVendorSheets()
       showOrderSheets.value = true
+    } else if (_pendingNextDue) {
+      _pendingNextDue = false
+      showNextDueModal.value = true
     } else {
       submitted.value = true
     }
@@ -185,8 +207,19 @@ async function submit() {
   } finally { submitting.value = false }
 }
 
+function closeOrderSheets() {
+  showOrderSheets.value = false
+  if (_pendingNextDue) {
+    _pendingNextDue = false
+    showNextDueModal.value = true
+  } else {
+    submitted.value = true
+  }
+}
+
 function reset() {
   submitted.value = false; showOrderSheets.value = false
+  showNextDueModal.value = false; editingNextDue.value = false
   counts.value = {}
   loadItems(selectedGroup.value)
 }
@@ -246,6 +279,51 @@ function discardDraft() {
 }
 
 let _draftTimer = null
+
+// ── O5: 下次盤點日 Dialog ──────────────────────────
+const showNextDueModal = ref(false)
+const nextDueDate = ref('')
+const editingNextDue = ref(false)
+const nextDueSaving = ref(false)
+const nextDueGroupId = ref(null)
+let _pendingNextDue = false
+
+function shouldShowNextDue() {
+  return modeStocktake.value && selectedGroup.value?.stocktake_cycle_days
+}
+
+function computeNextDue() {
+  const group = selectedGroup.value
+  if (!group?.stocktake_cycle_days) return
+  const base = group.next_stocktake_due
+    ? new Date(group.next_stocktake_due + 'T00:00:00')
+    : new Date()
+  base.setDate(base.getDate() + group.stocktake_cycle_days)
+  nextDueDate.value = base.toISOString().split('T')[0]
+  nextDueGroupId.value = group.id
+}
+
+async function confirmNextDue() {
+  if (editingNextDue.value && nextDueGroupId.value) {
+    nextDueSaving.value = true
+    try {
+      await fetch(`${API_BASE}/stocktake/groups/${nextDueGroupId.value}/next-due`, {
+        method: 'PATCH', headers: authHeaders(),
+        body: JSON.stringify({ next_due: nextDueDate.value })
+      })
+    } catch {}
+    nextDueSaving.value = false
+  }
+  showNextDueModal.value = false
+  editingNextDue.value = false
+  submitted.value = true
+}
+
+function fmtNextDueDisplay(dateStr) {
+  if (!dateStr) return ''
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric', weekday: 'short' })
+}
 
 // ── 差異分析 Sheet (P3-3) ──────────────────────────
 const showDiscrepancy = ref(false)
@@ -357,7 +435,7 @@ async function openDiscrepancy(item) {
             {{ sheet.copied ? '✓ 已複製' : '📋 複製 LINE 訊息' }}
           </button>
         </div>
-        <button @click="reset" class="w-full py-3 bg-slate-100 text-slate-600 font-bold rounded-xl">
+        <button @click="closeOrderSheets" class="w-full py-3 bg-slate-100 text-slate-600 font-bold rounded-xl">
           完成，返回
         </button>
       </div>
@@ -421,8 +499,42 @@ async function openDiscrepancy(item) {
               </button>
             </div>
 
-            <!-- Dual columns -->
-            <div class="flex gap-2">
+            <!-- Single mode: compact 1-row layout -->
+            <template v-if="singleMode">
+              <!-- 實盤 compact -->
+              <div v-if="modeStocktake" class="flex items-center gap-2 mt-1">
+                <button @click="decrementActual(item.id)"
+                  class="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center font-bold text-slate-600 text-lg active:bg-slate-300 shrink-0">−</button>
+                <input
+                  :value="getActual(item.id) ?? ''"
+                  @input="setActual(item.id, $event.target.value)"
+                  type="number" min="0" inputmode="decimal"
+                  :placeholder="item.unit"
+                  class="flex-1 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none py-1"
+                  :class="getActual(item.id) !== null ? 'border-orange-400 text-orange-600' : 'border-slate-300 text-slate-700'" />
+                <span class="text-xs text-slate-400 shrink-0">{{ item.unit }}</span>
+                <button @click="incrementActual(item.id)"
+                  class="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 text-lg active:bg-orange-200 shrink-0">+</button>
+              </div>
+              <!-- 叫貨 compact -->
+              <div v-if="modeOrder" class="flex items-center gap-2 mt-1">
+                <button @click="decrementOrder(item.id)"
+                  class="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center font-bold text-emerald-600 text-lg active:bg-emerald-200 shrink-0">−</button>
+                <input
+                  :value="getOrder(item.id) ?? ''"
+                  @input="setOrder(item.id, $event.target.value)"
+                  type="number" min="0" inputmode="decimal"
+                  :placeholder="item.unit"
+                  class="flex-1 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none py-1"
+                  :class="getOrder(item.id) !== null && getOrder(item.id) > 0 ? 'border-emerald-400 text-emerald-700' : 'border-emerald-200 text-slate-700'" />
+                <span class="text-xs text-slate-400 shrink-0">{{ item.unit }}</span>
+                <button @click="incrementOrder(item.id)"
+                  class="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center font-bold text-emerald-600 text-lg active:bg-emerald-200 shrink-0">+</button>
+              </div>
+            </template>
+
+            <!-- Dual mode: two columns -->
+            <div v-else class="flex gap-2">
               <!-- 實盤 column -->
               <div v-if="modeStocktake" class="flex-1 rounded-xl p-2" style="background:#f8fafc">
                 <p class="text-[9px] font-bold text-slate-400 text-center mb-1.5">實盤</p>
@@ -483,7 +595,7 @@ async function openDiscrepancy(item) {
     </div>
 
     <!-- Submit bar -->
-    <div v-if="!submitted && !showOrderSheets && !loading"
+    <div v-if="!submitted && !showOrderSheets && !showNextDueModal && !loading"
       class="fixed bottom-16 inset-x-0 px-4 py-3 bg-white border-t border-slate-100 shadow-lg z-20 flex gap-3">
       <div class="flex-1 flex flex-col justify-center">
         <p class="text-[10px] text-slate-400 font-bold">已盤點</p>
@@ -497,6 +609,39 @@ async function openDiscrepancy(item) {
         <span v-else-if="modeStocktake">💾 提交盤點</span>
         <span v-else>📦 提交叫貨</span>
       </button>
+    </div>
+
+    <!-- ═══ O5: 下次盤點日確認 Modal ═══ -->
+    <div v-if="showNextDueModal" class="fixed inset-0 bg-black/50 z-50 flex items-end">
+      <div class="bg-white w-full rounded-t-3xl p-6 pb-safe">
+        <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-5"></div>
+        <div class="text-center mb-5">
+          <div class="text-4xl mb-2">✅</div>
+          <h3 class="text-lg font-extrabold text-slate-800">盤點完成！</h3>
+        </div>
+
+        <div class="bg-slate-50 rounded-xl p-4 mb-5">
+          <p class="text-xs font-bold text-slate-500 mb-2">下次預定盤點</p>
+          <div v-if="!editingNextDue" class="flex items-center justify-between">
+            <p class="text-base font-extrabold text-slate-800">{{ fmtNextDueDisplay(nextDueDate) }}</p>
+            <button @click="editingNextDue = true"
+              class="text-orange-500 font-bold text-sm px-3 py-1.5 rounded-lg bg-orange-50 active:bg-orange-100">
+              修改 ✎
+            </button>
+          </div>
+          <div v-else class="space-y-2">
+            <input v-model="nextDueDate" type="date"
+              class="w-full border-2 border-orange-400 rounded-xl px-3 py-2.5 text-slate-800 font-bold text-sm focus:outline-none" />
+            <p class="text-xs text-slate-400 text-center">調整後，下下次將從此日期 + 週期天數計算</p>
+          </div>
+        </div>
+
+        <button @click="confirmNextDue" :disabled="nextDueSaving"
+          class="w-full text-white font-bold py-3.5 rounded-2xl active:scale-95 disabled:opacity-50"
+          style="background:#e85d04">
+          {{ nextDueSaving ? '儲存中…' : '確認' }}
+        </button>
+      </div>
     </div>
 
     <!-- ═══ 差異分析 Sheet (P3-3) ═══ -->

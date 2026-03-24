@@ -8,7 +8,13 @@ router = APIRouter()
 
 @router.get("/vendors")
 def list_vendors(db: Session = Depends(get_db)):
-    return inventory_service.get_vendors(db)
+    vendors = inventory_service.get_vendors(db)
+    result = []
+    for v in vendors:
+        d = v.__dict__.copy() if hasattr(v, '__dict__') else dict(v)
+        d.pop('_sa_instance_state', None)
+        result.append(d)
+    return result
 
 @router.post("/vendors")
 def create_vendor(vendor: dict, db: Session = Depends(get_db)):
@@ -17,6 +23,17 @@ def create_vendor(vendor: dict, db: Session = Depends(get_db)):
 @router.put("/vendors/{vendor_id}")
 def update_vendor(vendor_id: int, vendor: dict, db: Session = Depends(get_db)):
     return inventory_service.update_vendor(db, vendor_id, vendor)
+
+@router.patch("/vendors/{vendor_id}/default-category")
+def set_vendor_default_category(vendor_id: int, data: dict, db: Session = Depends(get_db)):
+    from erp.backend.db.models import Vendor
+    v = db.query(Vendor).filter(Vendor.id == vendor_id).first()
+    if not v:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    v.default_category_id = data.get("default_category_id")
+    db.commit()
+    return {"ok": True}
 
 @router.delete("/vendors/{vendor_id}")
 def delete_vendor(vendor_id: int, db: Session = Depends(get_db)):
@@ -79,14 +96,21 @@ def list_orders(days_limit: int = None, status: str = None, limit: int = 500, db
     result = []
     for order in orders:
         vendor = db.query(inventory_service.Vendor).filter(inventory_service.Vendor.id == order.vendor_id).first()
-        created_by = None
+        ordered_by = None
         if order.user_id:
             user = db.query(User).filter(User.id == order.user_id).first()
             if user:
-                created_by = {
+                ordered_by = {
                     "id": user.id,
-                    "username": "(已刪除)" if user.deleted_at else user.username,
-                    "name": user.full_name or user.username
+                    "name": "(已刪除帳號)" if user.deleted_at else (user.full_name or user.username)
+                }
+        received_by = None
+        if hasattr(order, 'receive_user_id') and order.receive_user_id:
+            recv_user = db.query(User).filter(User.id == order.receive_user_id).first()
+            if recv_user:
+                received_by = {
+                    "id": recv_user.id,
+                    "name": "(已刪除帳號)" if recv_user.deleted_at else (recv_user.full_name or recv_user.username)
                 }
         result.append({
             "id": order.id,
@@ -99,7 +123,9 @@ def list_orders(days_limit: int = None, status: str = None, limit: int = 500, db
             "total_amount": order.total_amount,
             "amount_paid": order.amount_paid,
             "is_paid": order.is_paid,
-            "created_by": created_by
+            "ordered_by": ordered_by,
+            "received_by": received_by,
+            "created_by": ordered_by
         })
     return result
 

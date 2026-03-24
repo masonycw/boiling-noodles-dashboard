@@ -85,6 +85,7 @@ def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float, 
         raise Exception("Order not found")
         
     db_po.status = "received"
+    db_po.receive_user_id = user_id
     db_po.total_amount = total_amount
     db_po.is_paid = is_paid
     db_po.amount_paid = amount_paid if is_paid else 0.0
@@ -93,9 +94,17 @@ def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float, 
     
     # Generate CashTransaction if amount_paid > 0 and is_paid
     if is_paid and amount_paid > 0:
+        # Auto-assign vendor default_category_id if set
+        vendor_cat_id = None
+        if db_po.vendor_id:
+            from erp.backend.db.models import Vendor as VendorModel
+            vdr = db.query(VendorModel).filter(VendorModel.id == db_po.vendor_id).first()
+            if vdr and hasattr(vdr, 'default_category_id'):
+                vendor_cat_id = vdr.default_category_id
         tx_in = {
             "amount": amount_paid,
             "type": "expense",
+            "category_id": vendor_cat_id,
             "category": "進貨付款",
             "note": f"訂單 #{order_id} 貨款: {note or ''}",
             "order_id": order_id

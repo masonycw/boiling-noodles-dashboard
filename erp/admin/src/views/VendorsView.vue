@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
+const cashflowCategories = ref([])
 
 const vendors = ref([])
 const loading = ref(true)
@@ -19,6 +20,7 @@ const emptyForm = () => ({
   payment_method: '現金',
   expense_category: '食材費用',
   payment_terms: '現付',
+  default_category_id: null,
   bank_account: '', bank_account_holder: '',
   reminder_days: 5,
   order_cycle: '',
@@ -47,6 +49,11 @@ async function load() {
   loading.value = false
 }
 
+async function loadCashflowCategories() {
+  const res = await fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: { Authorization: `Bearer ${auth.token}` } })
+  if (res.ok) cashflowCategories.value = await res.json()
+}
+
 onMounted(load)
 
 const filtered = computed(() => {
@@ -71,6 +78,7 @@ function selectVendor(v) {
     payment_method: v.payment_method || '現金',
     expense_category: v.expense_category || '食材費用',
     payment_terms: v.payment_terms || '現付',
+    default_category_id: v.default_category_id || null,
     bank_account: v.bank_account || '',
     bank_account_holder: v.bank_account_holder || '',
     reminder_days: v.reminder_days || 5,
@@ -425,6 +433,14 @@ async function deleteVendor() {
                 <select v-model="form.expense_category"
                   class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
                   <option v-for="o in expenseCategoryOptions" :key="o" :value="o">{{ o }}</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">金流預設科目</label>
+                <select v-model="form.default_category_id"
+                  class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
+                  <option :value="null">（不設定）</option>
+                  <option v-for="c in cashflowCategories" :key="c.id" :value="c.id">{{ c.name }}</option>
                 </select>
               </div>
               <div>

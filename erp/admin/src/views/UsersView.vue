@@ -44,12 +44,16 @@ function showToast(msg) {
 }
 
 function roleName(role) {
-  return role === 'admin' ? '店長' : '員工'
+  if (role === 'admin') return '店長'
+  if (role === 'manager') return '主管'
+  if (role === 'cashier') return '櫃檯'
+  return '員工'
 }
 function roleClass(role) {
-  return role === 'admin'
-    ? 'bg-blue-900/50 text-[#3b82f6]'
-    : 'bg-amber-900/30 text-[#f59e0b]'
+  if (role === 'admin') return 'bg-blue-900/50 text-[#3b82f6]'
+  if (role === 'manager') return 'bg-purple-900/50 text-[#a78bfa]'
+  if (role === 'cashier') return 'bg-teal-900/50 text-[#2dd4bf]'
+  return 'bg-amber-900/30 text-[#f59e0b]'
 }
 
 async function load() {
@@ -260,7 +264,9 @@ function fmtDate(d) { return d ? new Date(d).toLocaleString('zh-TW', { month: '2
             <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">角色 <span class="text-red-400">*</span></label>
             <select v-model="form.role"
               class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
+              <option value="cashier">櫃檯（僅金流）</option>
               <option value="staff">員工</option>
+              <option value="manager">主管</option>
               <option value="admin">店長（管理員）</option>
             </select>
           </div>

@@ -18,6 +18,8 @@ class StocktakeGroupCreate(BaseModel):
     description: Optional[str] = None
     suggested_frequency: Optional[str] = None
     is_active: bool = True
+    stocktake_cycle_days: Optional[int] = None   # O5
+    next_stocktake_due: Optional[str] = None      # O5
 
 
 class StocktakeGroupUpdate(BaseModel):
@@ -26,6 +28,12 @@ class StocktakeGroupUpdate(BaseModel):
     is_active: Optional[bool] = None
     description: Optional[str] = None
     suggested_frequency: Optional[str] = None
+    stocktake_cycle_days: Optional[int] = None   # O5
+    next_stocktake_due: Optional[str] = None      # O5
+
+
+class NextDueUpdate(BaseModel):
+    next_due: str
 
 
 class StocktakeItemInput(BaseModel):
@@ -50,6 +58,21 @@ class StocktakeCreate(BaseModel):
 @router.get("/groups")
 def list_stocktake_groups(db: Session = Depends(get_db)):
     return stocktake_service.get_stocktake_groups(db)
+
+
+@router.get("/pending-groups")
+def get_pending_groups(db: Session = Depends(get_db)):
+    """O5: 回傳今天或逾期或明天到期的待盤點群組（HomeView 用）"""
+    return stocktake_service.get_pending_groups(db)
+
+
+@router.patch("/groups/{group_id}/next-due")
+def update_group_next_due(group_id: int, data: NextDueUpdate, db: Session = Depends(get_db)):
+    """O5: 手動更新群組下次預定盤點日"""
+    try:
+        return stocktake_service.update_group_next_due(db, group_id, data.next_due)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/groups")

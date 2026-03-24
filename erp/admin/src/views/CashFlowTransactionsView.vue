@@ -35,10 +35,48 @@ function cfSourceInfo(r) {
   return { label: src || '—', bg: 'bg-[#1f2937]', txt: 'text-gray-400' }
 }
 
+const showAddModal = ref(false)
+const addForm = ref({ type: 'expense', category_id: '', amount: '', description: '', transaction_date: new Date().toISOString().slice(0, 10) })
+const addSubmitting = ref(false)
+
+const categorySubtotals = computed(() => {
+  const map = {}
+  filtered.value.filter(r => r.type === 'expense').forEach(r => {
+    const k = r.category_name || '⚠️ 未分類'
+    if (!map[k]) map[k] = 0
+    map[k] += parseFloat(r.amount || 0)
+  })
+  return Object.entries(map).sort((a, b) => b[1] - a[1])
+})
+
+async function submitAdd() {
+  if (!addForm.value.amount) return
+  addSubmitting.value = true
+  await fetch(`${API_BASE}/finance/cash-flow`, {
+    method: 'POST', headers: authHeaders(),
+    body: JSON.stringify({
+      type: addForm.value.type,
+      category_id: addForm.value.category_id ? parseInt(addForm.value.category_id) : null,
+      amount: parseFloat(addForm.value.amount),
+      description: addForm.value.description,
+      transaction_date: addForm.value.transaction_date,
+      source: 'manual'
+    })
+  })
+  addSubmitting.value = false
+  showAddModal.value = false
+  addForm.value = { type: 'expense', category_id: '', amount: '', description: '', transaction_date: new Date().toISOString().slice(0, 10) }
+  showToast('紀錄已新增')
+  await load()
+}
+
 async function load() {
   loading.value = true
+  const params = new URLSearchParams({ limit: 500 })
+  if (cfDateFrom.value) params.set('date_from', cfDateFrom.value)
+  if (cfDateTo.value) params.set('date_to', cfDateTo.value)
   const [cfRes, catRes] = await Promise.all([
-    fetch(`${API_BASE}/finance/cash-flow?days_limit=90&limit=500`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/finance/cash-flow?${params}`, { headers: authHeaders() }),
     fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: authHeaders() }),
   ])
   if (cfRes.ok) records.value = await cfRes.json()
@@ -110,6 +148,19 @@ async function updateCategory(record, catId) {
           NT$ {{ fmtMoney(totalIncome - totalExpense) }}
         </p>
       </div>
+      <button @click="showAddModal = true"
+        class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-xl transition-colors whitespace-nowrap">
+        + 新增紀錄
+      </button>
+    </div>
+
+    <!-- 科目小計 -->
+    <div v-if="categorySubtotals.length" class="flex flex-wrap gap-2">
+      <span v-for="[cat, amt] in categorySubtotals" :key="cat"
+        class="text-xs px-3 py-1 rounded-full border"
+        :class="cat === '⚠️ 未分類' ? 'border-amber-500/50 text-amber-400 bg-amber-500/10' : 'border-[#2d3748] text-gray-400 bg-[#1a202c]'">
+        {{ cat }}  −NT${{ fmtMoney(amt) }}
+      </span>
     </div>
 
     <!-- 表格 -->
@@ -161,6 +212,49 @@ async function updateCategory(record, catId) {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Add Modal -->
+    <div v-if="showAddModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl w-full max-w-md p-6 space-y-4">
+        <div class="flex justify-between items-center">
+          <h3 class="text-lg font-bold text-gray-100">新增金流紀錄</h3>
+          <button @click="showAddModal = false" class="text-gray-500 hover:text-white text-xl">✕</button>
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">類型</label>
+          <select v-model="addForm.type" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+            <option value="expense">支出</option>
+            <option value="income">收入</option>
+            <option value="withdrawal">提領</option>
+          </select>
+        </div>
+        <div v-if="addForm.type === 'expense'">
+          <label class="text-xs text-gray-500 block mb-1">科目（必選）</label>
+          <select v-model="addForm.category_id" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+            <option value="">-- 選擇科目 --</option>
+            <option v-for="c in categories.filter(c => c.type === 'expense')" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">金額</label>
+          <input v-model="addForm.amount" type="number" min="0" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" placeholder="0" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">說明</label>
+          <input v-model="addForm.description" type="text" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" placeholder="說明用途…" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">日期</label>
+          <input v-model="addForm.transaction_date" type="date" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button @click="showAddModal = false" class="flex-1 py-2 bg-[#2d3748] text-gray-300 rounded-lg text-sm font-bold hover:bg-[#374151]">取消</button>
+          <button @click="submitAdd" :disabled="addSubmitting" class="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold disabled:opacity-50">
+            {{ addSubmitting ? '儲存中…' : '儲存' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Toast -->

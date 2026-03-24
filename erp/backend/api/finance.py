@@ -145,6 +145,8 @@ def list_categories(db: Session = Depends(get_db)):
 @router.get("/cash-flow")
 def list_cash_flow(
     days_limit: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     type: Optional[str] = None,
     category_id: Optional[int] = None,
     only_uncategorized: bool = False,
@@ -154,6 +156,8 @@ def list_cash_flow(
     return finance_service.get_cash_flow_records(
         db,
         days_limit=days_limit,
+        date_from=date_from,
+        date_to=date_to,
         type_filter=type,
         category_id=category_id,
         only_uncategorized=only_uncategorized,

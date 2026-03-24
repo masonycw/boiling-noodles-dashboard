@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Boolean, DateTime, ForeignKey,
-    JSON, Numeric, ARRAY, Time, Text, Enum as SAEnum
+    JSON, Numeric, ARRAY, Time, Text, Enum as SAEnum, Date
 )
 from sqlalchemy.sql import func
 from erp.backend.db.session import Base
@@ -91,6 +91,7 @@ class Vendor(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # Phase 3 新增
     expense_category = Column(String)                        # 預設支出科目
+    default_category_id = Column(Integer, ForeignKey("erp_cash_flow_categories.id"), nullable=True)  # 預設金流科目
     payment_terms = Column(String, default="cash")           # cash / monthly / after_delivery
     payment_days = Column(Integer, default=0)                # 後結天數（after_delivery 時用）
     bank_account = Column(String)                            # 匯款帳號
@@ -126,6 +127,9 @@ class StocktakeGroup(Base):
     # P1-3 新增
     description = Column(Text)                               # 群組說明
     suggested_frequency = Column(String)                     # 建議盤點頻率
+    # O5 新增
+    stocktake_cycle_days = Column(Integer, nullable=True)    # 盤點週期（天）
+    next_stocktake_due = Column(Date, nullable=True)         # 下次預定盤點日
 
 
 class Item(Base):
@@ -168,6 +172,7 @@ class PurchaseOrder(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     # Phase 3 新增
     confirmation_status = Column(String, default="unconfirmed")  # unconfirmed / confirmed（廠商確認）
+    receive_user_id = Column(Integer, ForeignKey("erp_users.id"), nullable=True)  # 簽收人
 
 
 class PurchaseOrderDetail(Base):

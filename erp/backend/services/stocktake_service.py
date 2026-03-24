@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, extract
-from datetime import datetime, date
+from sqlalchemy import desc, extract, or_
+from datetime import datetime, date, timedelta
 from typing import List, Optional
 from erp.backend.db.models import (
     StocktakeGroup, Stocktake, StocktakeItem, Item, StocktakeModeEnum, User
@@ -20,7 +20,53 @@ def get_stocktake_groups(db: Session) -> List[StocktakeGroup]:
     )
 
 
+def get_pending_groups(db: Session) -> List[dict]:
+    """O5: 回傳今天或逾期或明天到期的待盤點群組"""
+    tomorrow = date.today() + timedelta(days=1)
+    groups = (
+        db.query(StocktakeGroup)
+        .filter(
+            StocktakeGroup.is_active == True,
+            StocktakeGroup.stocktake_cycle_days.isnot(None),
+            or_(
+                StocktakeGroup.next_stocktake_due == None,
+                StocktakeGroup.next_stocktake_due <= tomorrow
+            )
+        )
+        .order_by(StocktakeGroup.display_order)
+        .all()
+    )
+    today = date.today()
+    result = []
+    for g in groups:
+        due = g.next_stocktake_due or today
+        overdue_days = (today - due).days
+        result.append({
+            "group_id": g.id,
+            "group_name": g.name,
+            "cycle_days": g.stocktake_cycle_days,
+            "next_stocktake_due": due.isoformat(),
+            "overdue_days": max(0, overdue_days)
+        })
+    result.sort(key=lambda x: -x["overdue_days"])
+    return result
+
+
+def update_group_next_due(db: Session, group_id: int, next_due: str) -> dict:
+    """O5: 手動更新群組下次預定盤點日"""
+    from datetime import date as date_type
+    group = db.query(StocktakeGroup).filter(StocktakeGroup.id == group_id).first()
+    if not group:
+        raise ValueError(f"StocktakeGroup {group_id} not found")
+    group.next_stocktake_due = date_type.fromisoformat(next_due)
+    db.commit()
+    return {"group_id": group_id, "next_stocktake_due": next_due}
+
+
 def create_stocktake_group(db: Session, data: dict) -> StocktakeGroup:
+    # O5: 將字串日期轉換為 date 物件
+    if data.get("next_stocktake_due") and isinstance(data["next_stocktake_due"], str):
+        data["next_stocktake_due"] = date.fromisoformat(data["next_stocktake_due"])
     group = StocktakeGroup(**data)
     db.add(group)
     db.commit()
@@ -32,6 +78,11 @@ def update_stocktake_group(db: Session, group_id: int, data: dict) -> StocktakeG
     group = db.query(StocktakeGroup).filter(StocktakeGroup.id == group_id).first()
     if not group:
         raise ValueError(f"StocktakeGroup {group_id} not found")
+    # O5: 將字串日期轉換為 date 物件
+    if data.get("next_stocktake_due") and isinstance(data["next_stocktake_due"], str):
+        data["next_stocktake_due"] = date.fromisoformat(data["next_stocktake_due"])
+    elif "next_stocktake_due" in data and data["next_stocktake_due"] is None:
+        pass  # allow clearing
     for key, value in data.items():
         setattr(group, key, value)
     db.commit()
@@ -149,6 +200,15 @@ def submit_stocktake(db: Session, stocktake_id: int) -> dict:
                 item = db.query(Item).filter(Item.id == si.item_id).first()
                 if item:
                     item.current_stock = si.counted_qty
+
+    # O5: 自動推算下次盤點日（防漂移：從 next_due + cycle_days，不從實際完成日）
+    if stocktake.stocktake_group_id:
+        group = db.query(StocktakeGroup).filter(
+            StocktakeGroup.id == stocktake.stocktake_group_id
+        ).first()
+        if group and group.stocktake_cycle_days:
+            base = group.next_stocktake_due or date.today()
+            group.next_stocktake_due = base + timedelta(days=group.stocktake_cycle_days)
 
     db.commit()
     db.refresh(stocktake)

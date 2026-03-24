@@ -124,6 +124,8 @@ def get_cash_flow_categories(db: Session) -> List[dict]:
 def get_cash_flow_records(
     db: Session,
     days_limit: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     type_filter: Optional[str] = None,
     category_id: Optional[int] = None,
     only_uncategorized: bool = False,
@@ -131,9 +133,13 @@ def get_cash_flow_records(
 ) -> List[dict]:
     query = db.query(CashFlowRecord).order_by(desc(CashFlowRecord.created_at))
 
-    if days_limit:
+    if date_from:
+        query = query.filter(CashFlowRecord.created_at >= date_from)
+    elif days_limit:
         cutoff = datetime.utcnow() - timedelta(days=days_limit)
         query = query.filter(CashFlowRecord.created_at >= cutoff)
+    if date_to:
+        query = query.filter(CashFlowRecord.created_at <= date_to + " 23:59:59")
     if type_filter:
         query = query.filter(CashFlowRecord.type == type_filter)
     if category_id:
