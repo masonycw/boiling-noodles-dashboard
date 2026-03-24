@@ -69,6 +69,7 @@ class OrderCreate(BaseModel):
     vendor_id: int
     expected_delivery_date: Optional[datetime] = None
     items: List[OrderItemCreate]
+    status: Optional[str] = "confirmed"
 
 @router.post("/orders")
 def create_order(order_data: OrderCreate, db: Session = Depends(get_db)):
@@ -76,7 +77,8 @@ def create_order(order_data: OrderCreate, db: Session = Depends(get_db)):
     # Convert pydantic models to dicts for service layer
     items_dicts = [item.dict() for item in order_data.items]
     return inventory_service.create_purchase_order(
-        db, user_id, order_data.vendor_id, items_dicts, order_data.expected_delivery_date
+        db, user_id, order_data.vendor_id, items_dicts, order_data.expected_delivery_date,
+        status=order_data.status or "confirmed"
     )
 
 @router.put("/orders/{order_id}")

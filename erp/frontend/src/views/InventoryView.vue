@@ -243,7 +243,7 @@ async function submitPendingReceive() {
         method: 'POST', headers: authHeaders(),
         body: JSON.stringify({
           vendor_id: selectedVendor.value.id,
-          status: 'pending_receive',
+          status: 'confirmed',
           expected_delivery_date: expectedDeliveryDate.value ? new Date(expectedDeliveryDate.value).toISOString() : null,
           items: orderDetails
         })
@@ -336,7 +336,7 @@ async function copyOrderLineMsg(order) {
 async function loadPending() {
   pendingLoading.value = true
   try {
-    const res = await fetch(`${API_BASE}/inventory/orders?status=pending_receive,confirmed`, { headers: authHeaders() })
+    const res = await fetch(`${API_BASE}/inventory/orders?status=pending,confirmed`, { headers: authHeaders() })
     if (res.ok) pendingOrders.value = await res.json()
   } finally { pendingLoading.value = false }
 }

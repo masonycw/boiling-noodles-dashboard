@@ -13,14 +13,14 @@ def get_items(db: Session, vendor_id: int = None, stocktake_group_id: int = None
         query = query.filter(Item.stocktake_group_id == stocktake_group_id)
     return query.order_by(Item.display_order, Item.name).offset(skip).limit(limit).all()
 
-def create_purchase_order(db: Session, user_id: int, vendor_id: int, items_data: list, expected_delivery_date: datetime = None):
+def create_purchase_order(db: Session, user_id: int, vendor_id: int, items_data: list, expected_delivery_date: datetime = None, status: str = "confirmed"):
     """
     items_data: list of dicts with {'item_id': int, 'qty': float}
     """
     db_po = PurchaseOrder(
         user_id=user_id,
         vendor_id=vendor_id,
-        status="pending",
+        status=status,
         total_items=len(items_data),
         expected_delivery_date=expected_delivery_date
     )
@@ -74,7 +74,12 @@ def get_orders(db: Session, skip: int = 0, limit: int = 50, days_limit: int = No
         cutoff_date = datetime.utcnow() - timedelta(days=days_limit)
         query = query.filter(PurchaseOrder.created_at >= cutoff_date)
     if status is not None:
-        query = query.filter(PurchaseOrder.status == status)
+        # Support comma-separated status values e.g. "pending,confirmed"
+        status_list = [s.strip() for s in status.split(',') if s.strip()]
+        if len(status_list) == 1:
+            query = query.filter(PurchaseOrder.status == status_list[0])
+        else:
+            query = query.filter(PurchaseOrder.status.in_(status_list))
     return query.order_by(PurchaseOrder.created_at.desc()).offset(skip).limit(limit).all()
 
 from erp.backend.services.finance_service import create_transaction
