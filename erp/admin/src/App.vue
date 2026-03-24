@@ -54,7 +54,6 @@ const navGroups = [
       { name: 'settings-accounts', label: '帳號管理',  icon: '👥' },
       { name: 'settings-finance',  label: '財務參數',  icon: '⚙️' },
       { name: 'settings-display',  label: '顯示設置',  icon: '🖥️' },
-      { name: 'settings-features', label: '功能開關',  icon: '🔧' },
       { name: 'settings-api',      label: '串接管理',  icon: '🔌' },
     ]
   },

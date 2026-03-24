@@ -7,7 +7,6 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api
 const toast = ref('')
 const saving = ref(false)
 
-// App 歷史顯示天數設定
 const settings = ref({
   stocktake_history_days: 7,
   order_history_days: 14,
@@ -22,43 +21,54 @@ function showToast(msg) { toast.value = msg; setTimeout(() => { toast.value = ''
 
 async function load() {
   try {
-    const res = await fetch(`${API_BASE}/settings/display`, { headers: authHeaders() })
+    const res = await fetch(`${API_BASE}/admin/settings/`, { headers: authHeaders() })
     if (res.ok) {
       const data = await res.json()
-      Object.assign(settings.value, data)
+      for (const key of Object.keys(settings.value)) {
+        if (data[key] !== undefined) settings.value[key] = Number(data[key])
+      }
     }
-  } catch (e) { /* 使用預設值 */ }
+  } catch {}
 }
 
 async function save() {
   saving.value = true
   try {
-    const res = await fetch(`${API_BASE}/settings/display`, {
-      method: 'PUT', headers: authHeaders(), body: JSON.stringify(settings.value)
-    })
-    if (res.ok) showToast('✓ 顯示設置已儲存')
-    else showToast('⚠ 儲存失敗（API 尚未實作）')
-  } catch (e) { showToast('⚠ 儲存失敗') } finally { saving.value = false }
+    const promises = Object.entries(settings.value).map(([key, value]) =>
+      fetch(`${API_BASE}/admin/settings/${key}`, {
+        method: 'PUT', headers: authHeaders(),
+        body: JSON.stringify({ value: String(value) })
+      })
+    )
+    await Promise.all(promises)
+    showToast('✓ 顯示設置已儲存')
+  } catch { showToast('⚠ 儲存失敗') } finally { saving.value = false }
 }
 
 onMounted(load)
 
 const settingItems = [
   { key: 'stocktake_history_days', label: 'App 盤點紀錄顯示天數', icon: '🗂️', desc: 'App 前台可查看的盤點歷史天數' },
-  { key: 'order_history_days', label: 'App 叫貨紀錄顯示天數', icon: '🚚', desc: 'App 前台可查看的叫貨歷史天數' },
-  { key: 'petty_cash_history_days', label: 'App 零用金顯示天數', icon: '💰', desc: 'App 前台可查看的零用金紀錄天數' },
-  { key: 'waste_history_days', label: 'App 耗損紀錄顯示天數', icon: '🗑️', desc: 'App 前台可查看的耗損歷史天數' },
+  { key: 'order_history_days',     label: 'App 叫貨紀錄顯示天數', icon: '🚚', desc: 'App 前台可查看的叫貨歷史天數' },
+  { key: 'petty_cash_history_days',label: 'App 零用金顯示天數',   icon: '💰', desc: 'App 前台可查看的零用金紀錄天數' },
+  { key: 'waste_history_days',     label: 'App 耗損紀錄顯示天數', icon: '🗑️', desc: 'App 前台可查看的耗損歷史天數' },
 ]
 </script>
 
 <template>
-  <div class="space-y-5">
+  <div>
     <div v-if="toast" class="fixed top-5 right-5 z-50 bg-emerald-700 text-white text-sm font-bold px-4 py-2.5 rounded-xl shadow-lg">{{ toast }}</div>
 
     <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
-      <div class="px-5 py-4 border-b border-[#2d3748]">
-        <h3 class="text-sm font-bold text-gray-200">App 歷史紀錄顯示設定</h3>
-        <p class="text-xs text-gray-500 mt-0.5">控制 App 前台各模組可顯示的歷史資料天數</p>
+      <div class="px-5 py-4 border-b border-[#2d3748] flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-bold text-gray-200">App 歷史紀錄顯示設定</h3>
+          <p class="text-xs text-gray-500 mt-0.5">控制 App 前台各模組可顯示的歷史資料天數</p>
+        </div>
+        <button @click="save" :disabled="saving"
+          class="bg-blue-500 hover:bg-blue-400 text-white font-bold px-5 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 shrink-0">
+          {{ saving ? '儲存中…' : '儲存設定' }}
+        </button>
       </div>
 
       <div class="divide-y divide-[#2d3748]">
@@ -75,18 +85,6 @@ const settingItems = [
           </div>
         </div>
       </div>
-
-      <div class="px-5 py-4 border-t border-[#2d3748] flex justify-end">
-        <button @click="save" :disabled="saving"
-          class="bg-blue-500 hover:bg-blue-400 text-white font-bold px-5 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
-          {{ saving ? '儲存中…' : '儲存設定' }}
-        </button>
-      </div>
-    </div>
-
-    <div class="bg-amber-900/20 border border-amber-500/30 rounded-xl px-5 py-4">
-      <p class="text-sm text-amber-300 font-bold mb-1">⚠ 注意</p>
-      <p class="text-xs text-amber-200/70">此設置需後端 <code class="text-amber-300">/api/v1/settings/display</code> API 支援（D1 任務完整實作後生效）。目前顯示預設值。</p>
     </div>
   </div>
 </template>

@@ -417,7 +417,7 @@ async function cancelOrder(order) {
 async function loadHistory() {
   historyLoading.value = true
   try {
-    const res = await fetch(`${API_BASE}/inventory/orders?status=received,cancelled&days_limit=60`, { headers: authHeaders() })
+    const res = await fetch(`${API_BASE}/inventory/orders?status=received&limit=100`, { headers: authHeaders() })
     if (res.ok) historyOrders.value = await res.json()
   } finally { historyLoading.value = false }
 }
@@ -425,7 +425,7 @@ async function loadHistory() {
 async function loadHistoryStocktake() {
   historyStocktakeLoading.value = true
   try {
-    const res = await fetch(`${API_BASE}/stocktake/?days_limit=60&limit=50`, { headers: authHeaders() })
+    const res = await fetch(`${API_BASE}/stocktake/?limit=50`, { headers: authHeaders() })
     if (res.ok) historySessions.value = await res.json()
   } finally { historyStocktakeLoading.value = false }
 }
@@ -949,7 +949,7 @@ const payBadge = (o) => {
         </div>
         <div v-else-if="!filteredHistory.length" class="text-center py-16">
           <p class="text-5xl mb-3">📋</p>
-          <p class="text-slate-400 font-bold">{{ historySearch ? '查無符合紀錄' : '近 60 天無收貨紀錄' }}</p>
+          <p class="text-slate-400 font-bold">{{ historySearch ? '查無符合紀錄' : '尚無收貨紀錄' }}</p>
         </div>
         <div v-else class="space-y-2">
           <div v-for="order in filteredHistory" :key="order.id" class="bg-white rounded-2xl shadow-sm overflow-hidden">

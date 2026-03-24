@@ -104,11 +104,6 @@ const routes = [
     component: () => import('@/views/DisplaySettingsView.vue')
   },
   {
-    path: '/settings/features',
-    name: 'settings-features',
-    component: () => import('@/views/FeaturesToggleView.vue')
-  },
-  {
     path: '/settings/api',
     name: 'settings-api',
     component: () => import('@/views/ApiIntegrationsView.vue')
