@@ -233,7 +233,6 @@ erp/                                ← 本 CLAUDE.md 所在位置
   /settings/accounts              → AccountsView.vue（帳號管理）
   /settings/finance               → FinanceParamsView.vue（財務參數）
   /settings/display               → DisplaySettingsView.vue（顯示設置）
-  /settings/features              → FeaturesToggleView.vue（功能開關）
   /settings/api                   → ApiIntegrationsView.vue（串接管理）
 ```
 

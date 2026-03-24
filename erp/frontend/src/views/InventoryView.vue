@@ -188,31 +188,10 @@ function addAdHoc() {
 const draftSaving = ref(false)
 const draftToast = ref('')
 
-async function saveDraftToServer() {
-  const orderItems = items.value.filter(i => i.qty > 0)
-  const stocktakeItems = items.value.filter(i => i.actual_qty !== null && i.actual_qty !== '')
-  if (!selectedVendor.value && !orderItems.length && !stocktakeItems.length) return
-
-  const type = modeOrder.value && modeStocktake.value ? 'both' : modeStocktake.value ? 'stocktake' : 'order'
-  const payload = {
-    type,
-    vendor_id: selectedVendor.value?.id || null,
-    order_items: orderItems.map(i => ({ item_id: i.id, quantity: i.qty })),
-    stocktake_items: stocktakeItems.map(i => ({ item_id: i.id, actual_quantity: parseFloat(i.actual_qty) || 0 })),
-    created_by_name: auth.user?.full_name || auth.user?.username || ''
-  }
-  draftSaving.value = true
-  try {
-    const res = await fetch(`${API_BASE}/drafts`, {
-      method: 'POST', headers: authHeaders(), body: JSON.stringify(payload)
-    })
-    if (!res.ok) throw new Error('儲存失敗')
-    draftToast.value = '草稿已儲存 ✓'
-    setTimeout(() => { draftToast.value = '' }, 2000)
-  } catch {
-    draftToast.value = '⚠ 草稿儲存失敗'
-    setTimeout(() => { draftToast.value = '' }, 2000)
-  } finally { draftSaving.value = false }
+function saveDraftToServer() {
+  saveDraft()
+  draftToast.value = '草稿已儲存 ✓'
+  setTimeout(() => { draftToast.value = '' }, 2000)
 }
 
 // A2: 盤點歷史底部抽屜
@@ -262,12 +241,18 @@ async function submitPendingReceive() {
     if (modeStocktake.value) {
       const stocktakeItems = items.value
         .filter(i => i.actual_qty !== null && i.actual_qty !== '')
-        .map(i => ({ item_id: i.id, actual_qty: parseFloat(i.actual_qty) || 0 }))
+        .map(i => ({ item_id: i.id, counted_qty: parseFloat(i.actual_qty) || 0 }))
       if (stocktakeItems.length > 0) {
-        await fetch(`${API_BASE}/stocktake/records`, {
+        const createRes = await fetch(`${API_BASE}/stocktake/`, {
           method: 'POST', headers: authHeaders(),
           body: JSON.stringify({ items: stocktakeItems, mode: 'stocktake' })
         })
+        if (createRes.ok) {
+          const created = await createRes.json()
+          await fetch(`${API_BASE}/stocktake/${created.id}/submit`, {
+            method: 'PUT', headers: authHeaders()
+          })
+        }
       }
     }
 
@@ -484,7 +469,7 @@ const payBadge = (o) => {
       <div class="flex border-t border-slate-100">
         <button @click="switchTab('order')" class="flex-1 py-3 text-sm font-bold border-b-2 transition-all"
           :class="subTab==='order' ? 'text-orange-500 border-orange-500' : 'text-slate-400 border-transparent'">
-          叫貨
+          叫貨/盤點
         </button>
         <button @click="switchTab('pending')" class="flex-1 py-3 text-sm font-bold border-b-2 transition-all"
           :class="subTab==='pending' ? 'text-orange-500 border-orange-500' : 'text-slate-400 border-transparent'">
@@ -992,7 +977,7 @@ const payBadge = (o) => {
         </div>
         <div v-else-if="historySessions.length === 0" class="text-center py-16">
           <p class="text-5xl mb-3">📋</p>
-          <p class="text-slate-400 font-bold">近 60 天無盤點紀錄</p>
+          <p class="text-slate-400 font-bold">尚無盤點紀錄</p>
         </div>
         <div v-else class="space-y-2">
           <div v-for="s in historySessions" :key="s.id" class="bg-white rounded-2xl shadow-sm overflow-hidden">
@@ -1003,7 +988,7 @@ const payBadge = (o) => {
               </div>
               <div class="flex items-center justify-between text-xs text-slate-500">
                 <span v-if="s.performed_by">執行人：{{ s.performed_by.name || s.performed_by }}</span>
-                <span>{{ s.total_items || 0 }} 品項</span>
+                <span>{{ s.items?.length || 0 }} 品項</span>
               </div>
               <div class="flex items-center justify-between mt-1">
                 <span class="text-[10px] font-bold"
@@ -1013,10 +998,14 @@ const payBadge = (o) => {
                 <span class="text-slate-400 text-xs">{{ expandedSessions.has(s.id) ? '▲' : '▼' }}</span>
               </div>
             </div>
-            <div v-if="expandedSessions.has(s.id) && s.discrepancies?.length" class="border-t border-slate-100 px-4 py-3 space-y-1">
-              <div v-for="d in s.discrepancies" :key="d.item_id" class="flex items-center justify-between text-sm">
+            <div v-if="expandedSessions.has(s.id) && s.items?.length" class="border-t border-slate-100 px-4 py-3 space-y-1">
+              <div v-for="d in s.items" :key="d.item_id" class="flex items-center justify-between text-sm">
                 <span class="text-slate-700">{{ d.item_name }}</span>
-                <span class="text-red-500 text-xs font-bold">系統 {{ d.system_qty }} / 實盤 {{ d.counted_qty }} {{ d.unit }}</span>
+                <span class="text-xs font-bold"
+                  :class="(d.variance||0) !== 0 ? 'text-red-500' : 'text-slate-400'">
+                  系統 {{ d.expected_qty ?? '?' }} → 實盤 {{ d.counted_qty ?? '?' }}
+                  <span v-if="(d.variance||0) !== 0"> ({{ d.variance > 0 ? '+' : '' }}{{ d.variance }})</span>
+                </span>
               </div>
             </div>
           </div>
