@@ -190,9 +190,19 @@ const draftToast = ref('')
 
 function saveDraftToServer() {
   saveDraft()
+  loadDraftBanner()  // 重新讀入 localStorage，讓 banner 可再次出現
   draftToast.value = '草稿已儲存 ✓'
   setTimeout(() => { draftToast.value = '' }, 2000)
 }
+
+const hasSavedDraft = computed(() => {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY())
+    if (!raw) return false
+    const d = JSON.parse(raw)
+    return Date.now() - d.timestamp <= DRAFT_TTL
+  } catch { return false }
+})
 
 // A2: 盤點歷史底部抽屜
 const showStocktakeHistory = ref(false)
@@ -512,6 +522,12 @@ const payBadge = (o) => {
             📋 盤點{{ modeStocktake ? ' ✓' : '' }}
           </button>
         </div>
+
+        <!-- 草稿提示按鈕（有草稿時才顯示） -->
+        <button v-if="hasSavedDraft && !draftBanner" @click="loadDraftBanner"
+          class="w-full py-2 rounded-xl text-xs font-bold bg-amber-50 border border-amber-300 text-amber-700 flex items-center justify-center gap-1.5">
+          📌 有未完成草稿，點此載入
+        </button>
 
         <!-- Vendor chips -->
         <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
