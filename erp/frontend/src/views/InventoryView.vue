@@ -674,7 +674,8 @@ const payBadge = (o) => {
       </div>
 
       <!-- Bottom action bar -->
-      <div class="fixed bottom-16 inset-x-0 bg-white border-t border-slate-200 px-4 py-3 shadow-lg z-20">
+      <div class="fixed inset-x-0 bg-white border-t border-slate-200 px-4 py-3 shadow-lg z-20"
+           style="bottom: calc(4rem + max(16px, env(safe-area-inset-bottom))); will-change: transform;">
         <div class="flex gap-2 mb-2" v-if="modeStocktake">
           <button @click="loadStocktakeHistory"
             class="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl border border-blue-200">
