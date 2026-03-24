@@ -7,6 +7,42 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api
 const toast = ref('')
 const testingId = ref(null)
 
+// LINE Messaging API（O9：叫貨自動推播）
+const lineMessaging = ref({ channel_secret: '', access_token: '' })
+const lineMessagingSaving = ref(false)
+
+async function loadLineMessaging() {
+  try {
+    const res = await fetch(`${API_BASE}/admin/settings/`, { headers: authHeaders() })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.line_channel_secret) lineMessaging.value.channel_secret = data.line_channel_secret
+      if (data.line_access_token) lineMessaging.value.access_token = data.line_access_token
+    }
+  } catch (e) { /* 使用預設值 */ }
+}
+
+async function saveLineMessaging() {
+  lineMessagingSaving.value = true
+  try {
+    await Promise.all([
+      fetch(`${API_BASE}/admin/settings/line_channel_secret`, {
+        method: 'PUT', headers: authHeaders(),
+        body: JSON.stringify({ value: lineMessaging.value.channel_secret })
+      }),
+      fetch(`${API_BASE}/admin/settings/line_access_token`, {
+        method: 'PUT', headers: authHeaders(),
+        body: JSON.stringify({ value: lineMessaging.value.access_token })
+      }),
+    ])
+    showToast('✓ LINE Messaging API 憑證已儲存')
+  } catch (e) {
+    showToast('⚠ 儲存失敗')
+  } finally {
+    lineMessagingSaving.value = false
+  }
+}
+
 // LINE 通知設定
 const lineSettings = ref({
   enabled: false,
@@ -61,7 +97,7 @@ async function load() {
     if (logRes.ok) syncLogs.value = await logRes.json()
   } catch (e) { } finally { loadingLogs.value = false }
 }
-onMounted(load)
+onMounted(() => { load(); loadLineMessaging() })
 
 async function saveLineSettings() {
   try {
@@ -124,6 +160,41 @@ function copyWebhookUrl() {
 <template>
   <div class="space-y-6">
     <div v-if="toast" class="fixed top-5 right-5 z-50 bg-emerald-700 text-white text-sm font-bold px-4 py-2.5 rounded-xl shadow-lg">{{ toast }}</div>
+
+    <!-- LINE Messaging API（O9：叫貨自動推播） -->
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="px-5 py-4 border-b border-[#2d3748] flex items-center justify-between">
+        <div>
+          <h3 class="font-bold text-gray-100 text-sm">LINE Messaging API</h3>
+          <p class="text-xs text-gray-500 mt-0.5">叫貨送出時自動推播至廠商 LINE 群組</p>
+        </div>
+        <span class="text-xs px-2 py-1 rounded-full bg-emerald-900/40 text-emerald-400 font-bold">啟用中</span>
+      </div>
+      <div class="px-5 py-4 space-y-4">
+        <div>
+          <label class="block text-gray-400 text-xs font-semibold mb-1">Channel Secret</label>
+          <input v-model="lineMessaging.channel_secret" type="password"
+            placeholder="填入 Channel Secret"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]" />
+        </div>
+        <div>
+          <label class="block text-gray-400 text-xs font-semibold mb-1">Channel Access Token（長期）</label>
+          <input v-model="lineMessaging.access_token" type="password"
+            placeholder="填入 Long-lived Channel Access Token"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]" />
+        </div>
+        <div class="text-xs text-gray-500 space-y-1">
+          <p>• Webhook URL：<span class="text-gray-300 font-mono">https://preoffensive-chasteningly-taunya.ngrok-free.dev/api/v1/webhook/line</span></p>
+          <p>• 廠商 LINE 群組 ID 在供應商管理頁填入</p>
+        </div>
+        <div class="flex justify-end">
+          <button @click="saveLineMessaging" :disabled="lineMessagingSaving"
+            class="px-4 py-2 bg-[#63b3ed] hover:bg-blue-400 disabled:opacity-50 text-black text-sm font-bold rounded-lg transition-colors">
+            {{ lineMessagingSaving ? '儲存中...' : '儲存憑證' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- LINE 通知設定 -->
     <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
