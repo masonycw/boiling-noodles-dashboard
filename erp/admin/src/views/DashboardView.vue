@@ -50,13 +50,13 @@ onMounted(async () => {
 })
 
 const statusLabel = (s) => ({
-  draft: '草稿', confirmed: '已確認', received: '已收貨'
+  confirmed: '待收貨', received: '已收貨', cancelled: '已取消'
 }[s] || s)
 
 const statusColor = (s) => ({
-  draft: 'text-gray-400',
-  confirmed: 'text-blue-400',
-  received: 'text-emerald-400'
+  confirmed: 'text-amber-400',
+  received: 'text-emerald-400',
+  cancelled: 'text-gray-400'
 }[s] || 'text-gray-400')
 </script>
 

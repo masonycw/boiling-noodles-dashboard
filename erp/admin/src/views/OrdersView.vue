@@ -207,13 +207,11 @@ function openLightbox(imgs, idx = 0) {
   showLightbox.value = true
 }
 
-const statusLabel = (s) => ({ draft: '草稿', confirmed: '已確認', received: '已收貨', pending: '待送出', shipped: '已送出' }[s] || s)
+const statusLabel = (s) => ({ confirmed: '待收貨', received: '已收貨', cancelled: '已取消' }[s] || s)
 const statusBadge = (s) => ({
+  confirmed: 'bg-[#f59e0b] text-white',
   received: 'bg-[#10b981] text-white',
-  shipped: 'bg-[#3b82f6] text-white',
-  confirmed: 'bg-[#3b82f6] text-white',
-  pending: 'bg-[#f59e0b] text-white',
-  draft: 'bg-gray-700 text-gray-300',
+  cancelled: 'bg-gray-700 text-gray-300',
 }[s] || 'bg-gray-700 text-gray-300')
 
 function fmtDate(d) {
