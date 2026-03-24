@@ -400,7 +400,7 @@ async function loadHistory() {
   } finally { historyLoading.value = false }
 }
 
-async function loadStocktakeHistory() {
+async function loadHistoryStocktake() {
   historyStocktakeLoading.value = true
   try {
     const res = await fetch(`${API_BASE}/stocktake/?days_limit=60&limit=50`, { headers: authHeaders() })
@@ -417,7 +417,7 @@ function toggleSession(id) {
 function switchHistoryTab(tab) {
   historyTab.value = tab
   if (tab === 'orders' && !historyOrders.value.length) loadHistory()
-  if (tab === 'stocktake' && !historySessions.value.length) loadStocktakeHistory()
+  if (tab === 'stocktake' && !historySessions.value.length) loadHistoryStocktake()
 }
 
 async function toggleExpand(orderId) {
