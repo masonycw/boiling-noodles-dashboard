@@ -121,6 +121,9 @@ const receiveOrderItems = ref([])
 const receiveForm = ref({ total_amount: '', amount_paid: '', is_paid: true, note: '' })
 const receiveSubmitting = ref(false)
 const receiveError = ref('')
+const receivePhoto = ref(null)
+const receivePhotoPreview = ref('')
+const photoInput = ref(null)
 
 // ── 歷史紀錄 tab ──────────────────────────────
 const historyTab = ref('orders')  // 'orders' | 'stocktake'
@@ -360,12 +363,21 @@ function orderDateBadge(order) {
 async function openReceive(order) {
   receiveTarget.value = order
   receiveForm.value = { total_amount: order.total_amount || '', amount_paid: '', is_paid: true, note: '' }
-  receiveError.value = ''; receiveOrderItems.value = []; showReceiveModal.value = true
+  receiveError.value = ''; receiveOrderItems.value = []; receivePhoto.value = null; receivePhotoPreview.value = ''; showReceiveModal.value = true
   const res = await fetch(`${API_BASE}/inventory/orders/${order.id}`, { headers: authHeaders() })
   if (res.ok) {
     const data = await res.json()
     receiveOrderItems.value = Array.isArray(data) ? data : (data.items || [])
   }
+}
+
+function handlePhotoSelect(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  receivePhoto.value = file
+  const reader = new FileReader()
+  reader.onload = (evt) => { receivePhotoPreview.value = evt.target.result }
+  reader.readAsDataURL(file)
 }
 
 async function submitReceive() {
@@ -379,6 +391,16 @@ async function submitReceive() {
       body: JSON.stringify({ total_amount: amount, amount_paid: parseFloat(receiveForm.value.amount_paid) || 0, is_paid: receiveForm.value.is_paid, note: receiveForm.value.note || null })
     })
     if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '收貨失敗') }
+    // 上傳照片（若有）
+    if (receivePhoto.value) {
+      const formData = new FormData()
+      formData.append('file', receivePhoto.value)
+      await fetch(`${API_BASE}/inventory/orders/${receiveTarget.value.id}/receipt`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${auth.token}` },
+        body: formData
+      })
+    }
     showReceiveModal.value = false
     await loadPending()
   } catch (e) { receiveError.value = e.message }
@@ -799,27 +821,31 @@ const payBadge = (o) => {
       </div>
 
       <!-- Receive bottom sheet -->
-      <div v-if="showReceiveModal" class="fixed inset-0 bg-black/50 z-50 flex items-end">
-        <div class="bg-white w-full rounded-t-3xl p-5 max-h-[88vh] overflow-y-auto">
-          <div class="flex items-center justify-center w-10 h-1 bg-slate-200 rounded-full mx-auto mb-4"></div>
-          <div class="flex justify-between items-center mb-4">
-            <h3 class="text-base font-extrabold text-slate-800">{{ receiveTarget?.vendor_name }} — 簽收確認</h3>
-            <button @click="showReceiveModal=false" class="text-slate-400 text-xl font-bold">✕</button>
-          </div>
-
-          <!-- Order items preview -->
-          <div v-if="receiveOrderItems.length" class="mb-4">
-            <p class="text-xs font-bold text-slate-500 uppercase mb-2">到貨品項確認</p>
-            <div class="bg-slate-50 rounded-xl p-3 space-y-1.5">
-              <div v-for="(item,idx) in receiveOrderItems" :key="idx"
-                class="flex justify-between text-sm">
-                <span class="text-slate-700">{{ item.name || item.adhoc_name }}</span>
-                <span class="text-slate-500 font-bold">叫貨：{{ item.qty }} {{ item.unit || item.adhoc_unit }}</span>
-              </div>
+      <div v-if="showReceiveModal" class="fixed inset-0 bg-black/50 z-[60] flex items-end">
+        <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+          <!-- 固定 header -->
+          <div class="flex-shrink-0 px-5 pt-4 pb-3">
+            <div class="flex items-center justify-center w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+            <div class="flex justify-between items-center">
+              <h3 class="text-base font-extrabold text-slate-800">{{ receiveTarget?.vendor_name }} — 簽收確認</h3>
+              <button @click="showReceiveModal=false" class="text-slate-400 text-xl font-bold">✕</button>
             </div>
           </div>
 
-          <div class="space-y-4">
+          <!-- 可捲動內容 -->
+          <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
+
+            <!-- Order items preview -->
+            <div v-if="receiveOrderItems.length">
+              <p class="text-xs font-bold text-slate-500 uppercase mb-2">到貨品項確認</p>
+              <div class="bg-slate-50 rounded-xl p-3 space-y-1.5">
+                <div v-for="(item,idx) in receiveOrderItems" :key="idx" class="flex justify-between text-sm">
+                  <span class="text-slate-700">{{ item.name || item.adhoc_name }}</span>
+                  <span class="text-slate-500 font-bold">叫貨：{{ item.qty }} {{ item.unit || item.adhoc_unit }}</span>
+                </div>
+              </div>
+            </div>
+
             <!-- Amount -->
             <div>
               <p class="text-xs font-bold text-slate-500 mb-1">本次訂單金額</p>
@@ -854,7 +880,28 @@ const payBadge = (o) => {
                 class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
             </div>
 
+            <!-- 拍照上傳 -->
+            <div>
+              <p class="text-xs font-bold text-slate-500 mb-2">收據拍照（選填）</p>
+              <input ref="photoInput" type="file" accept="image/*" capture="environment"
+                class="hidden" @change="handlePhotoSelect" />
+              <button @click="photoInput.click()"
+                class="w-full py-3 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 text-sm font-bold active:bg-slate-50 flex items-center justify-center gap-2">
+                <span class="text-xl">📷</span>
+                <span>{{ receivePhoto ? '重新拍照' : '拍照存證' }}</span>
+              </button>
+              <div v-if="receivePhotoPreview" class="mt-2 relative">
+                <img :src="receivePhotoPreview" class="w-full max-h-40 object-cover rounded-xl border border-slate-200" />
+                <button @click="receivePhoto=null; receivePhotoPreview=''"
+                  class="absolute top-2 right-2 bg-black/50 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold">✕</button>
+              </div>
+            </div>
+
             <div v-if="receiveError" class="text-red-500 text-sm text-center">{{ receiveError }}</div>
+          </div>
+
+          <!-- 固定底部按鈕 -->
+          <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
             <button @click="submitReceive" :disabled="receiveSubmitting"
               class="w-full text-white font-bold py-4 rounded-2xl active:scale-95 disabled:opacity-40"
               style="background:#e85d04">
