@@ -383,9 +383,12 @@ class DailySettlement(Base):
     __tablename__ = "erp_daily_settlements"
 
     id = Column(Integer, primary_key=True, index=True)
-    settlement_date = Column(String, nullable=False, unique=True)  # YYYY-MM-DD
+    settlement_date = Column(String, nullable=False)         # YYYY-MM-DD（O3: 移除 unique，允許每天多次）
     income_total = Column(Numeric(12, 2), default=0)
     expense_total = Column(Numeric(12, 2), default=0)
+    settlement_number = Column(Integer, default=1)           # O3: 第 N 次日結
+    closing_balance = Column(Numeric(12, 2), nullable=True)  # O3: 結算當下餘額
+    settled_by_user_id = Column(Integer, ForeignKey("erp_users.id"), nullable=True)  # O3: 執行人
     created_by_user_id = Column(Integer, ForeignKey("erp_users.id"), nullable=True)
     settled_by = Column(String, default="manual")            # manual / auto
     notes = Column(Text)

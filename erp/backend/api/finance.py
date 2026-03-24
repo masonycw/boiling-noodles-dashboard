@@ -4,8 +4,9 @@ from typing import Optional
 from pydantic import BaseModel
 from erp.backend.db.session import get_db
 from erp.backend.services import finance_service
-from erp.backend.db.models import DailySettlement, PettyCashRecord
-from sqlalchemy import extract
+from erp.backend.db.models import DailySettlement, PettyCashRecord, User
+from erp.backend.core.security import get_current_user
+from sqlalchemy import extract, desc
 from datetime import date, datetime
 
 router = APIRouter(prefix="/finance", tags=["finance"])
@@ -220,62 +221,100 @@ def mark_paid(payable_id: int, db: Session = Depends(get_db)):
 class DailySettlementCreate(BaseModel):
     income_total: float
     expense_total: float
+    closing_balance: Optional[float] = None
+
+
+def _fmt_settlement(s: DailySettlement, db: Session) -> dict:
+    settled_by_name = None
+    if s.settled_by_user_id:
+        u = db.query(User).filter(User.id == s.settled_by_user_id).first()
+        if u:
+            settled_by_name = u.full_name or u.username
+    return {
+        "id": s.id,
+        "settled": True,
+        "settlement_date": s.settlement_date,
+        "settlement_number": s.settlement_number or 1,
+        "income_total": float(s.income_total or 0),
+        "expense_total": float(s.expense_total or 0),
+        "closing_balance": float(s.closing_balance) if s.closing_balance is not None else None,
+        "settled_by_name": settled_by_name,
+        "settled_at": s.created_at,
+        "created_at": s.created_at,
+    }
+
+
+@router.get("/daily-settlement/can-settle")
+def can_settle(db: Session = Depends(get_db)):
+    """O3: 判斷今日是否可再次日結（有新紀錄才允許）"""
+    from erp.backend.db.models import CashFlowRecord
+    today = date.today().isoformat()
+
+    last = db.query(DailySettlement).filter(
+        DailySettlement.settlement_date == today
+    ).order_by(desc(DailySettlement.created_at)).first()
+
+    if not last:
+        # 今天未曾日結，檢查今天有無任何記錄
+        today_start = datetime.combine(date.today(), datetime.min.time())
+        has_records = db.query(CashFlowRecord).filter(
+            CashFlowRecord.created_at >= today_start
+        ).first() is not None
+        return {"can_settle": has_records, "reason": "no_settlement_today"}
+
+    # 有日結記錄，檢查日結後是否有新的金流紀錄
+    new_records = db.query(CashFlowRecord).filter(
+        CashFlowRecord.created_at > last.created_at
+    ).first()
+    return {
+        "can_settle": new_records is not None,
+        "reason": "new_records_after_last_settlement" if new_records else "no_new_records"
+    }
 
 
 @router.get("/daily-settlement/today")
 def get_today_settlement(db: Session = Depends(get_db)):
+    """O3: 回傳今日所有日結（陣列），前端可處理多次日結"""
     today = date.today().isoformat()
-    settlement = db.query(DailySettlement).filter(
+    settlements = db.query(DailySettlement).filter(
         DailySettlement.settlement_date == today
-    ).first()
-    if not settlement:
+    ).order_by(DailySettlement.created_at).all()
+
+    if not settlements:
         return {"settled": False, "settlement_date": today}
-    return {
-        "settled": True,
-        "settlement_date": settlement.settlement_date,
-        "income_total": float(settlement.income_total or 0),
-        "expense_total": float(settlement.expense_total or 0),
-        "settled_by": settlement.settled_by,
-        "created_at": settlement.created_at,
-    }
+
+    return [_fmt_settlement(s, db) for s in settlements]
 
 
 @router.post("/daily-settlement")
-def create_daily_settlement(data: DailySettlementCreate, db: Session = Depends(get_db)):
-    user_id = 1  # TODO: 從 JWT 取得
+def create_daily_settlement(
+    data: DailySettlementCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """O3: 執行日結（允許每天多次，自動計算 settlement_number）"""
     today = date.today().isoformat()
 
-    existing = db.query(DailySettlement).filter(
+    # 計算今天第幾次日結
+    count = db.query(DailySettlement).filter(
         DailySettlement.settlement_date == today
-    ).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="今日已完成日結")
+    ).count()
+    settlement_number = count + 1
 
     settlement = DailySettlement(
         settlement_date=today,
         income_total=data.income_total,
         expense_total=data.expense_total,
-        created_by_user_id=user_id,
+        settlement_number=settlement_number,
+        closing_balance=data.closing_balance,
+        settled_by_user_id=current_user.id,
+        created_by_user_id=current_user.id,
         settled_by="manual",
     )
     db.add(settlement)
-
-    # Lock today's petty cash records
-    db.query(PettyCashRecord).filter(
-        extract('year', PettyCashRecord.created_at) == date.today().year,
-        extract('month', PettyCashRecord.created_at) == date.today().month,
-        extract('day', PettyCashRecord.created_at) == date.today().day,
-    ).update({"note": PettyCashRecord.note})  # no-op update to avoid schema issue
-
     db.commit()
     db.refresh(settlement)
-    return {
-        "settled": True,
-        "settlement_date": settlement.settlement_date,
-        "income_total": float(settlement.income_total or 0),
-        "expense_total": float(settlement.expense_total or 0),
-        "created_at": settlement.created_at,
-    }
+    return _fmt_settlement(settlement, db)
 
 
 @router.delete("/daily-settlement/{settlement_id}")
