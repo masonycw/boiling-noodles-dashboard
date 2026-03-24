@@ -176,10 +176,10 @@ function authHeaders() {
 }
 function showToast(msg) { toast.value = msg; setTimeout(() => { toast.value = '' }, 2500) }
 function roleName(role) {
-  return { admin: '管理員', manager: '店長', staff: '員工' }[role] || role
+  return { admin: '管理員', manager: '店長', staff: '員工', cashier: '櫃檯' }[role] || role
 }
 function roleClass(role) {
-  return { admin: 'bg-blue-900/50 text-blue-400', manager: 'bg-purple-900/50 text-purple-400', staff: 'bg-amber-900/30 text-amber-400' }[role] || 'bg-gray-700 text-gray-400'
+  return { admin: 'bg-blue-900/50 text-blue-400', manager: 'bg-purple-900/50 text-purple-400', staff: 'bg-amber-900/30 text-amber-400', cashier: 'bg-green-900/30 text-green-400' }[role] || 'bg-gray-700 text-gray-400'
 }
 function fmtDate(d) {
   return d ? new Date(d).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
@@ -480,6 +480,7 @@ async function savePw() {
             <label class="block text-gray-400 text-xs font-semibold mb-1">角色 *</label>
             <select v-model="form.role"
               class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400">
+              <option value="cashier">櫃檯</option>
               <option value="staff">員工</option>
               <option value="manager">店長</option>
               <option value="admin">管理員</option>
