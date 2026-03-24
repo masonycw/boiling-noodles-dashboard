@@ -612,100 +612,117 @@ async function openDiscrepancy(item) {
     </div>
 
     <!-- ═══ O5: 下次盤點日確認 Modal ═══ -->
-    <div v-if="showNextDueModal" class="fixed inset-0 bg-black/50 z-50 flex items-end">
-      <div class="bg-white w-full rounded-t-3xl p-6 pb-safe">
-        <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-5"></div>
-        <div class="text-center mb-5">
-          <div class="text-4xl mb-2">✅</div>
-          <h3 class="text-lg font-extrabold text-slate-800">盤點完成！</h3>
-        </div>
-
-        <div class="bg-slate-50 rounded-xl p-4 mb-5">
-          <p class="text-xs font-bold text-slate-500 mb-2">下次預定盤點</p>
-          <div v-if="!editingNextDue" class="flex items-center justify-between">
-            <p class="text-base font-extrabold text-slate-800">{{ fmtNextDueDisplay(nextDueDate) }}</p>
-            <button @click="editingNextDue = true"
-              class="text-orange-500 font-bold text-sm px-3 py-1.5 rounded-lg bg-orange-50 active:bg-orange-100">
-              修改 ✎
-            </button>
-          </div>
-          <div v-else class="space-y-2">
-            <input v-model="nextDueDate" type="date"
-              class="w-full border-2 border-orange-400 rounded-xl px-3 py-2.5 text-slate-800 font-bold text-sm focus:outline-none" />
-            <p class="text-xs text-slate-400 text-center">調整後，下下次將從此日期 + 週期天數計算</p>
+    <div v-if="showNextDueModal" class="fixed inset-0 bg-black/50 z-[60] flex items-end">
+      <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+        <!-- Fixed header -->
+        <div class="flex-shrink-0 px-5 pt-4 pb-3">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+          <div class="text-center">
+            <div class="text-4xl mb-2">✅</div>
+            <h3 class="text-lg font-extrabold text-slate-800">盤點完成！</h3>
           </div>
         </div>
 
-        <button @click="confirmNextDue" :disabled="nextDueSaving"
-          class="w-full text-white font-bold py-3.5 rounded-2xl active:scale-95 disabled:opacity-50"
-          style="background:#e85d04">
-          {{ nextDueSaving ? '儲存中…' : '確認' }}
-        </button>
+        <!-- Scrollable content -->
+        <div class="flex-1 overflow-y-auto px-5 pb-2">
+          <div class="bg-slate-50 rounded-xl p-4">
+            <p class="text-xs font-bold text-slate-500 mb-2">下次預定盤點</p>
+            <div v-if="!editingNextDue" class="flex items-center justify-between">
+              <p class="text-base font-extrabold text-slate-800">{{ fmtNextDueDisplay(nextDueDate) }}</p>
+              <button @click="editingNextDue = true"
+                class="text-orange-500 font-bold text-sm px-3 py-1.5 rounded-lg bg-orange-50 active:bg-orange-100">
+                修改 ✎
+              </button>
+            </div>
+            <div v-else class="space-y-2">
+              <input v-model="nextDueDate" type="date"
+                class="w-full border-2 border-orange-400 rounded-xl px-3 py-2.5 text-slate-800 font-bold text-sm focus:outline-none" />
+              <p class="text-xs text-slate-400 text-center">調整後，下下次將從此日期 + 週期天數計算</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fixed bottom button -->
+        <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
+          <button @click="confirmNextDue" :disabled="nextDueSaving"
+            class="w-full text-white font-bold py-3.5 rounded-2xl active:scale-95 disabled:opacity-50"
+            style="background:#e85d04">
+            {{ nextDueSaving ? '儲存中…' : '確認' }}
+          </button>
+        </div>
       </div>
     </div>
 
     <!-- ═══ 差異分析 Sheet (P3-3) ═══ -->
-    <div v-if="showDiscrepancy" class="fixed inset-0 bg-black/50 z-50 flex items-end">
-      <div class="bg-white w-full rounded-t-3xl p-5 max-h-[85vh] overflow-y-auto">
-        <div class="flex items-center justify-center w-10 h-1 bg-slate-200 rounded-full mx-auto mb-4"></div>
-        <div class="flex justify-between items-center mb-4">
-          <h3 class="text-base font-extrabold text-slate-800">
-            🔍 {{ discrepancyItem?.name }} — 近 7 天紀錄
-          </h3>
-          <button @click="showDiscrepancy=false" class="text-slate-400 text-xl font-bold">✕</button>
+    <div v-if="showDiscrepancy" class="fixed inset-0 bg-black/50 z-[60] flex items-end">
+      <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+        <!-- Fixed header -->
+        <div class="flex-shrink-0 px-5 pt-4 pb-3">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+          <div class="flex justify-between items-center">
+            <h3 class="text-base font-extrabold text-slate-800">
+              🔍 {{ discrepancyItem?.name }} — 近 7 天紀錄
+            </h3>
+            <button @click="showDiscrepancy=false" class="text-slate-400 text-xl font-bold">✕</button>
+          </div>
         </div>
 
-        <div v-if="discrepancyLoading" class="flex justify-center py-10">
-          <div class="animate-spin h-7 w-7 border-4 border-orange-500 border-t-transparent rounded-full"></div>
+        <!-- Scrollable content -->
+        <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
+          <div v-if="discrepancyLoading" class="flex justify-center py-10">
+            <div class="animate-spin h-7 w-7 border-4 border-orange-500 border-t-transparent rounded-full"></div>
+          </div>
+
+          <template v-else-if="discrepancyData">
+            <!-- 到貨紀錄 -->
+            <div>
+              <p class="text-xs font-bold text-slate-500 uppercase mb-2">近 7 天到貨</p>
+              <div v-if="discrepancyData.deliveries.length" class="space-y-1">
+                <div v-for="(d,i) in discrepancyData.deliveries" :key="i"
+                  class="flex justify-between text-sm bg-emerald-50 rounded-lg px-3 py-2">
+                  <span class="text-slate-700">{{ d.date }} 到貨</span>
+                  <span class="font-bold text-emerald-700">+{{ d.qty }} {{ d.unit }}</span>
+                </div>
+              </div>
+              <p v-else class="text-xs text-slate-400 text-center py-2">近 7 天無到貨紀錄</p>
+            </div>
+
+            <!-- 損耗紀錄 -->
+            <div>
+              <p class="text-xs font-bold text-slate-500 uppercase mb-2">損耗紀錄</p>
+              <div v-if="discrepancyData.wastes.length" class="space-y-1">
+                <div v-for="(w,i) in discrepancyData.wastes" :key="i"
+                  class="flex justify-between text-sm bg-red-50 rounded-lg px-3 py-2">
+                  <span class="text-slate-700">{{ w.date }} {{ w.reason }}</span>
+                  <span class="font-bold text-red-600">−{{ w.qty }} {{ w.unit }}</span>
+                </div>
+              </div>
+              <p v-else class="text-xs text-slate-400 text-center py-2">近 7 天無損耗紀錄</p>
+            </div>
+
+            <!-- 分析摘要 -->
+            <div class="bg-blue-50 rounded-xl p-3 border border-blue-100">
+              <p class="text-xs font-bold text-blue-700 mb-1">💡 分析摘要</p>
+              <p class="text-xs text-blue-800">{{ discrepancyData.analysis_summary }}</p>
+              <p class="text-xs text-slate-400 mt-2">
+                系統庫存：{{ discrepancyData.current_stock }} {{ discrepancyData.unit }}
+                <span v-if="discrepancyData.total_received > 0"> · 近期到貨：+{{ discrepancyData.total_received }}</span>
+                <span v-if="discrepancyData.total_waste > 0"> · 損耗：−{{ discrepancyData.total_waste }}</span>
+              </p>
+            </div>
+          </template>
+
+          <div v-else class="text-center py-10 text-slate-400">
+            <p>無法載入分析資料</p>
+          </div>
         </div>
 
-        <div v-else-if="discrepancyData" class="space-y-4">
-          <!-- 到貨紀錄 -->
-          <div>
-            <p class="text-xs font-bold text-slate-500 uppercase mb-2">近 7 天到貨</p>
-            <div v-if="discrepancyData.deliveries.length" class="space-y-1">
-              <div v-for="(d,i) in discrepancyData.deliveries" :key="i"
-                class="flex justify-between text-sm bg-emerald-50 rounded-lg px-3 py-2">
-                <span class="text-slate-700">{{ d.date }} 到貨</span>
-                <span class="font-bold text-emerald-700">+{{ d.qty }} {{ d.unit }}</span>
-              </div>
-            </div>
-            <p v-else class="text-xs text-slate-400 text-center py-2">近 7 天無到貨紀錄</p>
-          </div>
-
-          <!-- 損耗紀錄 -->
-          <div>
-            <p class="text-xs font-bold text-slate-500 uppercase mb-2">損耗紀錄</p>
-            <div v-if="discrepancyData.wastes.length" class="space-y-1">
-              <div v-for="(w,i) in discrepancyData.wastes" :key="i"
-                class="flex justify-between text-sm bg-red-50 rounded-lg px-3 py-2">
-                <span class="text-slate-700">{{ w.date }} {{ w.reason }}</span>
-                <span class="font-bold text-red-600">−{{ w.qty }} {{ w.unit }}</span>
-              </div>
-            </div>
-            <p v-else class="text-xs text-slate-400 text-center py-2">近 7 天無損耗紀錄</p>
-          </div>
-
-          <!-- 分析摘要 -->
-          <div class="bg-blue-50 rounded-xl p-3 border border-blue-100">
-            <p class="text-xs font-bold text-blue-700 mb-1">💡 分析摘要</p>
-            <p class="text-xs text-blue-800">{{ discrepancyData.analysis_summary }}</p>
-            <p class="text-xs text-slate-400 mt-2">
-              系統庫存：{{ discrepancyData.current_stock }} {{ discrepancyData.unit }}
-              <span v-if="discrepancyData.total_received > 0"> · 近期到貨：+{{ discrepancyData.total_received }}</span>
-              <span v-if="discrepancyData.total_waste > 0"> · 損耗：−{{ discrepancyData.total_waste }}</span>
-            </p>
-          </div>
-
+        <!-- Fixed bottom button -->
+        <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
           <button @click="showDiscrepancy=false"
             class="w-full py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl">
             關閉
           </button>
-        </div>
-
-        <div v-else class="text-center py-10 text-slate-400">
-          <p>無法載入分析資料</p>
-          <button @click="showDiscrepancy=false" class="mt-4 text-orange-500 font-bold">關閉</button>
         </div>
       </div>
     </div>

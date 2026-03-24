@@ -706,51 +706,57 @@ const payBadge = (o) => {
       </div>
 
       <!-- A2: 盤點歷史底部抽屜 -->
-      <div v-if="showStocktakeHistory" class="fixed inset-0 bg-black/50 z-50 flex items-end" @click.self="showStocktakeHistory=false">
-        <div class="bg-white w-full rounded-t-3xl max-h-[80vh] overflow-y-auto">
-          <div class="flex items-center justify-center w-10 h-1 bg-slate-200 rounded-full mx-auto mt-4 mb-3"></div>
-          <div class="px-5 pb-2 flex items-center justify-between">
-            <h3 class="text-base font-extrabold text-slate-800">最近盤點紀錄</h3>
-            <button @click="showStocktakeHistory=false" class="text-slate-400 text-xl font-bold">✕</button>
+      <div v-if="showStocktakeHistory" class="fixed inset-0 bg-black/50 z-[60] flex items-end" @click.self="showStocktakeHistory=false">
+        <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+          <!-- Fixed header -->
+          <div class="flex-shrink-0 px-5 pt-4 pb-3">
+            <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+            <div class="flex items-center justify-between">
+              <h3 class="text-base font-extrabold text-slate-800">最近盤點紀錄</h3>
+              <button @click="showStocktakeHistory=false" class="text-slate-400 text-xl font-bold">✕</button>
+            </div>
           </div>
-          <div v-if="stocktakeHistoryLoading" class="flex justify-center py-10">
-            <div class="animate-spin h-6 w-6 border-4 border-blue-500 border-t-transparent rounded-full"></div>
-          </div>
-          <div v-else-if="!stocktakeHistory.length" class="text-center py-10 text-slate-400">無歷史盤點紀錄</div>
-          <div v-else class="px-5 pb-8 space-y-3">
-            <div v-for="record in stocktakeHistory" :key="record.id" class="bg-slate-50 rounded-xl p-3">
-              <div class="flex items-start justify-between">
-                <div>
-                  <p class="font-bold text-slate-800 text-sm">
-                    {{ new Date(record.stocktake_date || record.created_at).toLocaleDateString('zh-TW', { month:'numeric',day:'numeric',weekday:'short' }) }}
-                  </p>
-                  <div class="flex items-center gap-1 text-xs text-slate-400 mt-0.5">
-                    <UserBadge :user="record.performed_by" size="sm" />
-                    · {{ record.item_count || (record.items?.length) || '?' }} 品項
+          <!-- Scrollable content -->
+          <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-3">
+            <div v-if="stocktakeHistoryLoading" class="flex justify-center py-10">
+              <div class="animate-spin h-6 w-6 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+            </div>
+            <div v-else-if="!stocktakeHistory.length" class="text-center py-10 text-slate-400">無歷史盤點紀錄</div>
+            <template v-else>
+              <div v-for="record in stocktakeHistory" :key="record.id" class="bg-slate-50 rounded-xl p-3">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <p class="font-bold text-slate-800 text-sm">
+                      {{ new Date(record.stocktake_date || record.created_at).toLocaleDateString('zh-TW', { month:'numeric',day:'numeric',weekday:'short' }) }}
+                    </p>
+                    <div class="flex items-center gap-1 text-xs text-slate-400 mt-0.5">
+                      <UserBadge :user="record.performed_by" size="sm" />
+                      · {{ record.item_count || (record.items?.length) || '?' }} 品項
+                    </div>
+                  </div>
+                  <div class="text-right">
+                    <span v-if="(record.diff_count || 0) > 0" class="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">
+                      差異 {{ record.diff_count }} 項
+                    </span>
+                    <span v-else class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">完全吻合</span>
                   </div>
                 </div>
-                <div class="text-right">
-                  <span v-if="(record.diff_count || 0) > 0" class="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">
-                    差異 {{ record.diff_count }} 項
-                  </span>
-                  <span v-else class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">完全吻合</span>
+                <button @click="toggleHistoryExpand(record.id)"
+                  class="mt-2 text-xs font-bold text-blue-500 flex items-center gap-1">
+                  查看明細 {{ expandedHistoryId===record.id ? '▲' : '▼' }}
+                </button>
+                <div v-if="expandedHistoryId===record.id && record.items?.length" class="mt-2 border-t border-slate-200 pt-2 space-y-1">
+                  <div v-for="it in record.items" :key="it.item_id" class="flex items-center justify-between text-xs">
+                    <span class="text-slate-700">{{ it.item_name }}</span>
+                    <span class="text-slate-400">系統 {{ it.system_stock }} → 實盤 {{ it.actual_qty }}</span>
+                    <span :class="(it.diff||0) < 0 ? 'text-red-500 font-bold' : (it.diff||0) > 0 ? 'text-orange-500 font-bold' : 'text-emerald-600'">
+                      {{ (it.diff||0) > 0 ? '+' : '' }}{{ it.diff || 0 }}
+                      {{ (it.diff||0) === 0 ? '✅' : '⚠️' }}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <button @click="toggleHistoryExpand(record.id)"
-                class="mt-2 text-xs font-bold text-blue-500 flex items-center gap-1">
-                查看明細 {{ expandedHistoryId===record.id ? '▲' : '▼' }}
-              </button>
-              <div v-if="expandedHistoryId===record.id && record.items?.length" class="mt-2 border-t border-slate-200 pt-2 space-y-1">
-                <div v-for="it in record.items" :key="it.item_id" class="flex items-center justify-between text-xs">
-                  <span class="text-slate-700">{{ it.item_name }}</span>
-                  <span class="text-slate-400">系統 {{ it.system_stock }} → 實盤 {{ it.actual_qty }}</span>
-                  <span :class="(it.diff||0) < 0 ? 'text-red-500 font-bold' : (it.diff||0) > 0 ? 'text-orange-500 font-bold' : 'text-emerald-600'">
-                    {{ (it.diff||0) > 0 ? '+' : '' }}{{ it.diff || 0 }}
-                    {{ (it.diff||0) === 0 ? '✅' : '⚠️' }}
-                  </span>
-                </div>
-              </div>
-            </div>
+            </template>
           </div>
         </div>
       </div>
@@ -1019,29 +1025,38 @@ const payBadge = (o) => {
     </div>
 
     <!-- ═══ Order Preview Bottom Sheet ═══ -->
-    <div v-if="showPreviewSheet" class="fixed inset-0 bg-black/50 z-50 flex items-end">
-      <div class="bg-white w-full rounded-t-3xl p-5 max-h-[80vh] overflow-y-auto">
-        <div class="flex items-center justify-center w-10 h-1 bg-slate-200 rounded-full mx-auto mb-4"></div>
-        <div class="flex justify-between items-center mb-3">
-          <h3 class="text-base font-extrabold text-slate-800">叫貨單預覽</h3>
-          <button @click="showPreviewSheet=false" class="text-slate-400 text-xl font-bold">✕</button>
+    <div v-if="showPreviewSheet" class="fixed inset-0 bg-black/50 z-[60] flex items-end">
+      <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+        <!-- Fixed header -->
+        <div class="flex-shrink-0 px-5 pt-4 pb-3">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+          <div class="flex justify-between items-center">
+            <h3 class="text-base font-extrabold text-slate-800">叫貨單預覽</h3>
+            <button @click="showPreviewSheet=false" class="text-slate-400 text-xl font-bold">✕</button>
+          </div>
         </div>
 
-        <!-- Copy success alert -->
-        <div v-if="previewCopied"
-          class="mb-3 rounded-xl px-3 py-2.5 text-center text-sm font-bold text-emerald-700"
-          style="background:#f0fdf4;border:1px solid #bbf7d0">
-          ✓ 已複製至剪貼簿，可直接貼到 LINE
+        <!-- Scrollable content -->
+        <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-3">
+          <!-- Copy success alert -->
+          <div v-if="previewCopied"
+            class="rounded-xl px-3 py-2.5 text-center text-sm font-bold text-emerald-700"
+            style="background:#f0fdf4;border:1px solid #bbf7d0">
+            ✓ 已複製至剪貼簿，可直接貼到 LINE
+          </div>
+
+          <!-- Formatted text preview -->
+          <pre class="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-700 whitespace-pre-wrap font-mono overflow-x-auto">{{ previewText }}</pre>
         </div>
 
-        <!-- Formatted text preview -->
-        <pre class="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-700 whitespace-pre-wrap font-mono overflow-x-auto">{{ previewText }}</pre>
-
-        <button @click="copyAndClose"
-          class="mt-4 w-full text-white font-bold py-4 rounded-2xl active:scale-95"
-          style="background:#e85d04">
-          📋 複製 LINE 訊息
-        </button>
+        <!-- Fixed bottom button -->
+        <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
+          <button @click="copyAndClose"
+            class="w-full text-white font-bold py-4 rounded-2xl active:scale-95"
+            style="background:#e85d04">
+            📋 複製 LINE 訊息
+          </button>
+        </div>
       </div>
     </div>
 

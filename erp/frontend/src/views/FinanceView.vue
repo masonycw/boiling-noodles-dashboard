@@ -445,18 +445,19 @@ function txSubtitle(r) {
     </button>
 
     <!-- Finance Sheet Modal -->
-    <div v-if="showSheet" class="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div class="bg-white w-full max-w-md rounded-t-3xl max-h-[90vh] overflow-y-auto">
-        <!-- Handle -->
-        <div class="flex justify-center pt-3 pb-1">
-          <div class="w-10 h-1 bg-slate-200 rounded-full"></div>
-        </div>
-        <div class="flex justify-between items-center px-5 py-3">
-          <h3 class="text-lg font-extrabold text-slate-800">新增金流紀錄</h3>
-          <button @click="showSheet = false; sheetError = ''" class="text-slate-400 text-xl font-bold">✕</button>
+    <div v-if="showSheet" class="fixed inset-0 bg-black/50 z-[60] flex items-end">
+      <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+        <!-- Fixed header -->
+        <div class="flex-shrink-0 px-5 pt-4 pb-3">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+          <div class="flex justify-between items-center">
+            <h3 class="text-lg font-extrabold text-slate-800">新增金流紀錄</h3>
+            <button @click="showSheet = false; sheetError = ''" class="text-slate-400 text-xl font-bold">✕</button>
+          </div>
         </div>
 
-        <div class="px-5 pb-8 space-y-4">
+        <!-- Scrollable content -->
+        <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
           <!-- 類型選擇 -->
           <div class="flex gap-2">
             <button v-for="t in [{key:'expense',label:'📤 支出'},{key:'income',label:'📥 收入'},{key:'withdrawal',label:'🏧 提領'}]"
@@ -567,7 +568,10 @@ function txSubtitle(r) {
           </div>
 
           <div v-if="sheetError" class="text-red-500 text-sm text-center">{{ sheetError }}</div>
+        </div>
 
+        <!-- Fixed bottom button -->
+        <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
           <button @click="submitSheet" :disabled="sheetSubmitting || attachmentUploading"
             class="w-full text-white font-bold py-4 rounded-2xl active:scale-95 transition-transform disabled:opacity-40"
             style="background:#e85d04">
@@ -590,16 +594,22 @@ function txSubtitle(r) {
     </div>
 
     <!-- Daily Settlement Modal -->
-    <div v-if="showSettleModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center px-4">
-      <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden">
-        <div class="px-6 pt-6 pb-2">
-          <h3 class="text-lg font-extrabold text-slate-800">確認{{ settlementCount > 0 ? `第 ${settlementCount+1} 次` : '' }}日結</h3>
+    <div v-if="showSettleModal" class="fixed inset-0 bg-black/60 z-[60] flex items-end">
+      <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+        <!-- Fixed header -->
+        <div class="flex-shrink-0 px-5 pt-4 pb-3">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+          <div class="flex items-center justify-between">
+            <h3 class="text-lg font-extrabold text-slate-800">確認{{ settlementCount > 0 ? `第 ${settlementCount+1} 次` : '' }}日結</h3>
+            <button @click="showSettleModal = false; settleError = ''" class="text-slate-400 text-xl font-bold">✕</button>
+          </div>
           <p class="text-xs text-slate-500 mt-1">
             {{ new Date().toLocaleDateString('zh-TW', { year:'numeric', month:'numeric', day:'numeric' }) }}
           </p>
         </div>
 
-        <div class="px-6 py-4 space-y-3">
+        <!-- Scrollable content -->
+        <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-3">
           <!-- Today summary -->
           <div class="rounded-2xl p-4 space-y-2" style="background:#f8f9fb">
             <div class="flex justify-between items-center">
@@ -630,7 +640,8 @@ function txSubtitle(r) {
           <div v-if="settleError" class="text-red-500 text-sm text-center">{{ settleError }}</div>
         </div>
 
-        <div class="px-6 pb-6 flex gap-3">
+        <!-- Fixed bottom buttons -->
+        <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100 flex gap-3">
           <button @click="showSettleModal = false; settleError = ''"
             class="flex-1 py-3 rounded-2xl font-bold text-slate-600 border border-slate-200 bg-slate-50 active:scale-95 transition-transform">
             取消
@@ -645,84 +656,91 @@ function txSubtitle(r) {
     </div>
 
     <!-- E1: 零用金紀錄詳情 Bottom Sheet -->
-    <div v-if="showDetailSheet" class="fixed inset-0 bg-black/50 z-50 flex items-end justify-center"
+    <div v-if="showDetailSheet" class="fixed inset-0 bg-black/50 z-[60] flex items-end"
       @click.self="showDetailSheet = false">
-      <div class="bg-white w-full max-w-md rounded-t-3xl max-h-[85vh] overflow-y-auto">
-        <div class="flex justify-center pt-3 pb-1">
-          <div class="w-10 h-1 bg-slate-200 rounded-full"></div>
-        </div>
-        <div class="px-5 py-3 flex items-center justify-between border-b border-slate-100">
-          <h3 class="text-base font-extrabold text-slate-800">零用金紀錄詳情</h3>
-          <button @click="showDetailSheet = false" class="text-slate-400 text-xl font-bold">✕</button>
-        </div>
-
-        <div v-if="detailLoading" class="flex justify-center py-8">
-          <svg class="animate-spin h-6 w-6 text-orange-400" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-          </svg>
+      <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+        <!-- Fixed header -->
+        <div class="flex-shrink-0 px-5 pt-4 pb-3">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+          <div class="flex items-center justify-between">
+            <h3 class="text-base font-extrabold text-slate-800">零用金紀錄詳情</h3>
+            <button @click="showDetailSheet = false" class="text-slate-400 text-xl font-bold">✕</button>
+          </div>
         </div>
 
-        <div v-else-if="detailRecord" class="px-5 pb-8 space-y-5">
-          <!-- 類型大字 + 金額 -->
-          <div class="flex items-center justify-between pt-2">
-            <span class="text-xl font-extrabold"
-              :class="detailRecord.type === 'income' ? 'text-emerald-600' : detailRecord.type === 'withdrawal' ? 'text-orange-500' : 'text-red-500'">
-              {{ typeLabel(detailRecord.type) }}
-            </span>
-            <span class="text-2xl font-black"
-              :class="detailRecord.type === 'income' ? 'text-emerald-600' : 'text-red-500'">
-              {{ detailRecord.type === 'income' ? '+' : '−' }}NT$ {{ fmtMoney(detailRecord.amount) }}
-            </span>
+        <!-- Scrollable content -->
+        <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-5">
+          <div v-if="detailLoading" class="flex justify-center py-8">
+            <svg class="animate-spin h-6 w-6 text-orange-400" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
           </div>
 
-          <!-- 欄位列表 -->
-          <div class="rounded-2xl bg-slate-50 divide-y divide-slate-100 overflow-hidden">
-            <div v-if="detailRecord.account_category" class="flex items-center justify-between px-4 py-3">
-              <span class="text-sm text-slate-500">科目分類</span>
-              <span class="text-sm font-bold text-slate-800">{{ detailRecord.account_category }}</span>
+          <template v-else-if="detailRecord">
+            <!-- 類型大字 + 金額 -->
+            <div class="flex items-center justify-between pt-2">
+              <span class="text-xl font-extrabold"
+                :class="detailRecord.type === 'income' ? 'text-emerald-600' : detailRecord.type === 'withdrawal' ? 'text-orange-500' : 'text-red-500'">
+                {{ typeLabel(detailRecord.type) }}
+              </span>
+              <span class="text-2xl font-black"
+                :class="detailRecord.type === 'income' ? 'text-emerald-600' : 'text-red-500'">
+                {{ detailRecord.type === 'income' ? '+' : '−' }}NT$ {{ fmtMoney(detailRecord.amount) }}
+              </span>
             </div>
-            <div v-if="detailRecord.payment_method" class="flex items-center justify-between px-4 py-3">
-              <span class="text-sm text-slate-500">付款方式</span>
-              <span class="text-sm font-bold text-slate-800">{{ detailRecord.payment_method }}</span>
-            </div>
-            <div v-if="detailRecord.vendor_name" class="flex items-center justify-between px-4 py-3">
-              <span class="text-sm text-slate-500">廠商</span>
-              <span class="text-sm font-bold text-slate-800">{{ detailRecord.vendor_name }}</span>
-            </div>
-            <div class="flex items-center justify-between px-4 py-3">
-              <span class="text-sm text-slate-500">記錄時間</span>
-              <span class="text-sm font-bold text-slate-800">{{ fmtFullDate(detailRecord.created_at) }}</span>
-            </div>
-            <div v-if="detailRecord.created_by_name" class="flex items-center justify-between px-4 py-3">
-              <span class="text-sm text-slate-500">建立人</span>
-              <span class="text-sm font-bold text-slate-800">{{ detailRecord.created_by_name }}</span>
-            </div>
-          </div>
 
-          <!-- 備注 -->
-          <div>
-            <p class="text-xs font-bold text-slate-500 uppercase mb-2">備注</p>
-            <div v-if="detailRecord.note"
-              class="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-800 border border-slate-100">
-              {{ detailRecord.note }}
+            <!-- 欄位列表 -->
+            <div class="rounded-2xl bg-slate-50 divide-y divide-slate-100 overflow-hidden">
+              <div v-if="detailRecord.account_category" class="flex items-center justify-between px-4 py-3">
+                <span class="text-sm text-slate-500">科目分類</span>
+                <span class="text-sm font-bold text-slate-800">{{ detailRecord.account_category }}</span>
+              </div>
+              <div v-if="detailRecord.payment_method" class="flex items-center justify-between px-4 py-3">
+                <span class="text-sm text-slate-500">付款方式</span>
+                <span class="text-sm font-bold text-slate-800">{{ detailRecord.payment_method }}</span>
+              </div>
+              <div v-if="detailRecord.vendor_name" class="flex items-center justify-between px-4 py-3">
+                <span class="text-sm text-slate-500">廠商</span>
+                <span class="text-sm font-bold text-slate-800">{{ detailRecord.vendor_name }}</span>
+              </div>
+              <div class="flex items-center justify-between px-4 py-3">
+                <span class="text-sm text-slate-500">記錄時間</span>
+                <span class="text-sm font-bold text-slate-800">{{ fmtFullDate(detailRecord.created_at) }}</span>
+              </div>
+              <div v-if="detailRecord.created_by_name" class="flex items-center justify-between px-4 py-3">
+                <span class="text-sm text-slate-500">建立人</span>
+                <span class="text-sm font-bold text-slate-800">{{ detailRecord.created_by_name }}</span>
+              </div>
             </div>
-            <p v-else class="text-sm text-slate-400">無備注</p>
-          </div>
 
-          <!-- 附件照片 -->
-          <div>
-            <p class="text-xs font-bold text-slate-500 uppercase mb-2">附件照片</p>
-            <div v-if="detailRecord.attachments?.length" class="flex gap-2 flex-wrap">
-              <button v-for="(att, aidx) in detailRecord.attachments" :key="att.id"
-                @click="openLightbox(detailRecord.attachments.map(a=>a.file_url), aidx)"
-                class="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0">
-                <img :src="att.file_url" class="w-full h-full object-cover" />
-              </button>
+            <!-- 備注 -->
+            <div>
+              <p class="text-xs font-bold text-slate-500 uppercase mb-2">備注</p>
+              <div v-if="detailRecord.note"
+                class="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-800 border border-slate-100">
+                {{ detailRecord.note }}
+              </div>
+              <p v-else class="text-sm text-slate-400">無備注</p>
             </div>
-            <p v-else class="text-sm text-slate-400">無附件</p>
-          </div>
 
+            <!-- 附件照片 -->
+            <div>
+              <p class="text-xs font-bold text-slate-500 uppercase mb-2">附件照片</p>
+              <div v-if="detailRecord.attachments?.length" class="flex gap-2 flex-wrap">
+                <button v-for="(att, aidx) in detailRecord.attachments" :key="att.id"
+                  @click="openLightbox(detailRecord.attachments.map(a=>a.file_url), aidx)"
+                  class="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 flex-shrink-0">
+                  <img :src="att.file_url" class="w-full h-full object-cover" />
+                </button>
+              </div>
+              <p v-else class="text-sm text-slate-400">無附件</p>
+            </div>
+          </template>
+        </div>
+
+        <!-- Fixed bottom button (info-only close) -->
+        <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
           <button @click="showDetailSheet = false"
             class="w-full py-3 rounded-2xl border border-slate-200 text-slate-600 font-bold text-sm">
             關閉

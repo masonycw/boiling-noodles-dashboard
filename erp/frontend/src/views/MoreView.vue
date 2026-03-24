@@ -304,13 +304,18 @@ const userRole = () => {
         <div v-if="staffList.length === 0" class="text-center py-16 text-slate-400">無人員資料</div>
       </div>
       <!-- Staff modal -->
-      <div v-if="showStaffModal" class="fixed inset-0 bg-black/60 z-50 flex items-end justify-center">
-        <div class="bg-white rounded-t-3xl w-full max-w-lg p-6 max-h-[85vh] overflow-y-auto">
-          <div class="flex justify-between items-center mb-5">
-            <h3 class="text-lg font-extrabold text-slate-800">{{ staffEditTarget ? '編輯人員' : '新增人員' }}</h3>
-            <button @click="showStaffModal = false" class="text-slate-400 text-xl">✕</button>
+      <div v-if="showStaffModal" class="fixed inset-0 bg-black/60 z-[60] flex items-end">
+        <div class="bg-white rounded-t-3xl w-full max-h-[92vh] flex flex-col">
+          <!-- Fixed header -->
+          <div class="flex-shrink-0 px-5 pt-4 pb-3">
+            <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+            <div class="flex justify-between items-center">
+              <h3 class="text-lg font-extrabold text-slate-800">{{ staffEditTarget ? '編輯人員' : '新增人員' }}</h3>
+              <button @click="showStaffModal = false" class="text-slate-400 text-xl">✕</button>
+            </div>
           </div>
-          <div class="space-y-4 text-sm">
+          <!-- Scrollable content -->
+          <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4 text-sm">
             <div>
               <label class="block text-xs font-bold text-slate-500 uppercase mb-1">帳號 *</label>
               <input v-model="staffForm.username" type="text" :disabled="!!staffEditTarget"
@@ -343,6 +348,9 @@ const userRole = () => {
               <label for="ia_m" class="text-slate-700 text-sm">啟用帳號</label>
             </div>
             <div v-if="staffError" class="text-rose-500 text-sm text-center">{{ staffError }}</div>
+          </div>
+          <!-- Fixed bottom button -->
+          <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
             <button @click="saveStaff" :disabled="staffSaving"
               class="w-full bg-orange-500 text-white font-bold py-4 rounded-2xl active:scale-95 transition-transform disabled:opacity-40">
               {{ staffSaving ? '儲存中…' : '儲存' }}

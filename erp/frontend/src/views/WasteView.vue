@@ -310,17 +310,19 @@ async function submit() {
     </div>
 
     <!-- Bottom Sheet -->
-    <div v-if="showSheet" class="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div class="bg-white w-full max-w-md rounded-t-3xl max-h-[90vh] overflow-y-auto">
-        <div class="flex justify-center pt-3 pb-1">
-          <div class="w-10 h-1 rounded-full" style="background:#e2e8f0"></div>
-        </div>
-        <div class="flex justify-between items-center px-5 py-3">
-          <h3 class="text-lg font-extrabold text-slate-800">新增損耗紀錄</h3>
-          <button @click="showSheet = false" class="text-slate-400 text-xl font-bold">✕</button>
+    <div v-if="showSheet" class="fixed inset-0 bg-black/50 z-[60] flex items-end">
+      <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+        <!-- Fixed header -->
+        <div class="flex-shrink-0 px-5 pt-4 pb-3">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+          <div class="flex justify-between items-center">
+            <h3 class="text-lg font-extrabold text-slate-800">新增損耗紀錄</h3>
+            <button @click="showSheet = false" class="text-slate-400 text-xl font-bold">✕</button>
+          </div>
         </div>
 
-        <div class="px-5 pb-8 space-y-4">
+        <!-- Scrollable content -->
+        <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
           <div>
             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">品項</label>
             <div v-if="selectedItem || isOtherItem"
@@ -398,7 +400,10 @@ async function submit() {
           </div>
 
           <div v-if="sheetError" class="text-rose-500 text-sm text-center">{{ sheetError }}</div>
+        </div>
 
+        <!-- Fixed bottom button -->
+        <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
           <button @click="submit" :disabled="submitting"
             class="w-full text-white font-bold py-4 rounded-2xl active:scale-95 transition-transform disabled:opacity-40"
             style="background:#e85d04">

@@ -253,34 +253,52 @@ const changePassword = async () => {
     </main>
 
     <!-- Vendor Modal -->
-    <div v-if="showVendorModal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div class="bg-white w-full max-w-md rounded-3xl p-6">
-        <h3 class="text-lg font-bold mb-4">{{ editingVendor ? '編輯供應商' : '新增供應商' }}</h3>
-        <div class="space-y-4">
+    <div v-if="showVendorModal" class="fixed inset-0 bg-black/50 z-[60] flex items-end">
+      <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+        <!-- Fixed header -->
+        <div class="flex-shrink-0 px-5 pt-4 pb-3">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+          <div class="flex items-center justify-between">
+            <h3 class="text-lg font-bold text-slate-800">{{ editingVendor ? '編輯供應商' : '新增供應商' }}</h3>
+            <button @click="showVendorModal = false" class="text-slate-400 text-xl font-bold">✕</button>
+          </div>
+        </div>
+        <!-- Scrollable content -->
+        <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
           <input v-model="vendorForm.name" type="text" placeholder="名稱" class="w-full p-3 bg-slate-50 rounded-xl" />
           <input v-model="vendorForm.order_deadline" type="text" placeholder="截單時間 (HH:mm)" class="w-full p-3 bg-slate-50 rounded-xl" />
-          <div class="flex space-x-2">
-            <button @click="showVendorModal = false" class="flex-1 py-3 bg-slate-100 rounded-xl font-bold">取消</button>
-            <button @click="saveVendor" class="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold">儲存</button>
-          </div>
+        </div>
+        <!-- Fixed bottom buttons -->
+        <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100 flex space-x-2">
+          <button @click="showVendorModal = false" class="flex-1 py-3 bg-slate-100 rounded-xl font-bold">取消</button>
+          <button @click="saveVendor" class="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold">儲存</button>
         </div>
       </div>
     </div>
 
     <!-- Item Modal -->
-    <div v-if="showItemModal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div class="bg-white w-full max-w-md rounded-3xl p-6">
-        <h3 class="text-lg font-bold mb-4">{{ editingItem ? '編輯品項' : '新增品項' }}</h3>
-        <div class="space-y-4">
+    <div v-if="showItemModal" class="fixed inset-0 bg-black/50 z-[60] flex items-end">
+      <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+        <!-- Fixed header -->
+        <div class="flex-shrink-0 px-5 pt-4 pb-3">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+          <div class="flex items-center justify-between">
+            <h3 class="text-lg font-bold text-slate-800">{{ editingItem ? '編輯品項' : '新增品項' }}</h3>
+            <button @click="showItemModal = false" class="text-slate-400 text-xl font-bold">✕</button>
+          </div>
+        </div>
+        <!-- Scrollable content -->
+        <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
           <input v-model="itemForm.name" type="text" placeholder="名稱" class="w-full p-3 bg-slate-50 rounded-xl" />
           <input v-model="itemForm.unit" type="text" placeholder="單位" class="w-full p-3 bg-slate-50 rounded-xl" />
           <select v-model="itemForm.vendor_id" class="w-full p-3 bg-slate-50 rounded-xl">
             <option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option>
           </select>
-          <div class="flex space-x-2">
-            <button @click="showItemModal = false" class="flex-1 py-3 bg-slate-100 rounded-xl font-bold">取消</button>
-            <button @click="saveItem" class="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold">儲存</button>
-          </div>
+        </div>
+        <!-- Fixed bottom buttons -->
+        <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100 flex space-x-2">
+          <button @click="showItemModal = false" class="flex-1 py-3 bg-slate-100 rounded-xl font-bold">取消</button>
+          <button @click="saveItem" class="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold">儲存</button>
         </div>
       </div>
     </div>
