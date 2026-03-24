@@ -1,8 +1,8 @@
 # 滾麵 ERP — Claude Code 開發指南
 
-> 最後更新：2026-03-24（O 系列優化 + LINE 串接基礎建設）
+> 最後更新：2026-03-24（O1–O8 全部完成，O9 部分完成）
 > Git 倉庫：https://github.com/masonycw/boiling-noodles-dashboard
-> 最新 commit：ff31624（O8/O1/O3 + LINE webhook + ngrok）
+> 最新 commit：ab87899（O5 + O7 完成：首頁待盤點清單 + 權限系統強化）
 
 ---
 
@@ -34,28 +34,25 @@ erp/                                ← 本 CLAUDE.md 所在位置
 │   ├── api/
 │   │   ├── auth.py                 ← prefix: /api/v1/auth
 │   │   ├── inventory.py            ← prefix: /api/v1/inventory（叫貨/收貨/廠商/品項/分類/差異分析）
-│   │   ├── finance.py              ← prefix: /api/v1（金流/零用金/日結/重複費用/比例費用）
+│   │   ├── finance.py              ← prefix: /api/v1（金流/零用金/日結/重複費用/比例費用/金流總覽）
 │   │   ├── stocktake.py            ← prefix: /api/v1（盤點）
 │   │   ├── waste.py                ← prefix: /api/v1（耗損）
 │   │   ├── users.py                ← prefix: /api/v1（人員管理）
 │   │   ├── notifications.py        ← prefix: /api/v1（通知 + 通知設定）
 │   │   ├── reports.py              ← prefix: /api/v1（損益報表）
-│   │   ├── webhook.py              ← prefix: /api/v1/webhook（LINE webhook）
-│   │   └── admin/
-│   │       └── settings.py         ← prefix: /api/v1/admin/settings（後台系統設定 KV 存取）
-│   ├── services/
-│   │   ├── inventory_service.py    ← 庫存/叫貨業務邏輯
-│   │   └── line_service.py         ← LINE Push Message 發送服務
+│   │   └── webhook.py              ← prefix: /api/v1/webhook（LINE Webhook 驗證 + 事件接收）
 │   ├── db/
-│   │   ├── models.py               ← 所有 SQLAlchemy ORM Model（23 個表格）
+│   │   ├── models.py               ← 所有 SQLAlchemy ORM Model（24 個表格）
 │   │   ├── session.py              ← DB Session / engine
 │   │   └── schema.sql              ← 基礎 SQL schema（參考用）
 │   ├── core/
 │   │   ├── config.py               ← env var 讀取
 │   │   └── security.py             ← JWT 簽發/驗證/密碼 hash
-│   ├── migrations/                 ← 遷移腳本（p1/p2/p3）
+│   ├── migrations/                 ← 遷移腳本（p1/p2/p3/o-series）
 │   ├── services/
-│   │   └── inventory_service.py    ← 庫存業務邏輯
+│   │   ├── inventory_service.py    ← 庫存業務邏輯（含 receive_order 自動帶入廠商預設科目）
+│   │   ├── finance_service.py      ← 金流業務邏輯（含 date_from/date_to 篩選）
+│   │   └── line_service.py         ← LINE Messaging API 發送（send_order_message）
 │   ├── .env                        ← 本地開發環境變數
 │   └── requirements.txt
 ├── frontend/                       ← Vue PWA App（port 5173）
@@ -67,19 +64,25 @@ erp/                                ← 本 CLAUDE.md 所在位置
 │       ├── main.js                 ← SW 註冊 + install prompt capture
 │       ├── views/
 │       │   ├── LoginView.vue
-│       │   ├── HomeView.vue
+│       │   ├── HomeView.vue        ← 待收貨 + 待盤點清單（O5）；低庫存警示
 │       │   ├── InventoryView.vue   ← 叫貨（含草稿自動儲存 P3-3、D+N 倒數）
-│       │   ├── StocktakeView.vue   ← 盤點（含草稿儲存 P3-3、差異分析 P3-3）
+│       │   ├── StocktakeView.vue   ← 盤點（singleMode compact；route.query.group 自動選；O5 次日 Modal）
 │       │   ├── FinanceView.vue     ← 零用金 + 日結
-│       │   ├── WasteView.vue
+│       │   ├── WasteView.vue       ← 2-tab：記錄耗損 / 歷史紀錄（O4）
 │       │   ├── MoreView.vue        ← 含 PWA 安裝按鈕 P3-4
-│       │   ├── HistoryView.vue
+│       │   ├── HistoryView.vue     ← 2-tab：叫貨紀錄（status=received）/ 盤點紀錄（O2）
 │       │   └── ManagementView.vue
-│       ├── stores/auth.js          ← Pinia auth store（JWT token 管理）
-│       └── router/index.js
+│       ├── stores/auth.js          ← Pinia auth store（JWT token + user.role）
+│       └── router/index.js         ← 路由守衛（login/role 雙重守衛，O7）
 └── admin/                          ← Vue Admin（port 5174）
     └── src/
         ├── views/                  ← 24 個 View 元件（見第 5 節）
+        │   ├── CashFlowTransactionsView.vue ← O6：日期篩選/科目小計/新增紀錄 Modal
+        │   ├── VendorsView.vue              ← O6：廠商預設科目下拉
+        │   ├── StocktakeGroupsView.vue      ← O5：週期天數 + 下次盤點日欄位
+        │   ├── UsersView.vue                ← O7：cashier / manager 角色選項
+        │   └── settings/
+        │       └── ApiIntegrationsView.vue  ← LINE Channel Secret/Access Token 設定
         ├── stores/auth.js
         └── router/index.js         ← 23 條路由 + 11 條舊路由 redirect
 ```
@@ -110,6 +113,7 @@ erp/                                ← 本 CLAUDE.md 所在位置
 | PUT | /inventory/categories/{id} | 更新分類 |
 | DELETE | /inventory/categories/{id} | 刪除分類（有品項 → 400） |
 | GET | /inventory/items/{id}/discrepancy-analysis | 品項差異分析（近 N 天到貨、損耗、理論剩餘） |
+| PATCH | /inventory/vendors/{id}/default-category | 更新廠商預設金流科目（O6） |
 
 ### finance.py
 | Method | 路徑 | 說明 |
@@ -117,8 +121,11 @@ erp/                                ← 本 CLAUDE.md 所在位置
 | GET | /finance/summary | 零用金摘要 |
 | GET | /finance/petty-cash | 零用金紀錄列表 |
 | POST | /finance/petty-cash | 新增零用金紀錄 |
-| GET | /finance/transactions | 金流紀錄列表 |
-| POST | /finance/transactions | 新增金流紀錄 |
+| GET | /finance/transactions | 金流紀錄列表（支援 date_from/date_to/type/category_id 篩選，O6） |
+| POST | /finance/transactions | 新增金流紀錄（O6：手動補帳） |
+| PATCH | /finance/transactions/{id} | 更新金流紀錄科目（inline 編輯，O6） |
+| GET | /finance/can-settle | 判斷是否可再次日結（O3） |
+| GET | /finance/cash-flow/categories | 金流科目列表（給廠商預設科目下拉用） |
 | POST | /finance/daily-settlement | 執行日結 |
 | GET | /finance/overview | 金流總覽 KPI（本月收入/支出/淨額/零用金餘額） |
 | GET | /finance/recurring | 重複費用列表 |
@@ -133,10 +140,15 @@ erp/                                ← 本 CLAUDE.md 所在位置
 ### stocktake.py
 | Method | 路徑 | 說明 |
 |--------|------|------|
-| GET | /stocktake/groups | 盤點群組列表 |
+| GET | /stocktake/groups | 盤點群組列表（含 stocktake_cycle_days / next_stocktake_due） |
+| POST | /stocktake/groups | 建立盤點群組 |
+| PUT | /stocktake/groups/{id} | 更新盤點群組 |
+| DELETE | /stocktake/groups/{id} | 刪除盤點群組 |
+| GET | /stocktake/pending-groups | 待盤點群組（O5：today+1 到期過濾，overdue_days 排序） |
+| PATCH | /stocktake/groups/{id}/next-due | 手動更新下次預定盤點日（O5） |
 | POST | /stocktake/ | 建立盤點 session |
 | PUT | /stocktake/{id} | 更新盤點品項 |
-| PUT | /stocktake/{id}/submit | 提交盤點 |
+| PUT | /stocktake/{id}/submit | 提交盤點（O5：自動推算 next_stocktake_due） |
 
 ### waste.py
 | Method | 路徑 | 說明 |
@@ -165,6 +177,12 @@ erp/                                ← 本 CLAUDE.md 所在位置
 |--------|------|------|
 | GET | /reports/pl?period=month\|quarter\|year | 損益報表 KPI + 明細 |
 | GET | /reports/pl/trend?months=6\|12 | 6/12 個月趨勢資料（Canvas 圖表用） |
+
+### webhook.py
+| Method | 路徑 | 說明 |
+|--------|------|------|
+| GET | /webhook/line | LINE Webhook 驗證（Challenge 回應） |
+| POST | /webhook/line | LINE 事件接收（群組訊息/加好友事件，用於取得 group_id） |
 
 ---
 
@@ -244,11 +262,11 @@ erp/                                ← 本 CLAUDE.md 所在位置
 | User | erp_users | id, username, hashed_password, role, is_active, petty_cash_permission |
 | UserDevice | erp_user_devices | user_id FK, device_id, refresh_token, expires_at |
 | AuditLog | erp_audit_logs | user_id FK, action, resource, resource_id, details JSONB |
-| Vendor | erp_vendors | id, name, payment_terms, bank_account, free_shipping_threshold, delivery_days_to_arrive |
+| Vendor | erp_vendors | id, name, payment_terms, bank_account, free_shipping_threshold, delivery_days_to_arrive, default_category_id FK, line_group_id |
 | ItemCategory | erp_item_categories | id, name, display_order |
-| StocktakeGroup | erp_stocktake_groups | id, name, display_order, is_active |
+| StocktakeGroup | erp_stocktake_groups | id, name, display_order, is_active, stocktake_cycle_days, next_stocktake_due（O5） |
 | Item | erp_items | id, name, unit, vendor_id FK, category_id FK, current_stock, min_stock, price |
-| PurchaseOrder | erp_purchase_orders | id, vendor_id FK, status, ordered_at, updated_at |
+| PurchaseOrder | erp_purchase_orders | id, vendor_id FK, status, ordered_at, updated_at, user_id FK（叫貨人）, receive_user_id FK（簽收人，O2） |
 | PurchaseOrderDetail | erp_purchase_order_details | order_id FK, item_id FK, qty, actual_qty |
 | InventoryTransaction | erp_inventory_transactions | item_id FK, qty, type |
 | Stocktake | erp_stocktakes | id, group_id FK, mode, status |
@@ -260,10 +278,11 @@ erp/                                ← 本 CLAUDE.md 所在位置
 | CashFlowRecurring | erp_cash_flow_recurring | id, name, category, amount, day_of_month, is_active |
 | AccountsPayable | erp_accounts_payable | id, vendor_id FK, amount, due_date, is_paid |
 | Notification | erp_notifications | id, type, title, body, target_user_id FK(nullable=broadcast), is_read |
-| DailySettlement | erp_daily_settlements | id, settlement_date UNIQUE, income_total, expense_total |
+| DailySettlement | erp_daily_settlements | id, settlement_date（已移除 UNIQUE，O3）, income_total, expense_total, settlement_number, closing_balance, settled_by FK |
 | CashTransaction | erp_cash_transactions | id, user_id FK, amount, type, note |
 | NotificationSetting | erp_notification_settings | id, user_id FK, notification_type, is_enabled，UNIQUE(user_id, notification_type) |
 | ProportionalFeeRule | erp_proportional_fee_rules | id, name, category, percentage, settlement_period, is_active |
+| SystemSetting | erp_system_settings | key（UNIQUE），value（TEXT）← LINE credentials / 系統設定（O9） |
 
 **注意：** 若要新增表格，在 `models.py` 加 Model + `migrations/` 寫遷移腳本 + 遠端執行，勿在此表重複建立。
 
@@ -342,6 +361,26 @@ def get_resource(current_user = Depends(get_current_user)):
         raise HTTPException(403, "Insufficient permissions")
 ```
 
+### 7.6 角色權限（O7）
+
+| 角色 | 說明 | 前台可存取頁面 |
+|------|------|----------------|
+| `admin` | 店長（全部功能） | 全部 |
+| `manager` | 主管 | 全部前台 + 後台唯讀 |
+| `staff` | 員工 | 全部前台 |
+| `cashier` | 櫃檯 | HomeView + FinanceView + MoreView |
+
+```javascript
+// router/index.js — 角色守衛邏輯
+const ROLE_LEVELS = { admin: 4, manager: 3, staff: 2, cashier: 1 }
+function hasRole(userRole, required) {
+  return (ROLE_LEVELS[userRole] ?? 0) >= (ROLE_LEVELS[required] ?? 0)
+}
+// 各路由 meta.requiredRole：
+// /order → 'staff'  /stocktake → 'staff'  /waste → 'staff'
+// /history → 'staff'  /finance → 'cashier'（cashier 以上皆可）
+```
+
 ---
 
 ## 8. 前端開發規範
@@ -398,10 +437,15 @@ db.query(User).filter(User.deleted_at == None).all()
 | CashFlowRecurring.category 為 VARCHAR | DB | 不是 FK，直接存字串分類名稱 |
 | erp_item_categories 需 display_order | DB | 已 ALTER TABLE 加欄位（2026-03-24） |
 | SW 只在 HTTPS 或 localhost 運作 | PWA | 本地開發用 localhost，正式環境需 HTTPS |
-| HistoryView 只顯示已收貨訂單 | 前台 | status=received，待收貨留在 InventoryView |
-| CashFlowRecord 支出類需有 category_id | 後台 | 廠商到貨自動帶入 default_category_id，無則 NULL |
-| 廠商 default_category_id 參照 erp_cash_flow_categories | DB | FK nullable |
-| LINE 憑證存在 erp_system_settings table（KV） | 後台 | key: line_channel_secret, line_channel_access_token |
+| HistoryView 叫貨紀錄只顯示 status=received 訂單 | 前台 | 待收貨不在歷史紀錄 Tab 中（O2） |
+| 支出類金流紀錄的 category_id 應有值 | DB | 無值則後台列表顯示 ⚠️ 未分科目（O6） |
+| 收入/提領類金流不歸科目 | 後台 | category_id 只適用 expense 類型（O6） |
+| LINE Channel Secret / Access Token 存 DB | 後端 | 不寫死在程式，從 erp_system_settings 讀取（O9） |
+| 日結無每日唯一限制 | DB | unique_settlement_date constraint 已移除（O3） |
+| 盤點次日防漂移 | 後端 | next_due = 舊 next_due + cycle_days（非實際完成日），O5 |
+| next_stocktake_due NULL + cycle_days 有值 | 前台 | 視為今天到期（提醒首次盤點），O5 |
+| cashier 角色前台只能存取 HomeView + FinanceView | 前台 | router guard + App.vue navItems filter（O7） |
+| 角色層級：admin > manager > staff > cashier | 前台 | ROLE_LEVELS = { admin:4, manager:3, staff:2, cashier:1 }（O7） |
 
 ---
 
@@ -452,114 +496,94 @@ VITE_API_BASE_URL=http://34.81.51.45:8000/api/v1
 | P3-3 | PWA 草稿自動儲存 + D+N 到貨倒數 + 差異分析 Sheet |
 | P3-4 | PWA manifest + Service Worker + 安裝提示 |
 
-> P 系列全部完成。O 系列優化進行中（見下表）。
+### O 系列優化任務（2026-03-24 起）
 
-### 🔄 O 系列優化（進行中）
-
-| 任務卡 | 說明 | 狀態 |
-|--------|------|------|
-| O1 | 叫貨送出自動複製、切換待收貨 tab、草稿修復 | ✅ 已實作（待驗證） |
-| O2 | HistoryView 兩 Tab（叫貨/盤點），只顯示已收貨 | ✅ 已實作 |
-| O3 | 金流日結排序、可再次日結、日結線資訊 | ✅ 已實作（待驗證） |
-| O4 | StocktakeView 單模式緊湊卡片、WasteView 歷史 Tab | ✅ 已實作 |
-| O5 | 首頁待盤點清單（週期提醒 + 防漂移錨點） | ⏳ 待實作 |
-| O6 | 後台金流日期篩選、新增紀錄、科目小計、廠商預設科目 | ✅ 已實作 |
-| O7 | 路由守衛生效、新增 cashier 角色 | ⏳ 待實作 |
-| O8 | 各頁面底部 pb-24 / pb-safe，防導覽列遮擋 | ✅ 已實作（待驗證） |
-| O9 | LINE 訊息自動發送（基礎建設完成） | 🔨 部分完成（見下節） |
+| 任務 | 說明 | 狀態 |
+|------|------|------|
+| O1 | 前台叫貨送出流程修正 + 暫存修復 + 臨時品項連續新增 | ✅ 已完成 |
+| O2 | HistoryView 2-tab 重構（叫貨只顯示 received + 操作人顯示） | ✅ 已完成 |
+| O3 | 金流日結排序/多次日結/日期顯示修正 | ✅ 已完成 |
+| O4 | WasteView 2-tab（記錄耗損/歷史紀錄）+ StocktakeView singleMode 緊湊版 | ✅ 已完成 |
+| O5 | 首頁待盤點清單（依週期天數 + next_stocktake_due 提醒） | ✅ 已完成 |
+| O6 | 後台金流科目化（日期篩選/手動新增/廠商預設科目/inline 編輯/小計） | ✅ 已完成 |
+| O7 | 權限系統強化（路由守衛生效、cashier 角色） | ✅ 已完成 |
+| O8 | 底部遮擋修正（scroll container pb-24） | ✅ 已完成（含入 O1/O3 調整） |
+| O9 | LINE 訊息自動發送（叫貨送出推播至廠商群組） | 🔨 部分完成（Webhook 驗證通過；廠商 group_id 管理待串） |
 
 ---
 
-## 12. 對外 HTTPS — ngrok 設定
+## 12. ngrok（對外 HTTPS 通道）
 
-### 架構
-```
-LINE → https://preoffensive-chasteningly-taunya.ngrok-free.dev
-         ↓ ngrok tunnel（GCP 伺服器主動連出，不需開防火牆）
-       FastAPI port 8000
-```
+ngrok 讓 GCP 伺服器有穩定的公開 HTTPS URL，LINE Webhook 需要此 URL。
 
-### ngrok 服務管理
+| 項目 | 說明 |
+|------|------|
+| 靜態網址 | `https://preoffensive-chasteningly-taunya.ngrok-free.dev` |
+| 轉發目標 | `http://localhost:8000`（FastAPI） |
+| 服務名稱 | `ngrok`（systemd） |
+| 設定檔 | `/etc/systemd/system/ngrok.service` |
+
 ```bash
-# 查看狀態
+# 查看 ngrok 狀態
 sudo systemctl status ngrok
 
-# 重啟
+# 重啟 ngrok
 sudo systemctl restart ngrok
 
-# 查看 log
-journalctl -u ngrok -n 50
-
-# service 設定位置
-/etc/systemd/system/ngrok.service
+# ngrok.service 內容
+# ExecStart=/usr/local/bin/ngrok http --url=preoffensive-chasteningly-taunya.ngrok-free.dev 8000
 ```
 
-### 重要資訊
-| 項目 | 值 |
-|------|-----|
-| 靜態網址 | `https://preoffensive-chasteningly-taunya.ngrok-free.dev` |
-| Authtoken | `3BNKwNKgQy3Jxq8OJ3Z2qnwLZp4_4GJdTeBGpK3BUcWB4VccT` |
-| Config 位置 | `~/.config/ngrok/ngrok.yml` |
-| 開機自動啟動 | ✅ systemd enabled |
-
-> ⚠️ Authtoken 等同帳號鑰匙，不要貼在公開的地方（GitHub, Slack 等）
+> ngrok 免費方案限制：1 個靜態 domain、連線數有限。若遇到 ERR_NGROK_8012 錯誤表示連線數超過，重啟即可。
 
 ---
 
-## 13. LINE Messaging API 串接
+## 13. LINE Messaging API 串接（O9）
 
-### 目前完成狀態
-| 項目 | 狀態 | 說明 |
-|------|------|------|
-| ngrok HTTPS 通道 | ✅ | 開機自動啟動 |
-| Webhook 端點 | ✅ | `POST /api/v1/webhook/line` |
-| LINE 驗證通過 | ✅ | 147.92.x.x → 200 OK |
-| Channel Secret | ✅ | 存入 erp_system_settings |
-| Channel Access Token | ✅ | 存入 erp_system_settings |
-| 後台設定 API | ✅ | `GET/PUT /api/v1/admin/settings/` |
+### 目前狀態
 
-### 尚未完成（O9 剩餘工作）
-1. **Bot 加入廠商 LINE 群組** — 需人工操作，掃 QR 加 Bot 為好友再邀入群組
-2. **取得 group_id** — Bot 加入群組後 webhook 自動記錄，後台顯示給管理員配對廠商
-3. **廠商管理加 LINE Group ID 欄位** — admin VendorsView 新增欄位
-4. **叫貨送出時自動推播** — inventory API receive_order → line_service.push_message()
+| 項目 | 狀態 |
+|------|------|
+| LINE Official Account 申請 | ✅ 完成 |
+| Webhook URL 設定 | ✅ `https://preoffensive-chasteningly-taunya.ngrok-free.dev/api/v1/webhook/line` |
+| Webhook 驗證 | ✅ 通過（200 OK） |
+| Channel ID | 2009581286 |
+| Channel Secret | 存於 DB `erp_system_settings` key=`line_channel_secret` |
+| Access Token | 存於 DB `erp_system_settings` key=`line_access_token` |
+| 廠商 line_group_id | 🔨 欄位已加，但 UI 管理 + 實際發送 待完成 |
 
-### LINE 帳號資訊
-| 項目 | 值 |
-|------|-----|
-| Channel ID | `2009581286` |
-| Channel Secret | 存於 `erp_system_settings.line_channel_secret` |
-| Channel Access Token | 存於 `erp_system_settings.line_channel_access_token` |
-| Webhook URL | `https://preoffensive-chasteningly-taunya.ngrok-free.dev/api/v1/webhook/line` |
+### 取得廠商群組 Group ID
 
-### 系統設定 API
-```
-GET  /api/v1/admin/settings/              → { line_channel_secret, line_channel_access_token, ... }
-PUT  /api/v1/admin/settings/{key}         → 更新單一設定值
-```
-
-換 LINE 帳號時只需在後台更新這兩個值，不需修改程式碼。
+1. 將 LINE Bot 加入廠商群組
+2. Bot 加入群組時會觸發 `join` 事件，webhook 會印出 `group_id`
+3. 在後台廠商管理頁填入 `line_group_id`
 
 ### line_service.py 使用方式
-```python
-from erp.backend.services.line_service import push_line_message
 
-# 發送訊息到群組
-await push_line_message(
-    group_id="C1234567890abcdef",  # 廠商的 LINE 群組 ID
-    message="叫貨通知訊息內容"
-)
+```python
+from erp.backend.services.line_service import send_line_message
+
+# 發送訊息至群組
+send_line_message(db, group_id="C...", text="叫貨訊息內容")
+
+# send_line_message 會從 DB 讀取 Access Token：
+# SELECT value FROM erp_system_settings WHERE key='line_access_token'
+```
+
+### 後台 LINE 憑證設定（ApiIntegrationsView）
+
+```
+POST /api/v1/settings/line
+Body: { channel_secret: "...", access_token: "..." }
 ```
 
 ---
-
-## 14. 快速 Debug 指令
 
 ## 14. 快速 Debug 指令
 
 ```bash
 # 查看後端 log
-tail -f /home/mason_ycw/boiling-noodles-dashboard/erp/backend/backend.log
+tail -f /tmp/uvicorn.log
 
 # 測試 API（需先登入取 token）
 curl -s http://localhost:8000/api/v1/finance/overview

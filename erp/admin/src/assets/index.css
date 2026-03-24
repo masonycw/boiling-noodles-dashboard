@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source "../**/*.vue";
+@source "../**/*.js";
 
 body {
   margin: 0;
