@@ -11,6 +11,8 @@ const loading = ref(true)
 const payVendor = ref('')
 const payStatus = ref('')
 const toast = ref('')
+const selectedIds = ref(new Set())
+const batchPaying = ref(false)
 
 const now = new Date()
 
@@ -73,6 +75,54 @@ async function markPaid(p) {
   })
   if (res.ok) { showToast('已標記匯款'); await load() }
 }
+
+function toggleSelect(id) {
+  const s = new Set(selectedIds.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  selectedIds.value = s
+}
+
+function toggleSelectAll() {
+  const unpaid = filtered.value.filter(p => !p.is_paid)
+  if (selectedIds.value.size === unpaid.length) {
+    selectedIds.value = new Set()
+  } else {
+    selectedIds.value = new Set(unpaid.map(p => p.id))
+  }
+}
+
+const selectedTotal = computed(() => {
+  return payables.value
+    .filter(p => selectedIds.value.has(p.id))
+    .reduce((s, p) => s + parseFloat(p.amount || 0), 0)
+})
+
+const allUnpaidSelected = computed(() => {
+  const unpaid = filtered.value.filter(p => !p.is_paid)
+  return unpaid.length > 0 && unpaid.every(p => selectedIds.value.has(p.id))
+})
+
+async function batchMarkPaid() {
+  const ids = [...selectedIds.value]
+  if (!ids.length) return
+  const total = fmtMoney(selectedTotal.value)
+  if (!confirm(`確認結清 ${ids.length} 筆帳款，合計 NT$ ${total}？`)) return
+  batchPaying.value = true
+  try {
+    await Promise.all(ids.map(id =>
+      fetch(`${API_BASE}/finance/accounts-payable/${id}/pay`, {
+        method: 'PUT', headers: authHeaders()
+      })
+    ))
+    selectedIds.value = new Set()
+    showToast(`✓ 已結清 ${ids.length} 筆帳款`)
+    await load()
+  } catch (e) {
+    showToast('部分結清失敗，請重試')
+  } finally {
+    batchPaying.value = false
+  }
+}
 </script>
 
 <template>
@@ -96,12 +146,27 @@ async function markPaid(p) {
       </div>
     </div>
 
+    <!-- 批次付款 toolbar -->
+    <div v-if="selectedIds.size > 0"
+      class="flex items-center gap-4 px-4 py-3 bg-emerald-900/30 border border-emerald-500/40 rounded-xl">
+      <span class="text-sm font-bold text-emerald-300">已選 {{ selectedIds.size }} 筆 · NT$ {{ fmtMoney(selectedTotal) }}</span>
+      <button @click="selectedIds = new Set()" class="text-xs text-gray-400 hover:text-gray-200">取消選取</button>
+      <button @click="batchMarkPaid" :disabled="batchPaying"
+        class="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+        {{ batchPaying ? '處理中…' : `✓ 批次結清 (${selectedIds.size})` }}
+      </button>
+    </div>
+
     <!-- 表格 -->
     <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
       <div v-if="loading" class="py-10 text-center text-gray-500">載入中…</div>
       <table v-else class="w-full text-sm">
         <thead>
           <tr class="border-b border-[#2d3748] text-xs text-gray-500 uppercase">
+            <th class="px-3 py-3 text-center w-8">
+              <input type="checkbox" :checked="allUnpaidSelected" @change="toggleSelectAll"
+                class="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
+            </th>
             <th class="px-5 py-3 text-left">廠商</th>
             <th class="px-5 py-3 text-left">收貨日</th>
             <th class="px-5 py-3 text-left">付款條件</th>
@@ -112,7 +177,11 @@ async function markPaid(p) {
           </tr>
         </thead>
         <tbody class="divide-y divide-[#2d3748]">
-          <tr v-for="p in filtered" :key="p.id" class="hover:bg-[#1f2937]">
+          <tr v-for="p in filtered" :key="p.id" class="hover:bg-[#1f2937]" :class="selectedIds.has(p.id) ? 'bg-emerald-900/20' : ''">
+            <td class="px-3 py-3 text-center">
+              <input v-if="!p.is_paid" type="checkbox" :checked="selectedIds.has(p.id)" @change="toggleSelect(p.id)"
+                class="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
+            </td>
             <td class="px-5 py-3 font-semibold text-gray-200">{{ p.vendor_name || '—' }}</td>
             <td class="px-5 py-3 text-gray-400 text-xs">{{ fmtDate(p.created_at) }}</td>
             <td class="px-5 py-3 text-gray-400 text-xs">{{ p.payment_terms || p.note || '—' }}</td>
@@ -136,7 +205,7 @@ async function markPaid(p) {
             </td>
           </tr>
           <tr v-if="filtered.length === 0">
-            <td colspan="7" class="px-5 py-10 text-center text-gray-600">無應付帳款</td>
+            <td colspan="8" class="px-5 py-10 text-center text-gray-600">無應付帳款</td>
           </tr>
         </tbody>
       </table>

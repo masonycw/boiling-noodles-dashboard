@@ -169,12 +169,45 @@ const editOrderSubmitting = ref(false)
 const showReceiveModal = ref(false)
 const receiveTarget = ref(null)
 const receiveOrderItems = ref([])
-const receiveForm = ref({ total_amount: '', amount_paid: '', is_paid: true, note: '' })
+const receiveForm = ref({ total_amount: '', amount_paid: '', payment_mode: 'cash', note: '' })
 const receiveSubmitting = ref(false)
 const receiveError = ref('')
 const receivePhoto = ref(null)
 const receivePhotoPreview = ref('')
 const photoInput = ref(null)
+
+// F-07: 依到貨日排序 + 今日/未來分切線
+const pendingSortedWithDivider = computed(() => {
+  const today = new Date(); today.setHours(0,0,0,0)
+  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
+
+  const todayList = [...pendingOrders.value]
+    .filter(o => {
+      if (!o.expected_delivery_date) return true
+      const d = new Date(o.expected_delivery_date); d.setHours(0,0,0,0)
+      return d.getTime() < tomorrow.getTime()
+    })
+    .sort((a, b) => {
+      if (!a.expected_delivery_date) return 1
+      if (!b.expected_delivery_date) return -1
+      return new Date(a.expected_delivery_date) - new Date(b.expected_delivery_date)
+    })
+
+  const futureList = [...pendingOrders.value]
+    .filter(o => {
+      if (!o.expected_delivery_date) return false
+      const d = new Date(o.expected_delivery_date); d.setHours(0,0,0,0)
+      return d.getTime() >= tomorrow.getTime()
+    })
+    .sort((a, b) => new Date(a.expected_delivery_date) - new Date(b.expected_delivery_date))
+
+  const result = todayList.map(o => ({ ...o, _type: 'order' }))
+  if (todayList.length > 0 && futureList.length > 0) {
+    result.push({ _type: 'divider', _futureCount: futureList.length })
+  }
+  futureList.forEach(o => result.push({ ...o, _type: 'future' }))
+  return result
+})
 
 // ── 歷史紀錄 tab ──────────────────────────────
 const historyTab = ref('orders')  // 'orders' | 'stocktake'
@@ -501,7 +534,7 @@ function orderDateBadge(order) {
 
 async function openReceive(order) {
   receiveTarget.value = order
-  receiveForm.value = { total_amount: order.total_amount || '', amount_paid: '', is_paid: true, note: '' }
+  receiveForm.value = { total_amount: order.total_amount || '', amount_paid: '', payment_mode: 'cash', note: '' }
   receiveError.value = ''; receiveOrderItems.value = []; receivePhoto.value = null; receivePhotoPreview.value = ''; showReceiveModal.value = true
   const res = await fetch(`${API_BASE}/inventory/orders/${order.id}`, { headers: authHeaders() })
   if (res.ok) {
@@ -546,7 +579,7 @@ async function submitReceive() {
       body: JSON.stringify({
         total_amount: amount,
         amount_paid: parseFloat(receiveForm.value.amount_paid) || 0,
-        is_paid: receiveForm.value.is_paid,
+        payment_mode: receiveForm.value.payment_mode,
         note: receiveForm.value.note || null,
         receive_photo_url: receivePhotoUrl
       })
@@ -570,6 +603,7 @@ function openEditOrder(order) {
     expected_delivery_date: order.expected_delivery_date
       ? new Date(order.expected_delivery_date).toISOString().split('T')[0]
       : '',
+    total_amount: order.total_amount || '',
     note: order.note || ''
   }
   showEditOrderModal.value = true
@@ -582,6 +616,8 @@ async function submitEditOrder() {
     const body = {}
     if (editOrderForm.value.expected_delivery_date)
       body.expected_delivery_date = new Date(editOrderForm.value.expected_delivery_date).toISOString()
+    if (editOrderForm.value.total_amount !== '' && editOrderForm.value.total_amount != null)
+      body.total_amount = parseFloat(editOrderForm.value.total_amount)
     if (editOrderForm.value.note !== undefined)
       body.note = editOrderForm.value.note
     const res = await fetch(`${API_BASE}/inventory/orders/${editOrderTarget.value.id}`, {
@@ -1034,8 +1070,15 @@ const payBadge = (o) => {
       </div>
       <div v-else class="px-4 mt-3 space-y-2">
         <p class="text-xs font-bold text-slate-500 uppercase">未簽收訂單 ({{ pendingOrders.length }})</p>
-        <div v-for="order in pendingOrders" :key="order.id"
-          class="bg-white rounded-xl shadow-sm p-4">
+        <template v-for="item in pendingSortedWithDivider" :key="item._type === 'divider' ? 'divider' : item.id">
+          <!-- 分切線 -->
+          <div v-if="item._type === 'divider'" class="flex items-center gap-2 py-1">
+            <div class="flex-1 h-px bg-slate-200"></div>
+            <span class="text-[10px] font-bold text-slate-400 uppercase shrink-0 px-2">預計未來到貨 ({{ item._futureCount }})</span>
+            <div class="flex-1 h-px bg-slate-200"></div>
+          </div>
+          <!-- 訂單卡片 -->
+          <div v-else class="bg-white rounded-xl shadow-sm p-4" :class="item._type === 'future' ? 'opacity-75' : ''">
           <div class="flex items-start gap-3">
             <span class="text-2xl mt-0.5">🚚</span>
             <div class="flex-1 min-w-0">
@@ -1080,7 +1123,8 @@ const payBadge = (o) => {
               {{ order.status === 'received' ? '✓ 已簽收' : '已取消' }}
             </div>
           </div>
-        </div>
+          </div>
+        </template>
       </div>
 
       <!-- Edit Order Modal -->
@@ -1097,6 +1141,11 @@ const payBadge = (o) => {
             <div>
               <label class="block text-xs font-bold text-slate-500 uppercase mb-1">預計到貨日</label>
               <input v-model="editOrderForm.expected_delivery_date" type="date"
+                class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-500 uppercase mb-1">訂單金額（選填）</label>
+              <input v-model="editOrderForm.total_amount" type="number" inputmode="decimal" placeholder="0"
                 class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
             </div>
             <div>
@@ -1149,21 +1198,27 @@ const payBadge = (o) => {
                 class="w-full border border-slate-200 rounded-xl px-4 py-3 text-2xl font-extrabold text-center focus:outline-none focus:ring-2 focus:ring-orange-400" />
             </div>
 
-            <!-- Payment status -->
+            <!-- Payment status (3-way) -->
             <div>
-              <p class="text-xs font-bold text-slate-500 mb-2">付款狀態</p>
-              <div class="flex gap-2">
-                <button @click="receiveForm.is_paid = true"
-                  class="flex-1 py-3 rounded-xl text-sm font-bold border transition-all text-left px-3"
-                  :class="receiveForm.is_paid ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-400'">
-                  <p class="font-extrabold text-sm">✓ 現場已付</p>
-                  <p class="text-[10px] mt-0.5 opacity-70">現金當場結清</p>
+              <p class="text-xs font-bold text-slate-500 mb-2">付款方式</p>
+              <div class="grid grid-cols-3 gap-2">
+                <button @click="receiveForm.payment_mode = 'cash'"
+                  class="py-3 rounded-xl text-sm font-bold border transition-all text-center px-1"
+                  :class="receiveForm.payment_mode === 'cash' ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-400'">
+                  <p class="font-extrabold text-sm">💵 現場現金</p>
+                  <p class="text-[10px] mt-0.5 opacity-70">當場付清</p>
                 </button>
-                <button @click="receiveForm.is_paid = false"
-                  class="flex-1 py-3 rounded-xl text-sm font-bold border transition-all text-left px-3"
-                  :class="!receiveForm.is_paid ? 'border-slate-500 bg-slate-100 text-slate-700' : 'border-slate-200 text-slate-400'">
-                  <p class="font-extrabold text-sm">未付款</p>
-                  <p class="text-[10px] mt-0.5 opacity-70">月結/後續結帳</p>
+                <button @click="receiveForm.payment_mode = 'pre_paid'"
+                  class="py-3 rounded-xl text-sm font-bold border transition-all text-center px-1"
+                  :class="receiveForm.payment_mode === 'pre_paid' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-400'">
+                  <p class="font-extrabold text-sm">🏦 已收款</p>
+                  <p class="text-[10px] mt-0.5 opacity-70">匯款/先付</p>
+                </button>
+                <button @click="receiveForm.payment_mode = 'unpaid'"
+                  class="py-3 rounded-xl text-sm font-bold border transition-all text-center px-1"
+                  :class="receiveForm.payment_mode === 'unpaid' ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-400'">
+                  <p class="font-extrabold text-sm">📋 未付款</p>
+                  <p class="text-[10px] mt-0.5 opacity-70">月結/週結</p>
                 </button>
               </div>
             </div>

@@ -140,11 +140,12 @@ def toggle_petty_cash_payment(db: Session, record_id: int) -> dict:
 # 金流管理（Phase 3）
 # ─────────────────────────────────────────────
 
-def get_cash_flow_categories(db: Session) -> List[dict]:
-    cats = db.query(CashFlowCategory).filter(
-        CashFlowCategory.is_active == True
-    ).order_by(CashFlowCategory.type, CashFlowCategory.display_order).all()
-    return [{"id": c.id, "name": c.name, "type": c.type} for c in cats]
+def get_cash_flow_categories(db: Session, include_inactive: bool = False) -> List[dict]:
+    query = db.query(CashFlowCategory).order_by(CashFlowCategory.type, CashFlowCategory.display_order)
+    if not include_inactive:
+        query = query.filter(CashFlowCategory.is_active == True)
+    cats = query.all()
+    return [{"id": c.id, "name": c.name, "type": c.type, "is_active": c.is_active} for c in cats]
 
 
 def get_cash_flow_records(

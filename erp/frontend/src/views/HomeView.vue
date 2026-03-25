@@ -39,6 +39,20 @@ const overdueReceive = computed(() => {
   }) || null
 })
 
+// F-06: 首頁待收貨只顯示今天預計到貨的卡片
+const todayPendingOrders = computed(() => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  return pendingOrders.value.filter(o => {
+    if (!o.expected_delivery_date) return false
+    const d = new Date(o.expected_delivery_date)
+    d.setHours(0, 0, 0, 0)
+    return d.getTime() === today.getTime()
+  })
+})
+
 async function loadData() {
   try {
     const [itemsRes, ordersRes, stocktakeRes] = await Promise.all([
@@ -146,20 +160,20 @@ function goToStocktake(groupId) {
       </div>
 
       <!-- 待簽收訂單卡片 -->
-      <div v-if="pendingOrders.length === 0 && pendingStocktakeGroups.length === 0"
+      <div v-if="todayPendingOrders.length === 0 && pendingStocktakeGroups.length === 0"
         class="text-center py-8 text-slate-400 text-sm">
         今日無待辦事項 🎉
       </div>
 
-      <!-- 📦 待收貨 -->
-      <div v-if="pendingOrders.length > 0" class="mb-4">
+      <!-- 📦 待收貨（只顯示今日） -->
+      <div v-if="todayPendingOrders.length > 0" class="mb-4">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-extrabold text-slate-500 uppercase tracking-wide">📦 待收貨</span>
-          <span class="text-xs font-bold text-orange-500">{{ pendingOrders.length }} 筆</span>
+          <span class="text-xs font-extrabold text-slate-500 uppercase tracking-wide">📦 今日到貨</span>
+          <span class="text-xs font-bold text-orange-500">{{ todayPendingOrders.length }} 筆</span>
         </div>
         <div class="space-y-2">
           <button
-            v-for="order in pendingOrders.slice(0, 5)" :key="order.id"
+            v-for="order in todayPendingOrders" :key="order.id"
             @click="router.push({ name: 'order' })"
             class="w-full bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:bg-slate-50 transition-colors text-left"
             style="border-radius:12px">
@@ -167,11 +181,10 @@ function goToStocktake(groupId) {
             <div class="flex-1 min-w-0">
               <p class="font-bold text-slate-800" style="font-size:14px">{{ order.vendor_name }}</p>
               <p class="mt-0.5" style="font-size:12px;color:#999">
-                {{ order.expected_delivery_date ? fmtTime(order.expected_delivery_date) : '時間未定' }}
-                · {{ order.total_items || '?' }} 項品項
+                {{ order.total_items || '?' }} 項品項
               </p>
             </div>
-            <span class="font-bold shrink-0" style="background:#fff7ed;color:#ea580c;border-radius:12px;font-size:11px;padding:4px 10px">待收</span>
+            <span class="font-bold shrink-0" style="background:#fff7ed;color:#ea580c;border-radius:12px;font-size:11px;padding:4px 10px">今日到貨</span>
             <span style="color:#ccc;font-size:16px">›</span>
           </button>
         </div>

@@ -322,6 +322,7 @@ class CashFlowRecurring(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)                    # 例：網路費、租金
+    category = Column(String)                                # 分類文字（直接存字串）
     category_id = Column(Integer, ForeignKey("erp_cash_flow_categories.id"), nullable=True)
     amount = Column(Numeric(10, 2))                          # 金額已知才填
     type = Column(String, nullable=False)                    # income / expense

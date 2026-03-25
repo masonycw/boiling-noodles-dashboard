@@ -150,8 +150,49 @@ def delete_petty_cash(record_id: int, db: Session = Depends(get_db)):
 # ─────────────────────────────────────────────
 
 @router.get("/cash-flow/categories")
-def list_categories(db: Session = Depends(get_db)):
-    return finance_service.get_cash_flow_categories(db)
+def list_categories(include_inactive: bool = False, db: Session = Depends(get_db)):
+    return finance_service.get_cash_flow_categories(db, include_inactive=include_inactive)
+
+
+class CategoryCreate(BaseModel):
+    name: str
+    type: str = "expense"
+    is_active: bool = True
+
+
+@router.post("/cash-flow/categories")
+def create_category(data: CategoryCreate, db: Session = Depends(get_db)):
+    from erp.backend.db.models import CashFlowCategory
+    cat = CashFlowCategory(name=data.name, type=data.type, is_active=data.is_active)
+    db.add(cat)
+    db.commit()
+    db.refresh(cat)
+    return {"id": cat.id, "name": cat.name, "type": cat.type, "is_active": cat.is_active}
+
+
+@router.put("/cash-flow/categories/{cat_id}")
+def update_category(cat_id: int, data: CategoryCreate, db: Session = Depends(get_db)):
+    from erp.backend.db.models import CashFlowCategory
+    cat = db.query(CashFlowCategory).filter(CashFlowCategory.id == cat_id).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="科目不存在")
+    cat.name = data.name
+    cat.type = data.type
+    cat.is_active = data.is_active
+    db.commit()
+    db.refresh(cat)
+    return {"id": cat.id, "name": cat.name, "type": cat.type, "is_active": cat.is_active}
+
+
+@router.delete("/cash-flow/categories/{cat_id}")
+def delete_category(cat_id: int, db: Session = Depends(get_db)):
+    from erp.backend.db.models import CashFlowCategory
+    cat = db.query(CashFlowCategory).filter(CashFlowCategory.id == cat_id).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="科目不存在")
+    db.delete(cat)
+    db.commit()
+    return {"success": True}
 
 
 @router.get("/cash-flow")

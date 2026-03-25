@@ -26,7 +26,7 @@ function showToast(msg) { toast.value = msg; setTimeout(() => { toast.value = ''
 
 async function load() {
   loading.value = true
-  const res = await fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: authHeaders() })
+  const res = await fetch(`${API_BASE}/finance/cash-flow/categories?include_inactive=true`, { headers: authHeaders() })
   if (res.ok) categories.value = await res.json()
   loading.value = false
 }

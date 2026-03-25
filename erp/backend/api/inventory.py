@@ -139,7 +139,8 @@ class OrderReceive(BaseModel):
     total_amount: float = 0.0
     is_paid: bool = False
     note: Optional[str] = None
-    receive_photo_url: Optional[str] = None   # 簽收照片（先用 /uploads/image 上傳後帶入）
+    receive_photo_url: Optional[str] = None
+    payment_mode: Optional[str] = None  # 'cash' | 'pre_paid' | 'unpaid'
 
 @router.post("/orders/{order_id}/receive")
 def receive_order(order_id: int, receive_data: OrderReceive, db: Session = Depends(get_db)):
@@ -148,7 +149,8 @@ def receive_order(order_id: int, receive_data: OrderReceive, db: Session = Depen
         db, order_id, user_id,
         receive_data.amount_paid, receive_data.total_amount,
         receive_data.is_paid, receive_data.note,
-        receive_data.receive_photo_url
+        receive_data.receive_photo_url,
+        receive_data.payment_mode
     )
 
 import os
@@ -186,6 +188,7 @@ class OrderPatch(BaseModel):
     note: Optional[str] = None
     ordered_at: Optional[str] = None
     expected_delivery_date: Optional[str] = None
+    total_amount: Optional[float] = None
     items: Optional[List[OrderItemCreate]] = None
 
 @router.patch("/orders/{order_id}")
@@ -209,6 +212,8 @@ def patch_order(order_id: int, data: OrderPatch, db: Session = Depends(get_db)):
             order.expected_delivery_date = dt.fromisoformat(data.expected_delivery_date)
         except Exception:
             pass
+    if data.total_amount is not None:
+        order.total_amount = data.total_amount
     if data.items is not None:
         db.query(PurchaseOrderDetail).filter(PurchaseOrderDetail.order_id == order_id).delete()
         for item in data.items:
