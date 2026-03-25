@@ -23,6 +23,7 @@ class PettyCashCreate(BaseModel):
     photo_url: Optional[str] = None
     vendor_id: Optional[int] = None
     order_id: Optional[int] = None
+    is_paid: bool = True                   # False = 待付帳款，不計入零用金餘額
 
 
 class CashFlowCreate(BaseModel):
@@ -122,6 +123,15 @@ def patch_petty_cash(record_id: int, data: dict, db: Session = Depends(get_db)):
             pass
     db.commit()
     return {"success": True}
+
+
+@router.patch("/petty-cash/{record_id}/toggle-payment")
+def toggle_petty_cash_payment(record_id: int, db: Session = Depends(get_db)):
+    """切換零用金紀錄的付款狀態（已付 ↔ 待付）"""
+    try:
+        return finance_service.toggle_petty_cash_payment(db, record_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.delete("/petty-cash/{record_id}")

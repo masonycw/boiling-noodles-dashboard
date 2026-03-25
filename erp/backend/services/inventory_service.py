@@ -82,13 +82,15 @@ def get_orders(db: Session, skip: int = 0, limit: int = 50, days_limit: int = No
             query = query.filter(PurchaseOrder.status.in_(status_list))
     return query.order_by(PurchaseOrder.created_at.desc()).offset(skip).limit(limit).all()
 
-from erp.backend.services.finance_service import create_transaction
+from erp.backend.services.finance_service import create_transaction, create_petty_cash_record
 
-def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float, total_amount: float = 0.0, is_paid: bool = False, note: str = None):
+def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float,
+                  total_amount: float = 0.0, is_paid: bool = False,
+                  note: str = None, receive_photo_url: str = None):
     db_po = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
     if not db_po:
         raise Exception("Order not found")
-        
+
     db_po.status = "received"
     db_po.receive_user_id = user_id
     db_po.total_amount = total_amount
@@ -96,16 +98,36 @@ def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float, 
     db_po.amount_paid = amount_paid if is_paid else 0.0
     if note:
         db_po.note = note
-    
-    # Generate CashTransaction if amount_paid > 0 and is_paid
-    if is_paid and amount_paid > 0:
-        # Auto-assign vendor default_category_id if set
-        vendor_cat_id = None
-        if db_po.vendor_id:
-            from erp.backend.db.models import Vendor as VendorModel
-            vdr = db.query(VendorModel).filter(VendorModel.id == db_po.vendor_id).first()
-            if vdr and hasattr(vdr, 'default_category_id'):
+    if receive_photo_url:
+        db_po.receipt_url = receive_photo_url
+
+    # 取得廠商資訊
+    vendor_name = None
+    vendor_cat_id = None
+    if db_po.vendor_id:
+        from erp.backend.db.models import Vendor as VendorModel
+        vdr = db.query(VendorModel).filter(VendorModel.id == db_po.vendor_id).first()
+        if vdr:
+            vendor_name = vdr.name
+            if hasattr(vdr, 'default_category_id'):
                 vendor_cat_id = vdr.default_category_id
+
+    # 建立零用金紀錄（無論是否已付款）
+    bill_amount = total_amount if total_amount > 0 else (amount_paid if amount_paid > 0 else 0.0)
+    if bill_amount > 0:
+        petty_data = {
+            "type": "expense",
+            "amount": bill_amount,
+            "note": f"訂單 #{order_id} 進貨{' - ' + vendor_name if vendor_name else ''}{': ' + note if note else ''}",
+            "photo_url": receive_photo_url,
+            "vendor_id": db_po.vendor_id,
+            "order_id": order_id,
+            "is_paid": is_paid,
+        }
+        create_petty_cash_record(db, user_id, petty_data)
+
+    # 若已付款也同步建立金流紀錄
+    if is_paid and amount_paid > 0:
         tx_in = {
             "amount": amount_paid,
             "type": "expense",
@@ -115,7 +137,7 @@ def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float, 
             "order_id": order_id
         }
         create_transaction(db, user_id, tx_in)
-        
+
     db.commit()
     db.refresh(db_po)
     return db_po

@@ -276,7 +276,8 @@ class PettyCashRecord(Base):
     )
     amount = Column(Numeric(10, 2), nullable=False)
     note = Column(Text)
-    photo_url = Column(String)                               # 提領時拍照
+    photo_url = Column(String)                               # 提領/簽收拍照
+    is_paid = Column(Boolean, default=True)                  # 已付款=True計入餘額；False只記錄待付
     vendor_id = Column(Integer, ForeignKey("erp_vendors.id"), nullable=True)  # 支出時關聯廠商
     order_id = Column(Integer, ForeignKey("erp_purchase_orders.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -398,21 +398,33 @@ async function submitReceive() {
   if (!amount) { receiveError.value = '請輸入訂單金額'; return }
   receiveSubmitting.value = true
   try {
-    const res = await fetch(`${API_BASE}/inventory/orders/${receiveTarget.value.id}/receive`, {
-      method: 'POST', headers: authHeaders(),
-      body: JSON.stringify({ total_amount: amount, amount_paid: parseFloat(receiveForm.value.amount_paid) || 0, is_paid: receiveForm.value.is_paid, note: receiveForm.value.note || null })
-    })
-    if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '收貨失敗') }
-    // 上傳照片（若有）
+    // 先上傳照片，取得 URL 後一起帶入簽收請求（才能同步到零用金紀錄）
+    let receivePhotoUrl = null
     if (receivePhoto.value) {
       const formData = new FormData()
       formData.append('file', receivePhoto.value)
-      await fetch(`${API_BASE}/inventory/orders/${receiveTarget.value.id}/receipt`, {
+      const upRes = await fetch(`${API_BASE}/uploads/image`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${auth.token}` },
         body: formData
       })
+      if (upRes.ok) {
+        const upData = await upRes.json()
+        const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '')
+        receivePhotoUrl = base + upData.url
+      }
     }
+    const res = await fetch(`${API_BASE}/inventory/orders/${receiveTarget.value.id}/receive`, {
+      method: 'POST', headers: authHeaders(),
+      body: JSON.stringify({
+        total_amount: amount,
+        amount_paid: parseFloat(receiveForm.value.amount_paid) || 0,
+        is_paid: receiveForm.value.is_paid,
+        note: receiveForm.value.note || null,
+        receive_photo_url: receivePhotoUrl
+      })
+    })
+    if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '收貨失敗') }
     showReceiveModal.value = false
     await loadPending()
   } catch (e) { receiveError.value = e.message }
@@ -1025,10 +1037,18 @@ const payBadge = (o) => {
                 <span class="text-slate-400 text-xs">{{ expandedOrderId===order.id ? '▲' : '▼' }}</span>
               </div>
             </div>
-            <div v-if="expandedOrderId===order.id" class="border-t border-slate-100 px-4 py-3 space-y-1">
+            <div v-if="expandedOrderId===order.id" class="border-t border-slate-100 px-4 py-3 space-y-2">
               <div v-for="(item,idx) in expandedItems" :key="idx" class="flex justify-between text-sm py-0.5">
                 <span class="text-slate-700">{{ item.name || item.adhoc_name }}</span>
                 <span class="text-slate-500 text-xs">{{ item.qty }} {{ item.unit || item.adhoc_unit }}</span>
+              </div>
+              <div v-if="order.note" class="text-xs text-slate-500 pt-1">📝 {{ order.note }}</div>
+              <div v-if="order.receipt_url" class="pt-1">
+                <a :href="order.receipt_url" target="_blank" rel="noopener">
+                  <img :src="order.receipt_url" alt="收據照片"
+                    class="w-full max-h-40 object-cover rounded-xl border border-slate-200" />
+                </a>
+                <p class="text-center text-[10px] text-slate-400 mt-1">點擊查看原圖</p>
               </div>
             </div>
           </div>

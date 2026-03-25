@@ -50,17 +50,21 @@ def create_transaction(db: Session, user_id: int, tx_in: dict):
 # ─────────────────────────────────────────────
 
 def get_petty_cash_balance(db: Session) -> float:
-    """計算零用金餘額 = 收入 - 支出 - 提領"""
+    """計算零用金餘額 = 收入 - 支出(已付) - 提領(已付)
+    未付款的支出只是記帳，不扣餘額。
+    """
     income = db.query(func.sum(PettyCashRecord.amount)).filter(
         PettyCashRecord.type == PettyCashTypeEnum.income
     ).scalar() or 0
 
     expense = db.query(func.sum(PettyCashRecord.amount)).filter(
-        PettyCashRecord.type == PettyCashTypeEnum.expense
+        PettyCashRecord.type == PettyCashTypeEnum.expense,
+        PettyCashRecord.is_paid == True
     ).scalar() or 0
 
     withdrawal = db.query(func.sum(PettyCashRecord.amount)).filter(
-        PettyCashRecord.type == PettyCashTypeEnum.withdrawal
+        PettyCashRecord.type == PettyCashTypeEnum.withdrawal,
+        PettyCashRecord.is_paid == True
     ).scalar() or 0
 
     return float(income - expense - withdrawal)
@@ -86,8 +90,9 @@ def get_petty_cash_records(
 
 def create_petty_cash_record(db: Session, user_id: int, data: dict) -> dict:
     """
-    data: { type, amount, note, photo_url, vendor_id, order_id }
+    data: { type, amount, note, photo_url, vendor_id, order_id, is_paid }
     提領（withdrawal）時需要 petty_cash_permission = True
+    is_paid=False 表示「待付帳款」，不計入餘額
     """
     # 驗證提領權限
     if data.get("type") == "withdrawal":
@@ -101,10 +106,22 @@ def create_petty_cash_record(db: Session, user_id: int, data: dict) -> dict:
         amount=data["amount"],
         note=data.get("note"),
         photo_url=data.get("photo_url"),
+        is_paid=data.get("is_paid", True),
         vendor_id=data.get("vendor_id"),
         order_id=data.get("order_id")
     )
     db.add(record)
+    db.commit()
+    db.refresh(record)
+    return _format_petty_cash(record, db)
+
+
+def toggle_petty_cash_payment(db: Session, record_id: int) -> dict:
+    """切換零用金紀錄的付款狀態（已付 ↔ 待付）"""
+    record = db.query(PettyCashRecord).filter(PettyCashRecord.id == record_id).first()
+    if not record:
+        raise ValueError("紀錄不存在")
+    record.is_paid = not record.is_paid
     db.commit()
     db.refresh(record)
     return _format_petty_cash(record, db)
@@ -254,6 +271,7 @@ def _format_petty_cash(record: PettyCashRecord, db: Session) -> dict:
         "amount": float(record.amount),
         "note": record.note,
         "photo_url": record.photo_url,
+        "is_paid": record.is_paid if record.is_paid is not None else True,
         "vendor_id": record.vendor_id,
         "vendor_name": vendor_name,
         "order_id": record.order_id,

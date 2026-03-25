@@ -125,6 +125,8 @@ def list_orders(days_limit: int = None, status: str = None, limit: int = 500, db
             "total_amount": order.total_amount,
             "amount_paid": order.amount_paid,
             "is_paid": order.is_paid,
+            "receipt_url": order.receipt_url,
+            "note": order.note,
             "ordered_by": ordered_by,
             "received_by": received_by,
             "created_by": ordered_by
@@ -136,11 +138,17 @@ class OrderReceive(BaseModel):
     total_amount: float = 0.0
     is_paid: bool = False
     note: Optional[str] = None
+    receive_photo_url: Optional[str] = None   # 簽收照片（先用 /uploads/image 上傳後帶入）
 
 @router.post("/orders/{order_id}/receive")
 def receive_order(order_id: int, receive_data: OrderReceive, db: Session = Depends(get_db)):
     user_id = 1
-    return inventory_service.receive_order(db, order_id, user_id, receive_data.amount_paid, receive_data.total_amount, receive_data.is_paid, receive_data.note)
+    return inventory_service.receive_order(
+        db, order_id, user_id,
+        receive_data.amount_paid, receive_data.total_amount,
+        receive_data.is_paid, receive_data.note,
+        receive_data.receive_photo_url
+    )
 
 import os
 from fastapi import UploadFile, File
