@@ -6,7 +6,7 @@ router = APIRouter(prefix="/uploads", tags=["uploads"])
 
 UPLOAD_DIR = os.environ.get(
     "UPLOAD_DIR",
-    os.path.join(os.path.dirname(__file__), "../../../../uploads")
+    os.path.join(os.path.dirname(__file__), "../../../uploads")
 )
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 MAX_SIZE = 10 * 1024 * 1024  # 10 MB
