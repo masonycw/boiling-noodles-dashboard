@@ -178,7 +178,14 @@ erp/                                ← 本 CLAUDE.md 所在位置
 | Method | 路徑 | 說明 |
 |--------|------|------|
 | GET | /waste/ | 耗損紀錄（days_limit 篩選） |
-| POST | /waste/ | 新增耗損紀錄 |
+| POST | /waste/ | 新增耗損紀錄（支援 photo_url 欄位） |
+
+### uploads.py
+| Method | 路徑 | 說明 |
+|--------|------|------|
+| POST | /uploads/image | 上傳圖片（multipart/form-data），回傳 `{"url": "/uploads/uuid.ext"}`；支援 jpg/png/webp/gif，限 10MB |
+
+> 靜態圖片由 FastAPI `StaticFiles` 掛載 `/uploads` 路徑提供服務，儲存於專案根目錄的 `uploads/` 資料夾
 
 ### users.py
 | Method | 路徑 | 說明 |
@@ -512,6 +519,8 @@ VITE_API_BASE_URL=http://34.81.51.45:8000/api/v1
 - **InventoryView 歷史紀錄 tab**：新增 2 子 tab（已收貨 / 盤點歷史）
 - **iOS action bar 定位**：`fixed bottom-16` → `calc(4rem + max(16px, env(safe-area-inset-bottom)))` + `will-change: transform`
 - **admin 密碼**：已重設為 `admin123`
+- **耗損拍照功能**：新增 `POST /uploads/image` 端點 + `/uploads` 靜態服務；WasteView 表單加拍照按鈕、預覽縮圖，歷史展開顯示照片
+- **finance.py import 修正**：`get_current_user` 改從 `auth.py` 引入（原本錯誤指向 security.py）
 
 ---
 
