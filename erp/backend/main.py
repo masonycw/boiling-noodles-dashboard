@@ -1,7 +1,9 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from erp.backend.api import auth, inventory, finance, stocktake, waste, users, notifications, reports
-from erp.backend.api import webhook
+from erp.backend.api import webhook, uploads
 from erp.backend.api.admin import settings as admin_settings
 
 app = FastAPI(
@@ -30,6 +32,15 @@ app.include_router(notifications.router, prefix="/api/v1",          tags=["notif
 app.include_router(reports.router,       prefix="/api/v1",          tags=["reports"])
 app.include_router(webhook.router,       prefix="/api/v1",          tags=["webhook"])
 app.include_router(admin_settings.router, prefix="/api/v1/admin",   tags=["settings"])
+app.include_router(uploads.router,        prefix="/api/v1",            tags=["uploads"])
+
+# ─── Static files (uploaded images) ───
+_UPLOAD_DIR = os.environ.get(
+    "UPLOAD_DIR",
+    os.path.join(os.path.dirname(__file__), "../../uploads")
+)
+os.makedirs(_UPLOAD_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=_UPLOAD_DIR), name="uploads")
 
 
 @app.get("/")

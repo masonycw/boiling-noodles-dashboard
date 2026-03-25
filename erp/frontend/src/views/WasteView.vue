@@ -32,6 +32,53 @@ const unit = ref('')
 const reason = ref('過期')
 const noteText = ref('')
 
+// ── Photo ──
+const photoFile = ref(null)      // File object
+const photoPreview = ref(null)   // base64 preview URL
+const photoUrl = ref(null)       // uploaded URL from server
+const photoUploading = ref(false)
+const photoInput = ref(null)     // template ref
+
+function onPhotoChange(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  photoFile.value = file
+  photoUrl.value = null
+  const reader = new FileReader()
+  reader.onload = ev => { photoPreview.value = ev.target.result }
+  reader.readAsDataURL(file)
+}
+
+function removePhoto() {
+  photoFile.value = null
+  photoPreview.value = null
+  photoUrl.value = null
+  if (photoInput.value) photoInput.value.value = ''
+}
+
+async function uploadPhoto() {
+  if (!photoFile.value) return null
+  if (photoUrl.value) return photoUrl.value   // already uploaded
+  photoUploading.value = true
+  try {
+    const form = new FormData()
+    form.append('file', photoFile.value)
+    const res = await fetch(`${API_BASE}/uploads/image`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${auth.token}` },
+      body: form
+    })
+    if (!res.ok) throw new Error('圖片上傳失敗')
+    const data = await res.json()
+    // Build absolute URL so it works from GCP
+    const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '')
+    photoUrl.value = base + data.url
+    return photoUrl.value
+  } finally {
+    photoUploading.value = false
+  }
+}
+
 const reasons = [
   { key: '過期', icon: '⌛' },
   { key: '損壞', icon: '💥' },
@@ -122,6 +169,9 @@ function openSheet() {
   reason.value = '過期'
   noteText.value = ''
   sheetError.value = ''
+  photoFile.value = null
+  photoPreview.value = null
+  photoUrl.value = null
   showSheet.value = true
 }
 
@@ -162,9 +212,15 @@ async function submit() {
   submitting.value = true
   sheetError.value = ''
   try {
+    // Upload photo first if any
+    let uploadedUrl = null
+    if (photoFile.value) {
+      uploadedUrl = await uploadPhoto()
+    }
     const payload = {
       qty: qty.value, unit: unit.value || null, reason: reason.value,
       note: noteText.value || null, estimated_value: estimatedValue.value || null,
+      photo_url: uploadedUrl || null,
     }
     if (selectedItem.value) payload.item_id = selectedItem.value.id
     else if (isOtherItem.value) payload.adhoc_name = '其他（非常規品項）'
@@ -297,11 +353,18 @@ async function submit() {
               </div>
               <!-- Expanded details -->
               <div v-if="expandedIds.has(r.id)"
-                class="px-4 pb-3 pt-1 border-t border-slate-100 space-y-1 text-xs text-slate-500">
+                class="px-4 pb-3 pt-1 border-t border-slate-100 space-y-1.5 text-xs text-slate-500">
                 <p>🕐 時間：{{ fmtTime(r.created_at) }}</p>
                 <p v-if="r.estimated_value">💰 損耗估值：<span class="font-bold text-red-500">−${{ fmtMoney(r.estimated_value) }}</span></p>
                 <p v-if="r.note">📝 備注：{{ r.note }}</p>
                 <p v-if="r.recorded_by_name">👤 記錄人：{{ r.recorded_by_name }}</p>
+                <div v-if="r.photo_url" class="pt-1">
+                  <a :href="r.photo_url" target="_blank" rel="noopener">
+                    <img :src="r.photo_url" alt="損耗照片"
+                      class="w-full max-h-40 object-cover rounded-lg border border-slate-200" />
+                  </a>
+                  <p class="text-center text-slate-400 mt-1">點擊查看原圖</p>
+                </div>
               </div>
             </div>
           </div>
@@ -397,6 +460,32 @@ async function submit() {
             <p class="font-bold text-sm" style="color:#dc2626">
               💰 損耗估值：−${{ fmtMoney(estimatedValue) }}
             </p>
+          </div>
+
+          <!-- Photo capture -->
+          <div>
+            <label class="block text-xs font-bold text-slate-500 uppercase mb-2">拍照存證（選填）</label>
+            <!-- No photo yet -->
+            <div v-if="!photoPreview">
+              <label class="flex items-center justify-center gap-2 w-full py-3 rounded-xl border border-dashed border-slate-300 cursor-pointer active:bg-orange-50 transition-colors"
+                style="background:#fafafa">
+                <span class="text-xl">📷</span>
+                <span class="text-sm font-medium text-slate-500">拍照 / 選取圖片</span>
+                <input ref="photoInput" type="file" accept="image/*" capture="environment"
+                  class="hidden" @change="onPhotoChange" />
+              </label>
+            </div>
+            <!-- Preview -->
+            <div v-else class="relative rounded-xl overflow-hidden"
+              style="border:1.5px solid #fed7aa">
+              <img :src="photoPreview" alt="損耗照片" class="w-full max-h-48 object-cover" />
+              <button @click="removePhoto"
+                class="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 text-white flex items-center justify-center text-sm font-bold">✕</button>
+              <div v-if="photoUploading"
+                class="absolute inset-0 bg-white/70 flex items-center justify-center">
+                <div class="animate-spin h-6 w-6 border-4 border-orange-500 border-t-transparent rounded-full"></div>
+              </div>
+            </div>
           </div>
 
           <div v-if="sheetError" class="text-rose-500 text-sm text-center">{{ sheetError }}</div>
