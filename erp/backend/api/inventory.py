@@ -185,11 +185,13 @@ class OrderPatch(BaseModel):
     status: Optional[str] = None
     note: Optional[str] = None
     ordered_at: Optional[str] = None
+    expected_delivery_date: Optional[str] = None
     items: Optional[List[OrderItemCreate]] = None
 
 @router.patch("/orders/{order_id}")
 def patch_order(order_id: int, data: OrderPatch, db: Session = Depends(get_db)):
     from erp.backend.db.models import PurchaseOrder, PurchaseOrderDetail
+    from datetime import datetime as dt
     order = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -198,9 +200,13 @@ def patch_order(order_id: int, data: OrderPatch, db: Session = Depends(get_db)):
     if data.note is not None:
         order.note = data.note
     if data.ordered_at is not None:
-        from datetime import datetime as dt
         try:
             order.created_at = dt.fromisoformat(data.ordered_at)
+        except Exception:
+            pass
+    if data.expected_delivery_date is not None:
+        try:
+            order.expected_delivery_date = dt.fromisoformat(data.expected_delivery_date)
         except Exception:
             pass
     if data.items is not None:

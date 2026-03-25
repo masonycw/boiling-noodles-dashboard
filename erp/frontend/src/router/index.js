@@ -1,12 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-// O7: 角色層級（數字越大權限越高）
-const ROLE_LEVELS = { admin: 4, manager: 3, staff: 2, cashier: 1 }
-
-function hasRole(userRole, required) {
-  return (ROLE_LEVELS[userRole] ?? 0) >= (ROLE_LEVELS[required] ?? 0)
-}
+// O7: 角色權限設計（精確 allowedRoles 陣列，不用線性層級）
+// admin / manager → 全部功能
+// staff → 庫存/盤點/耗損，無金流
+// cashier → 金流，無庫存/盤點/耗損
+const ALL_OPERATIONAL = ['admin', 'manager', 'staff']
+const ALL_FINANCE = ['admin', 'manager', 'cashier']
 
 const routes = [
   {
@@ -24,13 +24,13 @@ const routes = [
     path: '/order',
     name: 'order',
     component: () => import('@/views/InventoryView.vue'),
-    meta: { requiredRole: 'staff' }
+    meta: { allowedRoles: ALL_OPERATIONAL }
   },
   {
     path: '/finance',
     name: 'finance',
     component: () => import('@/views/FinanceView.vue'),
-    meta: { requiredRole: 'cashier' }
+    meta: { allowedRoles: ALL_FINANCE }
   },
   {
     path: '/more',
@@ -41,19 +41,19 @@ const routes = [
     path: '/waste',
     name: 'waste',
     component: () => import('@/views/WasteView.vue'),
-    meta: { requiredRole: 'staff' }
+    meta: { allowedRoles: ALL_OPERATIONAL }
   },
   {
     path: '/stocktake',
     name: 'stocktake',
     component: () => import('@/views/StocktakeView.vue'),
-    meta: { requiredRole: 'staff' }
+    meta: { allowedRoles: ALL_OPERATIONAL }
   },
   {
     path: '/history',
     name: 'history',
     component: () => import('@/views/HistoryView.vue'),
-    meta: { requiredRole: 'staff' }
+    meta: { allowedRoles: ALL_OPERATIONAL }
   }
 ]
 
@@ -75,9 +75,9 @@ router.beforeEach((to) => {
     return { name: 'home' }
   }
 
-  // O7: 角色權限守衛
-  if (to.meta.requiredRole && auth.user) {
-    if (!hasRole(auth.user.role, to.meta.requiredRole)) {
+  // O7: 角色守衛（精確 allowedRoles 陣列）
+  if (to.meta.allowedRoles && auth.user) {
+    if (!to.meta.allowedRoles.includes(auth.user.role)) {
       return { name: 'home' }
     }
   }

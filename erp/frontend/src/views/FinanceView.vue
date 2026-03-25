@@ -164,12 +164,34 @@ async function submitSheet() {
 
   sheetSubmitting.value = true
   try {
+    // 先上傳照片（若有），取得 photo_url
+    let photoUrl = null
+    if (attachmentFiles.value.length > 0) {
+      attachmentUploading.value = true
+      try {
+        const fd = new FormData()
+        fd.append('file', attachmentFiles.value[0].file)
+        const upRes = await fetch(`${API_BASE.replace('/api/v1', '')}/api/v1/uploads/image`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${auth.token}` },
+          body: fd
+        })
+        if (upRes.ok) {
+          const upData = await upRes.json()
+          const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '')
+          photoUrl = base + upData.url
+        }
+      } catch { /* 照片上傳失敗不阻斷主流程 */ }
+      attachmentUploading.value = false
+    }
+
     const payload = {
       type: sheetType.value,
       amount,
       note: sheetForm.value.description || null,
       vendor_id: sheetForm.value.vendor_id || null,
       is_paid: sheetForm.value.is_paid,
+      photo_url: photoUrl,
     }
     const res = await fetch(`${API_BASE}/finance/petty-cash`, {
       method: 'POST',
@@ -180,23 +202,10 @@ async function submitSheet() {
       const d = await res.json()
       throw new Error(d.detail || '儲存失敗')
     }
-    const newRecord = await res.json()
-
-    // A3: upload attachments if any
-    if (attachmentFiles.value.length && newRecord?.id) {
-      attachmentUploading.value = true
-      for (const { file } of attachmentFiles.value) {
-        const fd = new FormData()
-        fd.append('file', file)
-        await fetch(`${API_BASE}/finance/petty-cash/${newRecord.id}/attachments`, {
-          method: 'POST', headers: { Authorization: `Bearer ${auth.token}` }, body: fd
-        }).catch(() => {})
-      }
-      attachmentUploading.value = false
-    }
 
     showSheet.value = false
-    sheetForm.value = { amount: '', description: '', date: new Date().toISOString().slice(0, 10), vendor_id: '', is_paid: true, income_source: '', withdrawal_purpose: 'bank' }
+    const localDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    sheetForm.value = { amount: '', description: '', date: localDate(new Date()), vendor_id: '', is_paid: true, income_source: '', withdrawal_purpose: 'bank' }
     attachmentFiles.value.forEach(a => URL.revokeObjectURL(a.preview))
     attachmentFiles.value = []
     await loadAll()
@@ -204,6 +213,7 @@ async function submitSheet() {
     sheetError.value = e.message
   } finally {
     sheetSubmitting.value = false
+    attachmentUploading.value = false
   }
 }
 
@@ -218,7 +228,7 @@ async function submitSettle() {
       body: JSON.stringify({
         income_total: todayIncome.value,
         expense_total: todayExpense.value,
-        notes: null,
+        closing_balance: pettyBalance.value,
       })
     })
     if (!res.ok) {
@@ -291,6 +301,19 @@ function txSubtitle(r) {
   else parts.push('支出')
   return parts.join(' · ')
 }
+
+// 今日流水時間軸：紀錄 + 日結合併，依時間降序排列
+const todayTimeline = computed(() => {
+  const entries = [
+    ...todayRecords.value.map(r => ({
+      _kind: 'record', _time: new Date(r.created_at).getTime(), ...r
+    })),
+    ...settlements.value.map(s => ({
+      _kind: 'settlement', _time: new Date(s.settled_at || s.created_at).getTime(), ...s
+    }))
+  ]
+  return entries.sort((a, b) => b._time - a._time)
+})
 </script>
 
 <template>
@@ -357,70 +380,72 @@ function txSubtitle(r) {
         <p class="font-bold text-slate-600 mb-2" style="font-size:12px">
           今日流水 — {{ new Date().toLocaleDateString('zh-TW', { month:'numeric', day:'numeric' }) }}
         </p>
-        <!-- A3: 多次日結分隔線（非可展開，純樣式分隔） -->
-        <div v-for="(s, si) in settlements" :key="s.id || si" class="my-3">
-          <div class="flex items-center gap-2">
-            <div class="flex-1 h-px bg-orange-200"></div>
-            <div class="flex items-center gap-1.5 text-[10px] font-bold text-orange-600 bg-orange-50 border border-orange-200 rounded-full px-3 py-1 whitespace-nowrap">
-              <span>🔒</span>
-              <span>第 {{ s.settlement_number || (si+1) }} 次日結</span>
-              <span class="text-orange-400">·</span>
-              <span>{{ s.settled_at ? fmtDate(s.settled_at) : '' }}</span>
-              <span v-if="s.settled_by_name" class="text-orange-400">·</span>
-              <span v-if="s.settled_by_name">{{ s.settled_by_name }}</span>
-              <span v-if="s.closing_balance != null" class="text-orange-400">·</span>
-              <span v-if="s.closing_balance != null">NT${{ fmtMoney(s.closing_balance) }}</span>
-            </div>
-            <div class="flex-1 h-px bg-orange-200"></div>
-          </div>
-        </div>
-
-        <div v-if="todayRecords.length === 0" class="text-center py-6 text-slate-400 text-sm bg-white rounded-xl">
+        <!-- 今日時間軸：紀錄 + 日結合併，依時間降序 -->
+        <div v-if="todayTimeline.length === 0" class="text-center py-6 text-slate-400 text-sm bg-white rounded-xl">
           今日尚無紀錄
         </div>
         <div v-else class="space-y-2">
-          <div v-for="r in todayRecords" :key="r.id"
-            class="bg-white rounded-xl px-4 py-3 shadow-sm cursor-pointer active:scale-[0.98] transition-transform"
-            @click="openDetail(r)">
-            <div class="flex items-center gap-3">
-              <span style="font-size:20px">{{ txIcon(r) }}</span>
-              <div class="flex-1 min-w-0">
-                <p class="font-bold text-slate-800 truncate" style="font-size:13px">
-                  {{ r.note || r.vendor_name || '零用金紀錄' }}
-                </p>
-                <p class="text-slate-400" style="font-size:11px">{{ txSubtitle(r) }}</p>
-              </div>
-              <div class="flex flex-col items-end gap-1 shrink-0">
-                <p class="font-black" style="font-size:14px"
-                  :class="r.type === 'income' ? 'text-emerald-500' : 'text-red-500'">
-                  {{ r.type === 'income' ? '+' : '−' }}${{ fmtMoney(r.amount) }}
-                </p>
-                <span v-if="r.type === 'expense'"
-                  class="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                  :style="r.is_paid === false ? 'background:#fef9c3;color:#92400e' : 'background:#f0fdf4;color:#16a34a'">
-                  {{ r.is_paid === false ? '未付款' : '已付款' }}
-                </span>
+          <template v-for="entry in todayTimeline" :key="entry._kind + (entry.id || entry._time)">
+            <!-- 日結分隔線 -->
+            <div v-if="entry._kind === 'settlement'" class="my-1">
+              <div class="flex items-center gap-2">
+                <div class="flex-1 h-px bg-orange-200"></div>
+                <div class="flex items-center gap-1.5 text-[10px] font-bold text-orange-600 bg-orange-50 border border-orange-200 rounded-full px-3 py-1 whitespace-nowrap">
+                  <span>🔒</span>
+                  <span>第 {{ entry.settlement_number }} 次日結</span>
+                  <span class="text-orange-400">·</span>
+                  <span>{{ entry.settled_at ? fmtDate(entry.settled_at) : '' }}</span>
+                  <span v-if="entry.settled_by_name" class="text-orange-400">·</span>
+                  <span v-if="entry.settled_by_name">{{ entry.settled_by_name }}</span>
+                  <span v-if="entry.closing_balance != null" class="text-orange-400">·</span>
+                  <span v-if="entry.closing_balance != null" class="text-emerald-600">餘額 ${{ fmtMoney(entry.closing_balance) }}</span>
+                </div>
+                <div class="flex-1 h-px bg-orange-200"></div>
               </div>
             </div>
-            <!-- A3: 附件縮圖 -->
-            <div v-if="r.attachments?.length" class="mt-2 flex gap-1.5 flex-wrap" @click.stop>
-              <button v-for="(att, aidx) in r.attachments" :key="att.id"
-                @click="openLightbox(r.attachments.map(a=>a.file_url), aidx)"
-                class="w-10 h-10 rounded-lg overflow-hidden border border-slate-200 flex-shrink-0">
-                <img :src="att.file_url" class="w-full h-full object-cover" />
-              </button>
-              <span class="text-[10px] text-slate-400 self-center">📎 {{ r.attachments.length }} 張</span>
+            <!-- 一般紀錄 -->
+            <div v-else
+              class="bg-white rounded-xl px-4 py-3 shadow-sm cursor-pointer active:scale-[0.98] transition-transform"
+              @click="openDetail(entry)">
+              <div class="flex items-center gap-3">
+                <span style="font-size:20px">{{ txIcon(entry) }}</span>
+                <div class="flex-1 min-w-0">
+                  <p class="font-bold text-slate-800 truncate" style="font-size:13px">
+                    {{ entry.note || entry.vendor_name || '零用金紀錄' }}
+                  </p>
+                  <p class="text-slate-400" style="font-size:11px">{{ txSubtitle(entry) }}</p>
+                </div>
+                <div class="flex flex-col items-end gap-1 shrink-0">
+                  <p class="font-black" style="font-size:14px"
+                    :class="entry.type === 'income' ? 'text-emerald-500' : 'text-red-500'">
+                    {{ entry.type === 'income' ? '+' : '−' }}${{ fmtMoney(entry.amount) }}
+                  </p>
+                  <span v-if="entry.type === 'expense'"
+                    class="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                    :style="entry.is_paid === false ? 'background:#fef9c3;color:#92400e' : 'background:#f0fdf4;color:#16a34a'">
+                    {{ entry.is_paid === false ? '未付款' : '已付款' }}
+                  </span>
+                </div>
+              </div>
+              <!-- 附件縮圖 -->
+              <div v-if="entry.attachments?.length" class="mt-2 flex gap-1.5 flex-wrap" @click.stop>
+                <button v-for="(att, aidx) in entry.attachments" :key="att.id"
+                  @click="openLightbox(entry.attachments.map(a=>a.file_url), aidx)"
+                  class="w-10 h-10 rounded-lg overflow-hidden border border-slate-200 flex-shrink-0">
+                  <img :src="att.file_url" class="w-full h-full object-cover" />
+                </button>
+              </div>
+              <!-- 收據照片（點擊展開） -->
+              <div v-if="entry.photo_url && !entry.attachments?.length" class="mt-1.5" @click.stop>
+                <button @click="togglePhoto(entry.id)" class="flex items-center gap-1 text-[10px] text-blue-500 font-bold">
+                  📷 {{ expandedPhotos.has(entry.id) ? '收起' : '收據照片' }}
+                </button>
+                <a v-if="expandedPhotos.has(entry.id)" :href="entry.photo_url" target="_blank" rel="noopener">
+                  <img :src="entry.photo_url" class="mt-1 h-28 w-auto rounded-lg border border-slate-200 object-cover cursor-pointer" />
+                </a>
+              </div>
             </div>
-            <!-- 訂單收據照片（點擊展開） -->
-            <div v-if="r.photo_url && !r.attachments?.length" class="mt-1.5" @click.stop>
-              <button @click="togglePhoto(r.id)" class="flex items-center gap-1 text-[10px] text-blue-500 font-bold">
-                📷 {{ expandedPhotos.has(r.id) ? '收起' : '收據照片' }}
-              </button>
-              <a v-if="expandedPhotos.has(r.id)" :href="r.photo_url" target="_blank" rel="noopener">
-                <img :src="r.photo_url" class="mt-1 h-28 w-auto rounded-lg border border-slate-200 object-cover cursor-pointer" />
-              </a>
-            </div>
-          </div>
+          </template>
         </div>
       </div>
 

@@ -10,11 +10,9 @@ const route = useRoute()
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 const pendingCount = ref(0)
 
-// O7: 角色層級
-const ROLE_LEVELS = { admin: 4, manager: 3, staff: 2, cashier: 1 }
-function hasRole(userRole, required) {
-  return (ROLE_LEVELS[userRole] ?? 0) >= (ROLE_LEVELS[required] ?? 0)
-}
+// O7: 角色白名單（與 router/index.js 保持一致）
+const OPERATIONAL_ROLES = ['admin', 'manager', 'staff']
+const FINANCE_ROLES = ['admin', 'manager', 'cashier']
 
 onMounted(async () => {
   if (auth.isLoggedIn && !auth.user) {
@@ -41,16 +39,16 @@ function goTo(name) {
   router.push({ name })
 }
 
-// O7: 依角色過濾底部導覽項目
+// O7: 依角色過濾底部導覽項目（與 router allowedRoles 保持一致）
 const navItems = computed(() => {
   const role = auth.user?.role
   const all = [
-    { name: 'home',    label: '首頁', requiredRole: null },
-    { name: 'order',   label: '訂單', requiredRole: 'staff', showBadge: true },
-    { name: 'finance', label: '金流', requiredRole: 'cashier' },
-    { name: 'more',    label: '更多', requiredRole: null },
+    { name: 'home',    label: '首頁', allowedRoles: null },
+    { name: 'order',   label: '訂單', allowedRoles: OPERATIONAL_ROLES, showBadge: true },
+    { name: 'finance', label: '金流', allowedRoles: FINANCE_ROLES },
+    { name: 'more',    label: '更多', allowedRoles: null },
   ]
-  return all.filter(item => !item.requiredRole || hasRole(role, item.requiredRole))
+  return all.filter(item => !item.allowedRoles || item.allowedRoles.includes(role))
 })
 </script>
 

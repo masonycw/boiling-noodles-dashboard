@@ -162,6 +162,10 @@ const stockBorder = (item) => isLowStock(item) ? 'border-l-4 border-l-red-400' :
 // ── 待收貨 tab ────────────────────────────────
 const pendingOrders = ref([])
 const pendingLoading = ref(false)
+const showEditOrderModal = ref(false)
+const editOrderTarget = ref(null)
+const editOrderForm = ref({ expected_delivery_date: '', note: '' })
+const editOrderSubmitting = ref(false)
 const showReceiveModal = ref(false)
 const receiveTarget = ref(null)
 const receiveOrderItems = ref([])
@@ -321,7 +325,7 @@ async function saveEditSession() {
       }))
     }
     await fetch(`${API_BASE}/stocktake/${editingSessionId.value}`, {
-      method: 'PUT', headers: authHeaders(),
+      method: 'PATCH', headers: authHeaders(),
       body: JSON.stringify(patch)
     })
     await fetch(`${API_BASE}/stocktake/${editingSessionId.value}/submit`, {
@@ -373,9 +377,21 @@ async function submitPendingReceive() {
         })
         if (createRes.ok) {
           const created = await createRes.json()
-          await fetch(`${API_BASE}/stocktake/${created.id}/submit`, {
+          const submitRes = await fetch(`${API_BASE}/stocktake/${created.id}/submit`, {
             method: 'PUT', headers: authHeaders()
           })
+          // 送出後立即更新前端庫存數值
+          if (submitRes.ok) {
+            const submitted = await submitRes.json()
+            if (submitted.items) {
+              submitted.items.forEach(si => {
+                if (si.item_id && si.counted_qty != null) {
+                  const item = items.value.find(i => i.id === si.item_id)
+                  if (item) item.current_stock = si.counted_qty
+                }
+              })
+            }
+          }
         }
       }
     }
@@ -546,6 +562,38 @@ async function cancelOrder(order) {
   if (!confirm(`確認取消 ${order.vendor_name} 的訂單？`)) return
   await fetch(`${API_BASE}/inventory/orders/${order.id}`, { method: 'DELETE', headers: authHeaders() })
   await loadPending()
+}
+
+function openEditOrder(order) {
+  editOrderTarget.value = order
+  editOrderForm.value = {
+    expected_delivery_date: order.expected_delivery_date
+      ? new Date(order.expected_delivery_date).toISOString().split('T')[0]
+      : '',
+    note: order.note || ''
+  }
+  showEditOrderModal.value = true
+}
+
+async function submitEditOrder() {
+  if (!editOrderTarget.value) return
+  editOrderSubmitting.value = true
+  try {
+    const body = {}
+    if (editOrderForm.value.expected_delivery_date)
+      body.expected_delivery_date = new Date(editOrderForm.value.expected_delivery_date).toISOString()
+    if (editOrderForm.value.note !== undefined)
+      body.note = editOrderForm.value.note
+    const res = await fetch(`${API_BASE}/inventory/orders/${editOrderTarget.value.id}`, {
+      method: 'PATCH', headers: authHeaders(),
+      body: JSON.stringify(body)
+    })
+    if (res.ok) {
+      showEditOrderModal.value = false
+      await loadPending()
+    }
+  } catch (e) { console.error(e) }
+  finally { editOrderSubmitting.value = false }
 }
 
 // ── 歷史紀錄 ──────────────────────────────────
@@ -1014,9 +1062,13 @@ const payBadge = (o) => {
                 class="flex-1 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl active:bg-slate-200">
                 🗑 刪除
               </button>
+              <button @click="openEditOrder(order)"
+                class="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl active:scale-95 border border-blue-100">
+                ✎ 編輯
+              </button>
               <button @click="copyOrderLineMsg(order)"
                 class="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl active:scale-95 border border-blue-100">
-                📋 複製訊息
+                📋 訊息
               </button>
               <button @click="openReceive(order)"
                 class="flex-[2] py-2 text-white text-xs font-bold rounded-xl active:scale-95"
@@ -1027,6 +1079,38 @@ const payBadge = (o) => {
             <div v-else class="flex-1 text-center text-xs text-slate-400 py-2">
               {{ order.status === 'received' ? '✓ 已簽收' : '已取消' }}
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Edit Order Modal -->
+      <div v-if="showEditOrderModal" class="fixed inset-0 bg-black/50 z-[60] flex items-end" @click.self="showEditOrderModal=false">
+        <div class="bg-white w-full rounded-t-3xl max-h-[70vh] flex flex-col">
+          <div class="flex-shrink-0 px-5 pt-4 pb-3">
+            <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+            <div class="flex justify-between items-center">
+              <h3 class="text-base font-extrabold text-slate-800">修改訂單 — {{ editOrderTarget?.vendor_name }}</h3>
+              <button @click="showEditOrderModal=false" class="text-slate-400 text-xl font-bold">✕</button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-500 uppercase mb-1">預計到貨日</label>
+              <input v-model="editOrderForm.expected_delivery_date" type="date"
+                class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-500 uppercase mb-1">備注</label>
+              <input v-model="editOrderForm.note" type="text" placeholder="輸入備注…"
+                class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+            </div>
+          </div>
+          <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
+            <button @click="submitEditOrder" :disabled="editOrderSubmitting"
+              class="w-full text-white font-bold py-4 rounded-2xl active:scale-95 disabled:opacity-40"
+              style="background:#e85d04">
+              {{ editOrderSubmitting ? '儲存中…' : '確認修改' }}
+            </button>
           </div>
         </div>
       </div>
