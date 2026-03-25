@@ -183,6 +183,10 @@ const expandedItems = ref([])
 const historySessions = ref([])
 const historyStocktakeLoading = ref(false)
 const expandedSessions = ref(new Set())
+const stocktakeSearch = ref('')
+const editingSessionId = ref(null)
+const editingItems = ref([])
+const editingSubmitting = ref(false)
 
 const filteredHistory = computed(() => {
   if (!historySearch.value.trim()) return historyOrders.value
@@ -190,6 +194,25 @@ const filteredHistory = computed(() => {
   return historyOrders.value.filter(o =>
     (o.vendor_name || '').toLowerCase().includes(q) ||
     fmtDate(o.created_at).includes(q)
+  )
+})
+
+const filteredSessions = computed(() => {
+  if (!stocktakeSearch.value.trim()) return historySessions.value
+  const q = stocktakeSearch.value.toLowerCase()
+  return historySessions.value.filter(s =>
+    (s.group_name || '全部品項').toLowerCase().includes(q) ||
+    fmtDate(s.created_at).includes(q)
+  )
+})
+
+// 底部抽屜：只顯示目前廠商的品項（依 item_id 過濾）
+const vendorItemIds = computed(() => new Set(items.value.map(i => i.id)))
+const vendorFilteredHistory = computed(() => {
+  if (!selectedVendor.value || !stocktakeHistory.value.length) return stocktakeHistory.value
+  const ids = vendorItemIds.value
+  return stocktakeHistory.value.filter(record =>
+    !record.items?.length || record.items.some(it => ids.has(it.item_id))
   )
 })
 
@@ -262,6 +285,58 @@ function toggleHistoryExpand(id) {
   expandedHistoryId.value = expandedHistoryId.value === id ? null : id
 }
 
+function isToday(d) {
+  if (!d) return false
+  const dt = new Date(d)
+  const now = new Date()
+  return dt.getFullYear() === now.getFullYear() &&
+    dt.getMonth() === now.getMonth() &&
+    dt.getDate() === now.getDate()
+}
+
+function startEditSession(s) {
+  editingSessionId.value = s.id
+  editingItems.value = (s.items || []).map(it => ({
+    ...it,
+    edit_qty: parseFloat(it.counted_qty ?? it.actual_qty ?? 0)
+  }))
+  // 展開該 session
+  const set = new Set(expandedSessions.value)
+  set.add(s.id)
+  expandedSessions.value = set
+}
+
+function cancelEditSession() {
+  editingSessionId.value = null
+  editingItems.value = []
+}
+
+async function saveEditSession() {
+  editingSubmitting.value = true
+  try {
+    const patch = {
+      items: editingItems.value.map(it => ({
+        item_id: it.item_id,
+        counted_qty: parseFloat(it.edit_qty) || 0
+      }))
+    }
+    await fetch(`${API_BASE}/stocktake/${editingSessionId.value}`, {
+      method: 'PUT', headers: authHeaders(),
+      body: JSON.stringify(patch)
+    })
+    await fetch(`${API_BASE}/stocktake/${editingSessionId.value}/submit`, {
+      method: 'PUT', headers: authHeaders()
+    })
+    editingSessionId.value = null
+    editingItems.value = []
+    await loadHistoryStocktake()
+  } catch (e) {
+    console.error('Edit session failed:', e)
+  } finally {
+    editingSubmitting.value = false
+  }
+}
+
 // A1: 送出待收貨（替換舊的複製叫貨單）
 async function submitPendingReceive() {
   const orderItems = items.value.filter(i => i.qty > 0)
@@ -324,11 +399,23 @@ async function submitPendingReceive() {
     }
     // Reset form + 清除草稿
     const vendorId = selectedVendor.value?.id
+    const wasStocktake = modeStocktake.value
     items.value.forEach(i => { i.qty = 0; i.actual_qty = null })
     adHocItems.value = []
     if (vendorId) localStorage.removeItem(DRAFT_KEY(vendorId))
     draftsList.value = getAllDrafts()
-    setTimeout(() => { submitToast.value = ''; switchTab('pending') }, 1800)
+    setTimeout(() => {
+      submitToast.value = ''
+      if (wasStocktake) {
+        // 盤點送出後，直接跳到歷史紀錄 > 盤點歷史 tab
+        subTab.value = 'history'
+        historyTab.value = 'stocktake'
+        historySessions.value = []
+        loadHistoryStocktake()
+      } else {
+        switchTab('pending')
+      }
+    }, 1800)
   } catch (e) {
     submitToast.value = `⚠ ${e.message || '送出失敗'}`
     setTimeout(() => { submitToast.value = '' }, 3000)
@@ -794,14 +881,14 @@ const payBadge = (o) => {
         </div>
       </div>
 
-      <!-- A2: 盤點歷史底部抽屜 -->
+      <!-- A2: 盤點歷史底部抽屜（依目前廠商品項過濾） -->
       <div v-if="showStocktakeHistory" class="fixed inset-0 bg-black/50 z-[60] flex items-end" @click.self="showStocktakeHistory=false">
         <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
           <!-- Fixed header -->
           <div class="flex-shrink-0 px-5 pt-4 pb-3">
             <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
             <div class="flex items-center justify-between">
-              <h3 class="text-base font-extrabold text-slate-800">最近盤點紀錄</h3>
+              <h3 class="text-base font-extrabold text-slate-800">{{ selectedVendor?.name || '最近' }}盤點紀錄</h3>
               <button @click="showStocktakeHistory=false" class="text-slate-400 text-xl font-bold">✕</button>
             </div>
           </div>
@@ -810,9 +897,9 @@ const payBadge = (o) => {
             <div v-if="stocktakeHistoryLoading" class="flex justify-center py-10">
               <div class="animate-spin h-6 w-6 border-4 border-blue-500 border-t-transparent rounded-full"></div>
             </div>
-            <div v-else-if="!stocktakeHistory.length" class="text-center py-10 text-slate-400">無歷史盤點紀錄</div>
+            <div v-else-if="!vendorFilteredHistory.length" class="text-center py-10 text-slate-400">無相關盤點紀錄</div>
             <template v-else>
-              <div v-for="record in stocktakeHistory" :key="record.id" class="bg-slate-50 rounded-xl p-3">
+              <div v-for="record in vendorFilteredHistory" :key="record.id" class="bg-slate-50 rounded-xl p-3">
                 <div class="flex items-start justify-between">
                   <div>
                     <p class="font-bold text-slate-800 text-sm">
@@ -820,29 +907,27 @@ const payBadge = (o) => {
                     </p>
                     <div class="flex items-center gap-1 text-xs text-slate-400 mt-0.5">
                       <UserBadge :user="record.performed_by" size="sm" />
-                      · {{ record.item_count || (record.items?.length) || '?' }} 品項
+                      · {{ record.items?.filter(it => vendorItemIds.has(it.item_id)).length || record.items?.length || '?' }} 品項
                     </div>
                   </div>
-                  <div class="text-right">
-                    <span v-if="(record.diff_count || 0) > 0" class="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">
-                      差異 {{ record.diff_count }} 項
-                    </span>
-                    <span v-else class="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">完全吻合</span>
-                  </div>
+                  <span class="text-xs text-slate-400">
+                    {{ record.items?.filter(it => vendorItemIds.has(it.item_id)).length || 0 }} 項已盤
+                  </span>
                 </div>
                 <button @click="toggleHistoryExpand(record.id)"
                   class="mt-2 text-xs font-bold text-blue-500 flex items-center gap-1">
                   查看明細 {{ expandedHistoryId===record.id ? '▲' : '▼' }}
                 </button>
-                <div v-if="expandedHistoryId===record.id && record.items?.length" class="mt-2 border-t border-slate-200 pt-2 space-y-1">
-                  <div v-for="it in record.items" :key="it.item_id" class="flex items-center justify-between text-xs">
-                    <span class="text-slate-700">{{ it.item_name }}</span>
-                    <span class="text-slate-400">系統 {{ it.system_stock }} → 實盤 {{ it.actual_qty }}</span>
-                    <span :class="(it.diff||0) < 0 ? 'text-red-500 font-bold' : (it.diff||0) > 0 ? 'text-orange-500 font-bold' : 'text-emerald-600'">
-                      {{ (it.diff||0) > 0 ? '+' : '' }}{{ it.diff || 0 }}
-                      {{ (it.diff||0) === 0 ? '✅' : '⚠️' }}
-                    </span>
-                  </div>
+                <!-- 展開只顯示本廠商品項，呈現實際盤點數，不強調差異 -->
+                <div v-if="expandedHistoryId===record.id" class="mt-2 border-t border-slate-200 pt-2 space-y-1.5">
+                  <template v-for="it in (record.items || [])" :key="it.item_id">
+                    <div v-if="vendorItemIds.has(it.item_id)" class="flex items-center justify-between text-xs">
+                      <span class="text-slate-700">{{ it.item_name }}</span>
+                      <span class="font-bold text-slate-700">
+                        實盤 {{ it.counted_qty ?? it.actual_qty ?? '–' }} {{ it.unit || '' }}
+                      </span>
+                    </div>
+                  </template>
                 </div>
               </div>
             </template>
@@ -1114,25 +1199,35 @@ const payBadge = (o) => {
 
       <!-- ── 盤點歷史 ── -->
       <div v-else class="px-4 py-3">
+        <div class="mb-3">
+          <input v-model="stocktakeSearch" type="text" placeholder="🔍 搜尋群組 / 日期…"
+            class="w-full bg-slate-100 rounded-xl py-2.5 pl-4 pr-4 text-sm font-medium focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+        </div>
         <div v-if="historyStocktakeLoading" class="flex justify-center py-16">
           <div class="animate-spin h-7 w-7 border-4 border-orange-500 border-t-transparent rounded-full"></div>
         </div>
-        <div v-else-if="historySessions.length === 0" class="text-center py-16">
+        <div v-else-if="filteredSessions.length === 0" class="text-center py-16">
           <p class="text-5xl mb-3">📋</p>
-          <p class="text-slate-400 font-bold">尚無盤點紀錄</p>
+          <p class="text-slate-400 font-bold">{{ stocktakeSearch ? '查無符合紀錄' : '尚無盤點紀錄' }}</p>
         </div>
         <div v-else class="space-y-2">
-          <div v-for="s in historySessions" :key="s.id" class="bg-white rounded-2xl shadow-sm overflow-hidden">
-            <div @click="toggleSession(s.id)" class="px-4 py-3 cursor-pointer active:bg-slate-50">
+          <div v-for="s in filteredSessions" :key="s.id" class="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <div class="px-4 py-3">
               <div class="flex items-center justify-between mb-1">
-                <p class="font-extrabold text-slate-800">{{ s.group_name || '全部品項' }}</p>
-                <p class="text-xs text-slate-400">{{ fmtDate(s.created_at) }}</p>
+                <p class="font-extrabold text-slate-800 cursor-pointer" @click="toggleSession(s.id)">{{ s.group_name || '全部品項' }}</p>
+                <div class="flex items-center gap-2">
+                  <button v-if="isToday(s.created_at)" @click="startEditSession(s)"
+                    class="text-[10px] font-bold text-blue-500 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                    ✎ 修改
+                  </button>
+                  <p class="text-xs text-slate-400 cursor-pointer" @click="toggleSession(s.id)">{{ fmtDate(s.created_at) }}</p>
+                </div>
               </div>
-              <div class="flex items-center justify-between text-xs text-slate-500">
+              <div class="flex items-center justify-between text-xs text-slate-500 cursor-pointer" @click="toggleSession(s.id)">
                 <span v-if="s.performed_by">執行人：{{ s.performed_by.name || s.performed_by }}</span>
                 <span>{{ s.items?.length || 0 }} 品項</span>
               </div>
-              <div class="flex items-center justify-between mt-1">
+              <div class="flex items-center justify-between mt-1 cursor-pointer" @click="toggleSession(s.id)">
                 <span class="text-[10px] font-bold"
                   :class="(s.discrepancy_count || 0) > 0 ? 'text-red-500' : 'text-emerald-600'">
                   {{ (s.discrepancy_count || 0) > 0 ? `差異 ${s.discrepancy_count} 項` : '無差異 ✓' }}
@@ -1140,7 +1235,9 @@ const payBadge = (o) => {
                 <span class="text-slate-400 text-xs">{{ expandedSessions.has(s.id) ? '▲' : '▼' }}</span>
               </div>
             </div>
-            <div v-if="expandedSessions.has(s.id) && s.items?.length" class="border-t border-slate-100 px-4 py-3 space-y-1">
+            <!-- 展開：查看模式 -->
+            <div v-if="expandedSessions.has(s.id) && s.items?.length && editingSessionId !== s.id"
+              class="border-t border-slate-100 px-4 py-3 space-y-1">
               <div v-for="d in s.items" :key="d.item_id" class="flex items-center justify-between text-sm">
                 <span class="text-slate-700">{{ d.item_name }}</span>
                 <span class="text-xs font-bold"
@@ -1148,6 +1245,30 @@ const payBadge = (o) => {
                   系統 {{ d.expected_qty ?? '?' }} → 實盤 {{ d.counted_qty ?? '?' }}
                   <span v-if="(d.variance||0) !== 0"> ({{ d.variance > 0 ? '+' : '' }}{{ d.variance }})</span>
                 </span>
+              </div>
+            </div>
+            <!-- 編輯模式（僅限當天） -->
+            <div v-if="editingSessionId === s.id" class="border-t border-blue-100 px-4 py-3 bg-blue-50/30 space-y-2">
+              <p class="text-xs font-bold text-blue-600 mb-2">✎ 修改盤點數量</p>
+              <div v-for="it in editingItems" :key="it.item_id" class="flex items-center justify-between text-sm gap-2">
+                <span class="text-slate-700 flex-1 text-xs">{{ it.item_name }}</span>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button @click="it.edit_qty = Math.max(0, parseFloat(it.edit_qty||0) - 1)"
+                    class="w-7 h-7 bg-slate-200 rounded-lg text-sm font-bold flex items-center justify-center">−</button>
+                  <input v-model.number="it.edit_qty" type="number" min="0" step="0.1"
+                    class="w-16 text-center text-sm font-bold bg-white border border-slate-300 rounded-lg py-1 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                  <button @click="it.edit_qty = (parseFloat(it.edit_qty||0) + 1)"
+                    class="w-7 h-7 bg-slate-200 rounded-lg text-sm font-bold flex items-center justify-center">+</button>
+                </div>
+              </div>
+              <div class="flex gap-2 mt-3">
+                <button @click="cancelEditSession"
+                  class="flex-1 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl">取消</button>
+                <button @click="saveEditSession" :disabled="editingSubmitting"
+                  class="flex-1 py-2 text-white text-xs font-bold rounded-xl disabled:opacity-40"
+                  style="background:#e85d04">
+                  {{ editingSubmitting ? '儲存中…' : '確認儲存' }}
+                </button>
               </div>
             </div>
           </div>

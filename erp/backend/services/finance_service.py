@@ -74,11 +74,20 @@ def get_petty_cash_records(
     db: Session,
     days_limit: Optional[int] = None,
     type_filter: Optional[str] = None,
+    date_filter: Optional[str] = None,
     limit: int = 100
 ) -> List[dict]:
     query = db.query(PettyCashRecord).order_by(desc(PettyCashRecord.created_at))
 
-    if days_limit:
+    if date_filter:
+        # Taiwan is UTC+8; convert local date boundary to UTC for DB query
+        day_start = datetime.fromisoformat(date_filter + ' 00:00:00') - timedelta(hours=8)
+        day_end = datetime.fromisoformat(date_filter + ' 23:59:59') - timedelta(hours=8)
+        query = query.filter(
+            PettyCashRecord.created_at >= day_start,
+            PettyCashRecord.created_at <= day_end
+        )
+    elif days_limit:
         cutoff = datetime.utcnow() - timedelta(days=days_limit)
         query = query.filter(PettyCashRecord.created_at >= cutoff)
     if type_filter:

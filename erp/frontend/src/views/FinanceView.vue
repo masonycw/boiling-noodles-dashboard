@@ -49,6 +49,14 @@ const lightboxImages = ref([])
 const lightboxIndex = ref(0)
 const showLightbox = ref(false)
 
+// 收據照片展開（collapsible thumbnail）
+const expandedPhotos = ref(new Set())
+function togglePhoto(id) {
+  const s = new Set(expandedPhotos.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  expandedPhotos.value = s
+}
+
 function openLightbox(imgs, idx = 0) {
   lightboxImages.value = imgs
   lightboxIndex.value = idx
@@ -84,8 +92,12 @@ function authHeaders() {
 async function loadAll() {
   isLoading.value = true
   try {
-    const today = new Date().toISOString().slice(0, 10)
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+    // 使用本地時區日期（台灣 UTC+8），避免 UTC 日期跨天導致分類錯誤
+    const _toLocalDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    const _now = new Date()
+    const _yest = new Date(_now); _yest.setDate(_yest.getDate() - 1)
+    const today = _toLocalDate(_now)
+    const yesterday = _toLocalDate(_yest)
 
     const [balRes, todayRes, yestRes, vendRes, settleRes, canSettleRes] = await Promise.all([
       fetch(`${API_BASE}/finance/petty-cash/balance`, { headers: { Authorization: `Bearer ${auth.token}` } }),
@@ -399,10 +411,13 @@ function txSubtitle(r) {
               </button>
               <span class="text-[10px] text-slate-400 self-center">📎 {{ r.attachments.length }} 張</span>
             </div>
-            <!-- 訂單收據照片 -->
-            <div v-if="r.photo_url && !r.attachments?.length" class="mt-2" @click.stop>
-              <a :href="r.photo_url" target="_blank" rel="noopener">
-                <img :src="r.photo_url" class="h-14 w-auto rounded-lg border border-slate-200 object-cover hover:opacity-80 cursor-pointer" />
+            <!-- 訂單收據照片（點擊展開） -->
+            <div v-if="r.photo_url && !r.attachments?.length" class="mt-1.5" @click.stop>
+              <button @click="togglePhoto(r.id)" class="flex items-center gap-1 text-[10px] text-blue-500 font-bold">
+                📷 {{ expandedPhotos.has(r.id) ? '收起' : '收據照片' }}
+              </button>
+              <a v-if="expandedPhotos.has(r.id)" :href="r.photo_url" target="_blank" rel="noopener">
+                <img :src="r.photo_url" class="mt-1 h-28 w-auto rounded-lg border border-slate-200 object-cover cursor-pointer" />
               </a>
             </div>
           </div>

@@ -73,11 +73,12 @@ def get_petty_cash_balance(db: Session = Depends(get_db)):
 def list_petty_cash(
     days_limit: Optional[int] = None,
     type: Optional[str] = None,
+    date: Optional[str] = None,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
     return finance_service.get_petty_cash_records(
-        db, days_limit=days_limit, type_filter=type, limit=limit
+        db, days_limit=days_limit, type_filter=type, date_filter=date, limit=limit
     )
 
 
