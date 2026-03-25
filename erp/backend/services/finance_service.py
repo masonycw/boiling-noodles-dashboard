@@ -75,6 +75,9 @@ def get_petty_cash_records(
     days_limit: Optional[int] = None,
     type_filter: Optional[str] = None,
     date_filter: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    is_paid: Optional[bool] = None,
     limit: int = 100
 ) -> List[dict]:
     query = db.query(PettyCashRecord).order_by(desc(PettyCashRecord.created_at))
@@ -90,8 +93,16 @@ def get_petty_cash_records(
     elif days_limit:
         cutoff = datetime.utcnow() - timedelta(days=days_limit)
         query = query.filter(PettyCashRecord.created_at >= cutoff)
+    if date_from:
+        from_utc = datetime.fromisoformat(date_from + ' 00:00:00') - timedelta(hours=8)
+        query = query.filter(PettyCashRecord.created_at >= from_utc)
+    if date_to:
+        to_utc = datetime.fromisoformat(date_to + ' 23:59:59') - timedelta(hours=8)
+        query = query.filter(PettyCashRecord.created_at <= to_utc)
     if type_filter:
         query = query.filter(PettyCashRecord.type == type_filter)
+    if is_paid is not None:
+        query = query.filter(PettyCashRecord.is_paid == is_paid)
 
     records = query.limit(limit).all()
     return [_format_petty_cash(r, db) for r in records]

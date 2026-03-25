@@ -11,6 +11,19 @@ const loading = ref(true)
 const pettyType = ref('')
 const now = new Date()
 
+// ── B-11: Date range filter (default: last 14 days) ──
+function toLocalDateStr(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+const todayStr = toLocalDateStr(new Date())
+const fourteenDaysAgo = new Date()
+fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
+const dateFrom = ref(toLocalDateStr(fourteenDaysAgo))
+const dateTo = ref(todayStr)
+
 // ── Edit Petty Cash ──
 const showEditModal = ref(false)
 const editRecord = ref(null)
@@ -50,7 +63,7 @@ async function load() {
   loading.value = true
   const [balRes, pettyRes] = await Promise.all([
     fetch(`${API_BASE}/finance/petty-cash/balance`, { headers: authHeaders() }),
-    fetch(`${API_BASE}/finance/petty-cash?days_limit=60&limit=300`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/finance/petty-cash?date_from=${dateFrom.value}&date_to=${dateTo.value}&limit=300`, { headers: authHeaders() }),
   ])
   if (balRes.ok) pettyBalance.value = (await balRes.json()).balance
   if (pettyRes.ok) pettyRecords.value = await pettyRes.json()
@@ -66,6 +79,21 @@ const filteredPetty = computed(() => {
 
 const monthIncome = computed(() => pettyRecords.value.filter(r => r.type === 'income').reduce((s, r) => s + parseFloat(r.amount || 0), 0))
 const monthExpense = computed(() => pettyRecords.value.filter(r => r.type === 'expense').reduce((s, r) => s + parseFloat(r.amount || 0), 0))
+
+// ── B-16: New computed values ──
+const monthWithdrawal = computed(() =>
+  pettyRecords.value.filter(r => r.type === 'withdrawal').reduce((s, r) => s + parseFloat(r.amount || 0), 0)
+)
+const todayExpense = computed(() =>
+  pettyRecords.value
+    .filter(r => {
+      if (r.type !== 'expense') return false
+      if (r.is_paid === false) return false
+      const recDate = toLocalDateStr(new Date(r.created_at))
+      return recDate === todayStr
+    })
+    .reduce((s, r) => s + parseFloat(r.amount || 0), 0)
+)
 
 const pettyWithBalance = computed(() => {
   let running = parseFloat(pettyBalance.value) || 0
@@ -148,24 +176,30 @@ async function togglePayment(record) {
 
 <template>
   <div class="space-y-5">
-    <!-- KPI 卡片 -->
+    <!-- KPI 卡片 (B-16 new layout) -->
+    <!-- Row 1: Full-width balance card -->
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl p-6 border-l-4 border-l-emerald-500">
+      <p class="text-gray-500 text-xs uppercase tracking-wider">目前餘額</p>
+      <p class="text-4xl font-bold text-emerald-400 mt-2">NT$ {{ fmtMoney(pettyBalance) }}</p>
+    </div>
+    <!-- Row 2: 3 smaller KPI cards -->
     <div class="grid grid-cols-3 gap-4">
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl p-5 border-l-4 border-l-emerald-500">
-        <p class="text-gray-500 text-xs uppercase tracking-wider">目前餘額</p>
-        <p class="text-2xl font-bold text-emerald-400 mt-1">NT$ {{ fmtMoney(pettyBalance) }}</p>
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl p-5 border-l-4 border-l-red-400">
+        <p class="text-gray-500 text-xs uppercase tracking-wider">今日支出</p>
+        <p class="text-2xl font-bold text-red-400 mt-1">-NT$ {{ fmtMoney(todayExpense) }}</p>
       </div>
       <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl p-5 border-l-4 border-l-blue-400">
-        <p class="text-gray-500 text-xs uppercase tracking-wider">累積收入</p>
+        <p class="text-gray-500 text-xs uppercase tracking-wider">累計收入</p>
         <p class="text-2xl font-bold text-blue-400 mt-1">+NT$ {{ fmtMoney(monthIncome) }}</p>
       </div>
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl p-5 border-l-4 border-l-red-400">
-        <p class="text-gray-500 text-xs uppercase tracking-wider">累積支出</p>
-        <p class="text-2xl font-bold text-red-400 mt-1">-NT$ {{ fmtMoney(monthExpense) }}</p>
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl p-5 border-l-4 border-l-amber-400">
+        <p class="text-gray-500 text-xs uppercase tracking-wider">累計提領</p>
+        <p class="text-2xl font-bold text-amber-400 mt-1">NT$ {{ fmtMoney(monthWithdrawal) }}</p>
       </div>
     </div>
 
-    <!-- 篩選 -->
-    <div class="flex items-center gap-3">
+    <!-- 篩選 (B-11 date range filter added) -->
+    <div class="flex items-center gap-3 flex-wrap">
       <select v-model="pettyType"
         class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400">
         <option value="">全部類型</option>
@@ -173,6 +207,12 @@ async function togglePayment(record) {
         <option value="expense">支出</option>
         <option value="withdrawal">提領</option>
       </select>
+      <span class="text-gray-500 text-sm">從</span>
+      <input v-model="dateFrom" type="date" @change="load"
+        class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+      <span class="text-gray-500 text-sm">至</span>
+      <input v-model="dateTo" type="date" @change="load"
+        class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
     </div>
 
     <!-- 表格 -->

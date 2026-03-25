@@ -39,6 +39,11 @@ const showAddModal = ref(false)
 const addForm = ref({ type: 'expense', category_id: '', amount: '', description: '', transaction_date: new Date().toISOString().slice(0, 10) })
 const addSubmitting = ref(false)
 
+const showEditModal = ref(false)
+const editRecord = ref(null)
+const editForm = ref({ type: '', category_id: '', amount: '', description: '', transaction_date: '' })
+const editSubmitting = ref(false)
+
 const categorySubtotals = computed(() => {
   const map = {}
   filtered.value.filter(r => r.type === 'expense').forEach(r => {
@@ -68,6 +73,44 @@ async function submitAdd() {
   addForm.value = { type: 'expense', category_id: '', amount: '', description: '', transaction_date: new Date().toISOString().slice(0, 10) }
   showToast('紀錄已新增')
   await load()
+}
+
+function openEdit(r) {
+  editRecord.value = r
+  editForm.value = {
+    type: r.type,
+    category_id: r.category_id || '',
+    amount: r.amount,
+    description: r.description || '',
+    transaction_date: r.transaction_date ? r.transaction_date.slice(0, 10) : new Date().toISOString().slice(0, 10)
+  }
+  showEditModal.value = true
+}
+
+async function saveEdit() {
+  editSubmitting.value = true
+  await fetch(`${API_BASE}/finance/cash-flow/${editRecord.value.id}`, {
+    method: 'PUT', headers: authHeaders(),
+    body: JSON.stringify({
+      type: editForm.value.type,
+      category_id: editForm.value.category_id ? parseInt(editForm.value.category_id) : null,
+      amount: parseFloat(editForm.value.amount),
+      description: editForm.value.description,
+      transaction_date: editForm.value.transaction_date
+    })
+  })
+  editSubmitting.value = false
+  showEditModal.value = false
+  showToast('已更新')
+  await load()
+}
+
+async function deleteRecord_fn(r) {
+  if (!confirm(`確認刪除 NT$${r.amount} 的${r.type === 'income' ? '收入' : '支出'}紀錄？`)) return
+  const res = await fetch(`${API_BASE}/finance/cash-flow/${r.id}`, {
+    method: 'DELETE', headers: authHeaders()
+  })
+  if (res.ok) { showToast('已刪除'); await load() }
 }
 
 async function load() {
@@ -175,6 +218,7 @@ async function updateCategory(record, catId) {
             <th class="px-5 py-3 text-left">說明</th>
             <th class="px-5 py-3 text-right">金額</th>
             <th class="px-5 py-3 text-center">來源</th>
+            <th class="px-5 py-3 text-center">操作</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-[#2d3748]">
@@ -206,9 +250,13 @@ async function updateCategory(record, catId) {
                 {{ cfSourceInfo(r).label }}
               </span>
             </td>
+            <td class="px-5 py-2.5 text-center" @click.stop>
+              <button @click="openEdit(r)" class="text-xs px-2 py-1 rounded bg-[#2d3748] text-blue-400 hover:bg-[#3d4f63] mr-1">編輯</button>
+              <button @click="deleteRecord_fn(r)" class="text-xs px-2 py-1 rounded bg-[#2d3748] text-red-400 hover:bg-red-900/30">刪除</button>
+            </td>
           </tr>
           <tr v-if="filtered.length === 0">
-            <td colspan="6" class="px-5 py-10 text-center text-gray-600">無金流紀錄</td>
+            <td colspan="7" class="px-5 py-10 text-center text-gray-600">無金流紀錄</td>
           </tr>
         </tbody>
       </table>
@@ -252,6 +300,49 @@ async function updateCategory(record, catId) {
           <button @click="showAddModal = false" class="flex-1 py-2 bg-[#2d3748] text-gray-300 rounded-lg text-sm font-bold hover:bg-[#374151]">取消</button>
           <button @click="submitAdd" :disabled="addSubmitting" class="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold disabled:opacity-50">
             {{ addSubmitting ? '儲存中…' : '儲存' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div v-if="showEditModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl w-full max-w-md p-6 space-y-4">
+        <div class="flex justify-between items-center">
+          <h3 class="text-lg font-bold text-gray-100">編輯金流紀錄</h3>
+          <button @click="showEditModal = false" class="text-gray-500 hover:text-white text-xl">✕</button>
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">類型</label>
+          <select v-model="editForm.type" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+            <option value="expense">支出</option>
+            <option value="income">收入</option>
+            <option value="withdrawal">提領</option>
+          </select>
+        </div>
+        <div v-if="editForm.type === 'expense'">
+          <label class="text-xs text-gray-500 block mb-1">科目</label>
+          <select v-model="editForm.category_id" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+            <option value="">-- 選擇科目 --</option>
+            <option v-for="c in categories.filter(c => c.type === 'expense')" :key="c.id" :value="c.id">{{ c.name }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">金額</label>
+          <input v-model="editForm.amount" type="number" min="0" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" placeholder="0" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">說明</label>
+          <input v-model="editForm.description" type="text" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" placeholder="說明用途…" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 block mb-1">日期</label>
+          <input v-model="editForm.transaction_date" type="date" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button @click="showEditModal = false" class="flex-1 py-2 bg-[#2d3748] text-gray-300 rounded-lg text-sm font-bold hover:bg-[#374151]">取消</button>
+          <button @click="saveEdit" :disabled="editSubmitting" class="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold disabled:opacity-50">
+            {{ editSubmitting ? '儲存中…' : '儲存' }}
           </button>
         </div>
       </div>

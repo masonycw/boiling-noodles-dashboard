@@ -74,11 +74,15 @@ def list_petty_cash(
     days_limit: Optional[int] = None,
     type: Optional[str] = None,
     date: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    is_paid: Optional[bool] = None,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
     return finance_service.get_petty_cash_records(
-        db, days_limit=days_limit, type_filter=type, date_filter=date, limit=limit
+        db, days_limit=days_limit, type_filter=type, date_filter=date,
+        date_from=date_from, date_to=date_to, is_paid=is_paid, limit=limit
     )
 
 
@@ -239,6 +243,48 @@ def update_cash_flow_category(
 @router.get("/cash-flow/summary/{year}/{month}")
 def get_monthly_summary(year: int, month: int, db: Session = Depends(get_db)):
     return finance_service.get_cash_flow_monthly_summary(db, year, month)
+
+
+class CashFlowUpdate(BaseModel):
+    amount: Optional[float] = None
+    type: Optional[str] = None
+    category_id: Optional[int] = None
+    description: Optional[str] = None
+    transaction_date: Optional[str] = None
+
+@router.put("/cash-flow/{record_id}")
+def update_cash_flow(record_id: int, data: CashFlowUpdate, db: Session = Depends(get_db)):
+    from erp.backend.db.models import CashFlowRecord
+    record = db.query(CashFlowRecord).filter(CashFlowRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    if data.amount is not None:
+        record.amount = data.amount
+    if data.type is not None:
+        record.type = data.type
+    if data.category_id is not None:
+        record.category_id = data.category_id
+        record.is_categorized = True
+    if data.description is not None:
+        record.description = data.description
+    if data.transaction_date is not None:
+        try:
+            record.transaction_date = datetime.fromisoformat(data.transaction_date)
+        except Exception:
+            pass
+    db.commit()
+    db.refresh(record)
+    return finance_service._format_cash_flow(record, db)
+
+@router.delete("/cash-flow/{record_id}")
+def delete_cash_flow(record_id: int, db: Session = Depends(get_db)):
+    from erp.backend.db.models import CashFlowRecord
+    record = db.query(CashFlowRecord).filter(CashFlowRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    db.delete(record)
+    db.commit()
+    return {"success": True}
 
 
 # ─────────────────────────────────────────────

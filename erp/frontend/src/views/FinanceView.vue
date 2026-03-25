@@ -154,7 +154,10 @@ async function loadAll() {
   }
 }
 
-onMounted(loadAll)
+onMounted(async () => {
+  await loadAll()
+  await loadPendingPayments()
+})
 
 // ---- Submit transaction ----
 async function submitSheet() {
@@ -314,6 +317,64 @@ const todayTimeline = computed(() => {
   ]
   return entries.sort((a, b) => b._time - a._time)
 })
+
+// ---- F-10: 代收款 tab ----
+const activeTab = ref('ledger')  // 'ledger' | 'pending'
+
+const pendingPayments = ref([])
+const pendingLoading = ref(false)
+const selectedPendingIds = ref(new Set())
+const payingIds = ref(new Set())
+const pendingPayPhotoInput = ref(null)
+const pendingPayPhotoFile = ref(null)
+const pendingPayPhotoPreview = ref('')
+
+async function loadPendingPayments() {
+  pendingLoading.value = true
+  try {
+    const res = await fetch(`${API_BASE}/finance/petty-cash?type=expense&is_paid=false&limit=200`, {
+      headers: { Authorization: `Bearer ${auth.token}` }
+    })
+    if (res.ok) pendingPayments.value = await res.json()
+  } finally {
+    pendingLoading.value = false
+  }
+}
+
+function togglePendingSelect(id) {
+  const s = new Set(selectedPendingIds.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  selectedPendingIds.value = s
+}
+
+function toggleSelectAllPending() {
+  if (selectedPendingIds.value.size === pendingPayments.value.length) {
+    selectedPendingIds.value = new Set()
+  } else {
+    selectedPendingIds.value = new Set(pendingPayments.value.map(p => p.id))
+  }
+}
+
+const selectedPendingTotal = computed(() =>
+  pendingPayments.value
+    .filter(p => selectedPendingIds.value.has(p.id))
+    .reduce((s, p) => s + parseFloat(p.amount || 0), 0)
+)
+
+async function paySelected() {
+  const ids = [...selectedPendingIds.value]
+  if (!ids.length) return
+  for (const id of ids) {
+    const s = new Set(payingIds.value); s.add(id); payingIds.value = s
+    await fetch(`${API_BASE}/finance/petty-cash/${id}/toggle-payment`, {
+      method: 'PATCH', headers: { Authorization: `Bearer ${auth.token}` }
+    })
+    const s2 = new Set(payingIds.value); s2.delete(id); payingIds.value = s2
+  }
+  selectedPendingIds.value = new Set()
+  await loadPendingPayments()
+  await loadAll()  // refresh balance
+}
 </script>
 
 <template>
@@ -326,6 +387,23 @@ const todayTimeline = computed(() => {
         {{ new Date().toLocaleDateString('zh-TW', { year:'numeric', month:'numeric', day:'numeric' }) }} · 現場紀錄
       </p>
     </div>
+
+    <!-- Tab bar -->
+    <div class="bg-white border-b border-slate-200 flex">
+      <button @click="activeTab = 'ledger'"
+        class="flex-1 py-3 text-sm font-bold border-b-2 transition-all"
+        :class="activeTab === 'ledger' ? 'text-orange-500 border-orange-500' : 'text-slate-400 border-transparent'">
+        流水帳
+      </button>
+      <button @click="activeTab = 'pending'; loadPendingPayments()"
+        class="flex-1 py-3 text-sm font-bold border-b-2 transition-all relative"
+        :class="activeTab === 'pending' ? 'text-orange-500 border-orange-500' : 'text-slate-400 border-transparent'">
+        代收款
+        <span v-if="pendingPayments.length" class="ml-1 inline-flex items-center justify-center w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full">{{ pendingPayments.length }}</span>
+      </button>
+    </div>
+
+    <div v-if="activeTab === 'ledger'">
 
     <div v-if="isLoading" class="flex justify-center py-16">
       <svg class="animate-spin h-8 w-8 text-orange-400" fill="none" viewBox="0 0 24 24">
@@ -501,6 +579,65 @@ const todayTimeline = computed(() => {
       <p class="text-center text-slate-400 mt-6 px-4" style="font-size:11px">
         近 2 天零用金紀錄 · 完整歷史請至後台「零用金管理」查詢
       </p>
+    </div>
+
+    </div><!-- end activeTab === 'ledger' -->
+
+    <!-- F-10: 代收款 tab -->
+    <div v-else-if="activeTab === 'pending'" class="pb-32">
+      <div v-if="pendingLoading" class="flex justify-center py-16">
+        <svg class="animate-spin h-8 w-8 text-orange-400" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+        </svg>
+      </div>
+      <div v-else-if="!pendingPayments.length" class="text-center py-16">
+        <p class="text-5xl mb-3">✅</p>
+        <p class="text-slate-400 font-bold text-sm">目前無待付款紀錄</p>
+      </div>
+      <div v-else class="px-4 mt-4 space-y-2">
+        <!-- Select all row -->
+        <div class="flex items-center justify-between py-2">
+          <label class="flex items-center gap-2 text-sm font-bold text-slate-600">
+            <input type="checkbox" :checked="selectedPendingIds.size === pendingPayments.length" @change="toggleSelectAllPending" class="w-4 h-4 accent-orange-500" />
+            全選 ({{ pendingPayments.length }} 筆)
+          </label>
+          <span v-if="selectedPendingIds.size > 0" class="text-xs font-bold text-orange-600">
+            已選 ${{ fmtMoney(selectedPendingTotal) }}
+          </span>
+        </div>
+        <!-- Payment cards -->
+        <div v-for="p in pendingPayments" :key="p.id"
+          class="bg-white rounded-xl shadow-sm p-4 flex items-center gap-3"
+          :class="selectedPendingIds.has(p.id) ? 'ring-2 ring-orange-400' : ''"
+          @click="togglePendingSelect(p.id)">
+          <input type="checkbox" :checked="selectedPendingIds.has(p.id)" @click.stop @change="togglePendingSelect(p.id)"
+            class="w-5 h-5 accent-orange-500 shrink-0" />
+          <span class="text-2xl">📦</span>
+          <div class="flex-1 min-w-0">
+            <p class="font-bold text-slate-800 text-sm truncate">{{ p.vendor_name || p.note || '未知廠商' }}</p>
+            <p class="text-xs text-slate-400 mt-0.5">{{ fmtDate(p.created_at) }}</p>
+          </div>
+          <p class="font-black text-red-500 shrink-0">−${{ fmtMoney(p.amount) }}</p>
+        </div>
+      </div>
+
+      <!-- Bottom pay bar -->
+      <div v-if="selectedPendingIds.size > 0"
+        class="fixed inset-x-0 bg-white border-t border-slate-200 px-4 py-3 shadow-lg z-20"
+        style="bottom: calc(4rem + max(16px, env(safe-area-inset-bottom))); will-change: transform;">
+        <div class="flex items-center gap-3">
+          <div class="flex-1">
+            <p class="text-xs text-slate-400">已選 {{ selectedPendingIds.size }} 筆</p>
+            <p class="text-lg font-black text-slate-800">${{ fmtMoney(selectedPendingTotal) }}</p>
+          </div>
+          <button @click="paySelected"
+            class="flex-[2] text-white font-bold py-3 rounded-2xl shadow active:scale-95"
+            style="background:#e85d04">
+            💵 確認付款
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- FAB -->
