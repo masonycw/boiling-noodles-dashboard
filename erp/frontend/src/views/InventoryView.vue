@@ -1079,50 +1079,50 @@ const payBadge = (o) => {
           </div>
           <!-- 訂單卡片 -->
           <div v-else class="bg-white rounded-xl shadow-sm p-4" :class="item._type === 'future' ? 'opacity-75' : ''">
-          <div class="flex items-start gap-3">
-            <span class="text-2xl mt-0.5">🚚</span>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 flex-wrap">
-                <p class="font-extrabold text-slate-800 text-sm">{{ order.vendor_name }}</p>
-                <span v-if="orderDateBadge(order)"
-                  class="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                  :class="orderDateBadge(order).cls">
-                  {{ orderDateBadge(order).label }}
-                </span>
+            <div class="flex items-start gap-3">
+              <span class="text-2xl mt-0.5">🚚</span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <p class="font-extrabold text-slate-800 text-sm">{{ item.vendor_name }}</p>
+                  <span v-if="orderDateBadge(item)"
+                    class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                    :class="orderDateBadge(item).cls">
+                    {{ orderDateBadge(item).label }}
+                  </span>
+                </div>
+                <p class="text-xs text-slate-400 mt-0.5">
+                  預計 {{ item.expected_delivery_date ? fmtDate(item.expected_delivery_date) : '待定' }}
+                  · {{ item.total_items || '?' }} 項品項
+                  <span v-if="item.total_amount"> · ${{ fmtMoney(item.total_amount) }}</span>
+                </p>
+                <UserBadge v-if="item.created_by" :user="item.created_by" size="sm" class="mt-0.5" />
               </div>
-              <p class="text-xs text-slate-400 mt-0.5">
-                預計 {{ order.expected_delivery_date ? fmtDate(order.expected_delivery_date) : '待定' }}
-                · {{ order.total_items || '?' }} 項品項
-                <span v-if="order.total_amount"> · ${{ fmtMoney(order.total_amount) }}</span>
-              </p>
-              <UserBadge v-if="order.created_by" :user="order.created_by" size="sm" class="mt-0.5" />
             </div>
-          </div>
-          <!-- Actions row（已收貨不顯示編輯/刪除按鈕） -->
-          <div class="flex gap-2 mt-3 pt-3 border-t border-slate-100">
-            <template v-if="order.status !== 'received' && order.status !== 'cancelled'">
-              <button @click="cancelOrder(order)"
-                class="flex-1 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl active:bg-slate-200">
-                🗑 刪除
-              </button>
-              <button @click="openEditOrder(order)"
-                class="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl active:scale-95 border border-blue-100">
-                ✎ 編輯
-              </button>
-              <button @click="copyOrderLineMsg(order)"
-                class="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl active:scale-95 border border-blue-100">
-                📋 訊息
-              </button>
-              <button @click="openReceive(order)"
-                class="flex-[2] py-2 text-white text-xs font-bold rounded-xl active:scale-95"
-                style="background:#e85d04">
-                ✅ 簽收
-              </button>
-            </template>
-            <div v-else class="flex-1 text-center text-xs text-slate-400 py-2">
-              {{ order.status === 'received' ? '✓ 已簽收' : '已取消' }}
+            <!-- Actions row（已收貨不顯示編輯/刪除按鈕） -->
+            <div class="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+              <template v-if="item.status !== 'received' && item.status !== 'cancelled'">
+                <button @click="cancelOrder(item)"
+                  class="flex-1 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl active:bg-slate-200">
+                  🗑 刪除
+                </button>
+                <button @click="openEditOrder(item)"
+                  class="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl active:scale-95 border border-blue-100">
+                  ✎ 編輯
+                </button>
+                <button @click="copyOrderLineMsg(item)"
+                  class="flex-1 py-2 bg-blue-50 text-blue-600 text-xs font-bold rounded-xl active:scale-95 border border-blue-100">
+                  📋 訊息
+                </button>
+                <button @click="openReceive(item)"
+                  class="flex-[2] py-2 text-white text-xs font-bold rounded-xl active:scale-95"
+                  style="background:#e85d04">
+                  ✅ 簽收
+                </button>
+              </template>
+              <div v-else class="flex-1 text-center text-xs text-slate-400 py-2">
+                {{ item.status === 'received' ? '✓ 已簽收' : '已取消' }}
+              </div>
             </div>
-          </div>
           </div>
         </template>
       </div>
