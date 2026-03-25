@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from erp.backend.db.session import get_db
 from erp.backend.services import finance_service
 from erp.backend.db.models import DailySettlement, PettyCashRecord, User
-from erp.backend.core.security import get_current_user
+from erp.backend.api.auth import get_current_user
 from sqlalchemy import extract, desc
 from datetime import date, datetime
 
