@@ -257,7 +257,7 @@ def _fmt_settlement(s: DailySettlement, db: Session) -> dict:
 @router.get("/daily-settlement/can-settle")
 def can_settle(db: Session = Depends(get_db)):
     """O3: 判斷今日是否可再次日結（有新紀錄才允許）"""
-    from erp.backend.db.models import CashFlowRecord
+    from erp.backend.db.models import PettyCashRecord
     today = date.today().isoformat()
 
     last = db.query(DailySettlement).filter(
@@ -265,16 +265,16 @@ def can_settle(db: Session = Depends(get_db)):
     ).order_by(desc(DailySettlement.created_at)).first()
 
     if not last:
-        # 今天未曾日結，檢查今天有無任何記錄
+        # 今天未曾日結，只要今天有任何零用金紀錄即可日結
         today_start = datetime.combine(date.today(), datetime.min.time())
-        has_records = db.query(CashFlowRecord).filter(
-            CashFlowRecord.created_at >= today_start
+        has_records = db.query(PettyCashRecord).filter(
+            PettyCashRecord.created_at >= today_start
         ).first() is not None
         return {"can_settle": has_records, "reason": "no_settlement_today"}
 
-    # 有日結記錄，檢查日結後是否有新的金流紀錄
-    new_records = db.query(CashFlowRecord).filter(
-        CashFlowRecord.created_at > last.created_at
+    # 有日結記錄，檢查日結後是否有新的零用金紀錄
+    new_records = db.query(PettyCashRecord).filter(
+        PettyCashRecord.created_at > last.created_at
     ).first()
     return {
         "can_settle": new_records is not None,

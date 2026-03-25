@@ -378,10 +378,17 @@ function txSubtitle(r) {
                 </p>
                 <p class="text-slate-400" style="font-size:11px">{{ txSubtitle(r) }}</p>
               </div>
-              <p class="font-black shrink-0" style="font-size:14px"
-                :class="r.type === 'income' ? 'text-emerald-500' : 'text-red-500'">
-                {{ r.type === 'income' ? '+' : '−' }}${{ fmtMoney(r.amount) }}
-              </p>
+              <div class="flex flex-col items-end gap-1 shrink-0">
+                <p class="font-black" style="font-size:14px"
+                  :class="r.type === 'income' ? 'text-emerald-500' : 'text-red-500'">
+                  {{ r.type === 'income' ? '+' : '−' }}${{ fmtMoney(r.amount) }}
+                </p>
+                <span v-if="r.type === 'expense'"
+                  class="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                  :style="r.is_paid === false ? 'background:#fef9c3;color:#92400e' : 'background:#f0fdf4;color:#16a34a'">
+                  {{ r.is_paid === false ? '未付款' : '已付款' }}
+                </span>
+              </div>
             </div>
             <!-- A3: 附件縮圖 -->
             <div v-if="r.attachments?.length" class="mt-2 flex gap-1.5 flex-wrap" @click.stop>

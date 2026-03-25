@@ -258,15 +258,22 @@ def mark_payable_paid(db: Session, payable_id: int, user_id: int) -> dict:
 # ─────────────────────────────────────────────
 
 def _format_petty_cash(record: PettyCashRecord, db: Session) -> dict:
-    from erp.backend.db.models import Vendor
+    from erp.backend.db.models import Vendor, User
     vendor_name = None
     if record.vendor_id:
         v = db.query(Vendor).filter(Vendor.id == record.vendor_id).first()
         vendor_name = v.name if v else None
 
+    recorded_by_name = None
+    if record.user_id:
+        u = db.query(User).filter(User.id == record.user_id).first()
+        if u:
+            recorded_by_name = u.full_name or u.username
+
     return {
         "id": record.id,
         "user_id": record.user_id,
+        "recorded_by_name": recorded_by_name,
         "type": record.type.value if record.type else None,
         "amount": float(record.amount),
         "note": record.note,

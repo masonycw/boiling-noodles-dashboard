@@ -525,14 +525,6 @@ const payBadge = (o) => {
     <!-- ═══ 叫貨 Tab ═══ -->
     <div v-if="subTab==='order'" class="flex-1 pb-32">
 
-      <!-- 草稿恢復 banner (P3-3) -->
-      <div v-if="draftBanner" class="mx-3 mt-3 rounded-xl px-3 py-2.5 bg-amber-50 border border-amber-200">
-        <p class="text-xs font-bold text-amber-800">📌 發現未完成的叫貨草稿（{{ draftBanner.vendorName }}）</p>
-        <div class="flex gap-2 mt-1.5">
-          <button @click="resumeDraft(draftBanner)" class="flex-1 bg-orange-500 text-white text-xs font-bold py-1.5 rounded-lg">繼續編輯</button>
-          <button @click="discardDraft(draftBanner)" class="flex-1 bg-slate-200 text-slate-600 text-xs font-bold py-1.5 rounded-lg">丟棄草稿</button>
-        </div>
-      </div>
 
       <!-- Control bar -->
       <div class="bg-white border-b border-slate-100 px-3 py-3 space-y-3">
@@ -1018,7 +1010,7 @@ const payBadge = (o) => {
             <div @click="toggleExpand(order.id)" class="px-4 py-3 cursor-pointer active:bg-slate-50">
               <div class="flex items-center justify-between mb-1">
                 <p class="font-extrabold text-slate-800">{{ order.vendor_name }}</p>
-                <p class="text-xs text-slate-400">{{ fmtDate(order.created_at) }}</p>
+                <p class="text-xs text-slate-400">{{ fmtDate(order.updated_at || order.created_at) }}</p>
               </div>
               <div class="flex items-center justify-between text-xs text-slate-500">
                 <span>

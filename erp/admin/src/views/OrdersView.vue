@@ -45,6 +45,13 @@ function authHeaders() {
   return { Authorization: `Bearer ${auth.token}` }
 }
 
+function resolveUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http')) return url
+  const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '')
+  return base + url
+}
+
 async function load() {
   loading.value = true
   const [ordRes, vendRes, itemsRes] = await Promise.all([
@@ -331,8 +338,8 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
                   <p v-if="o.note" class="text-gray-500 text-xs mt-3">備註：{{ o.note }}</p>
                   <div v-if="o.receipt_url" class="mt-3">
                     <p class="text-gray-500 text-xs mb-1">收據憑證</p>
-                    <a :href="o.receipt_url" target="_blank">
-                      <img :src="o.receipt_url" class="max-h-40 object-cover rounded-lg hover:opacity-80 cursor-pointer" />
+                    <a :href="resolveUrl(o.receipt_url)" target="_blank" rel="noopener">
+                      <img :src="resolveUrl(o.receipt_url)" class="max-h-40 object-cover rounded-lg hover:opacity-80 cursor-pointer" />
                     </a>
                   </div>
                 </td>

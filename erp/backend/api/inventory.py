@@ -119,6 +119,7 @@ def list_orders(days_limit: int = None, status: str = None, limit: int = 500, db
             "vendor_id": order.vendor_id,
             "vendor_name": vendor.name if vendor else "Unknown",
             "created_at": order.created_at,
+            "updated_at": order.updated_at,
             "status": order.status,
             "total_items": order.total_items,
             "expected_delivery_date": order.expected_delivery_date,

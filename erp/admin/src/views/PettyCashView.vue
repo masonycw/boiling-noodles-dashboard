@@ -23,6 +23,20 @@ const showDeleteModal = ref(false)
 const deleteRecord = ref(null)
 const deleteSubmitting = ref(false)
 
+// ── Expandable rows ──
+const expandedId = ref(null)
+function toggleExpand(id) {
+  expandedId.value = expandedId.value === id ? null : id
+}
+
+// ── Photo URL helper ──
+function resolveUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http')) return url
+  const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '')
+  return base + url
+}
+
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
 }
@@ -177,51 +191,78 @@ async function togglePayment(record) {
           </tr>
         </thead>
         <tbody class="divide-y divide-[#2d3748]">
-          <tr v-for="r in pettyWithBalance" :key="r.id" class="hover:bg-[#1f2937]">
-            <td class="px-5 py-2.5 text-gray-500 text-xs">{{ fmtDateTime(r.created_at) }}</td>
-            <td class="px-5 py-2.5 text-center">
-              <span class="text-xs font-bold px-2 py-0.5 rounded"
-                :class="r.type === 'income' ? 'bg-blue-900/50 text-blue-400'
-                  : r.type === 'withdrawal' ? 'bg-amber-900/30 text-amber-400'
-                  : 'bg-emerald-900/30 text-emerald-400'">
-                {{ r.type === 'income' ? '收入' : r.type === 'withdrawal' ? '提領' : '支出' }}
-              </span>
-            </td>
-            <td class="px-5 py-2.5 text-gray-400 text-xs">
-              <div class="flex items-center gap-2">
-                <span>{{ r.note || r.vendor_name || '—' }}</span>
-                <a v-if="r.photo_url" :href="r.photo_url" target="_blank" class="flex-shrink-0">
-                  <img :src="r.photo_url" class="h-8 w-8 object-cover rounded cursor-pointer hover:opacity-80" />
-                </a>
-              </div>
-            </td>
-            <td class="px-5 py-2.5 text-right font-mono"
-              :class="r.type === 'income' ? 'text-blue-400' : 'text-red-400'">
-              {{ r.type === 'income' ? '+' : '-' }}NT$ {{ fmtMoney(r.amount) }}
-            </td>
-            <td class="px-5 py-2.5 text-right font-mono text-gray-200">NT$ {{ fmtMoney(r.running_balance) }}</td>
-            <td class="px-5 py-2.5 text-center">
-              <div class="flex items-center justify-center gap-1.5">
+          <template v-for="r in pettyWithBalance" :key="r.id">
+            <tr class="hover:bg-[#1f2937] cursor-pointer" @click="toggleExpand(r.id)">
+              <td class="px-5 py-2.5 text-gray-500 text-xs">{{ fmtDateTime(r.created_at) }}</td>
+              <td class="px-5 py-2.5 text-center">
+                <span class="text-xs font-bold px-2 py-0.5 rounded"
+                  :class="r.type === 'income' ? 'bg-blue-900/50 text-blue-400'
+                    : r.type === 'withdrawal' ? 'bg-amber-900/30 text-amber-400'
+                    : 'bg-emerald-900/30 text-emerald-400'">
+                  {{ r.type === 'income' ? '收入' : r.type === 'withdrawal' ? '提領' : '支出' }}
+                </span>
+              </td>
+              <td class="px-5 py-2.5 text-gray-400 text-xs">
+                {{ r.note || r.vendor_name || '—' }}
+              </td>
+              <td class="px-5 py-2.5 text-right font-mono"
+                :class="r.type === 'income' ? 'text-blue-400' : 'text-red-400'">
+                {{ r.type === 'income' ? '+' : '-' }}NT$ {{ fmtMoney(r.amount) }}
+              </td>
+              <td class="px-5 py-2.5 text-right font-mono text-gray-200">NT$ {{ fmtMoney(r.running_balance) }}</td>
+              <td class="px-5 py-2.5 text-center">
                 <span class="text-xs font-bold px-2 py-0.5 rounded"
                   :class="r.is_paid === false ? 'bg-orange-900/40 text-orange-400' : 'bg-emerald-900/40 text-emerald-400'">
                   {{ r.is_paid === false ? '待付' : '已付' }}
                 </span>
-                <button @click="togglePayment(r)"
-                  class="text-xs px-1.5 py-0.5 rounded bg-[#2d3748] text-gray-400 hover:bg-[#3d4f63]"
-                  title="切換付款狀態">⇄</button>
-              </div>
-            </td>
-            <td class="px-5 py-2.5 text-center">
-              <button @click="openEditPetty(r)"
-                class="text-xs px-2 py-1 rounded bg-[#2d3748] text-[#63b3ed] hover:bg-[#3d4f63] mr-1">
-                編輯
-              </button>
-              <button @click="openDeletePetty(r)"
-                class="text-xs px-2 py-1 rounded bg-[#2d3748] text-red-400 hover:bg-red-900/30">
-                刪除
-              </button>
-            </td>
-          </tr>
+              </td>
+              <td class="px-5 py-2.5 text-center" @click.stop>
+                <button @click="openEditPetty(r)"
+                  class="text-xs px-2 py-1 rounded bg-[#2d3748] text-[#63b3ed] hover:bg-[#3d4f63] mr-1">
+                  編輯
+                </button>
+                <button @click="openDeletePetty(r)"
+                  class="text-xs px-2 py-1 rounded bg-[#2d3748] text-red-400 hover:bg-red-900/30">
+                  刪除
+                </button>
+              </td>
+            </tr>
+            <!-- 展開詳情 -->
+            <tr v-if="expandedId === r.id" class="bg-[#0f1117] border-b border-[#2d3748]">
+              <td colspan="7" class="px-6 py-4">
+                <div class="flex flex-wrap gap-6 text-xs">
+                  <div v-if="r.vendor_name" class="space-y-0.5">
+                    <p class="text-gray-500">廠商</p>
+                    <p class="text-gray-200 font-semibold">{{ r.vendor_name }}</p>
+                  </div>
+                  <div v-if="r.recorded_by_name" class="space-y-0.5">
+                    <p class="text-gray-500">紀錄人</p>
+                    <p class="text-gray-200 font-semibold">{{ r.recorded_by_name }}</p>
+                  </div>
+                  <div v-if="r.order_id" class="space-y-0.5">
+                    <p class="text-gray-500">關聯訂單</p>
+                    <p class="text-gray-200 font-semibold">#{{ r.order_id }}</p>
+                  </div>
+                  <div class="space-y-0.5">
+                    <p class="text-gray-500">付款狀態</p>
+                    <p class="font-semibold" :class="r.is_paid === false ? 'text-orange-400' : 'text-emerald-400'">
+                      {{ r.is_paid === false ? '待付款' : '已付款' }}
+                    </p>
+                  </div>
+                </div>
+                <div v-if="r.note" class="mt-3 text-xs text-gray-400">
+                  <span class="text-gray-500">說明：</span>{{ r.note }}
+                </div>
+                <div v-if="r.photo_url" class="mt-3">
+                  <p class="text-gray-500 text-xs mb-1.5">附件憑證</p>
+                  <a :href="resolveUrl(r.photo_url)" target="_blank" rel="noopener">
+                    <img :src="resolveUrl(r.photo_url)"
+                      class="max-h-48 object-cover rounded-lg hover:opacity-80 cursor-pointer border border-[#2d3748]" />
+                  </a>
+                </div>
+              </td>
+            </tr>
+          </template>
           <tr v-if="pettyWithBalance.length === 0">
             <td colspan="7" class="px-5 py-10 text-center text-gray-600">無零用金紀錄</td>
           </tr>
