@@ -138,6 +138,15 @@ def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float,
         }
         create_transaction(db, user_id, tx_in)
 
+    # 收貨後更新各品項庫存
+    details = db.query(PurchaseOrderDetail).filter(PurchaseOrderDetail.order_id == order_id).all()
+    for detail in details:
+        if detail.item_id:
+            item = db.query(Item).filter(Item.id == detail.item_id).first()
+            if item:
+                qty_received = float(detail.actual_qty or detail.qty or 0)
+                item.current_stock = float(item.current_stock or 0) + qty_received
+
     db.commit()
     db.refresh(db_po)
     return db_po

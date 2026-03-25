@@ -103,7 +103,7 @@ async function loadAll() {
       todayIncome.value = todayRecords.value
         .filter(r => r.type === 'income').reduce((s, r) => s + parseFloat(r.amount || 0), 0)
       todayExpense.value = todayRecords.value
-        .filter(r => r.type !== 'income').reduce((s, r) => s + parseFloat(r.amount || 0), 0)
+        .filter(r => r.type !== 'income' && r.is_paid !== false).reduce((s, r) => s + parseFloat(r.amount || 0), 0)
     }
     if (yestRes.ok) {
       const records = await yestRes.json()
@@ -399,6 +399,12 @@ function txSubtitle(r) {
               </button>
               <span class="text-[10px] text-slate-400 self-center">📎 {{ r.attachments.length }} 張</span>
             </div>
+            <!-- 訂單收據照片 -->
+            <div v-if="r.photo_url && !r.attachments?.length" class="mt-2" @click.stop>
+              <a :href="r.photo_url" target="_blank" rel="noopener">
+                <img :src="r.photo_url" class="h-14 w-auto rounded-lg border border-slate-200 object-cover hover:opacity-80 cursor-pointer" />
+              </a>
+            </div>
           </div>
         </div>
       </div>
@@ -418,21 +424,35 @@ function txSubtitle(r) {
         </p>
         <div class="space-y-2">
           <div v-for="r in yesterdayRecords" :key="r.id"
-            class="rounded-xl px-4 py-3 flex items-center gap-3 shadow-sm cursor-pointer active:scale-[0.98] transition-transform"
+            class="rounded-xl px-4 py-3 shadow-sm cursor-pointer active:scale-[0.98] transition-transform"
             :class="r.type === 'withdrawal' ? '' : 'bg-white'"
             :style="r.type === 'withdrawal' ? 'background:#fff8f0;border:1px solid #fed7aa' : ''"
             @click="openDetail(r)">
-            <span style="font-size:20px">{{ txIcon(r) }}</span>
-            <div class="flex-1 min-w-0">
-              <p class="font-bold text-slate-800 truncate" style="font-size:13px">
-                {{ r.note || r.vendor_name || '零用金紀錄' }}
-              </p>
-              <p class="text-slate-400" style="font-size:11px">{{ txSubtitle(r) }}</p>
+            <div class="flex items-center gap-3">
+              <span style="font-size:20px">{{ txIcon(r) }}</span>
+              <div class="flex-1 min-w-0">
+                <p class="font-bold text-slate-800 truncate" style="font-size:13px">
+                  {{ r.note || r.vendor_name || '零用金紀錄' }}
+                </p>
+                <p class="text-slate-400" style="font-size:11px">{{ txSubtitle(r) }}</p>
+              </div>
+              <div class="flex flex-col items-end gap-1 shrink-0">
+                <p class="font-black" style="font-size:14px"
+                  :class="r.type === 'income' ? 'text-emerald-500' : r.type === 'withdrawal' ? 'text-orange-500' : 'text-red-500'">
+                  {{ r.type === 'income' ? '+' : '−' }}${{ fmtMoney(r.amount) }}
+                </p>
+                <span v-if="r.type === 'expense'"
+                  class="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+                  :style="r.is_paid === false ? 'background:#fef9c3;color:#92400e' : 'background:#f0fdf4;color:#16a34a'">
+                  {{ r.is_paid === false ? '未付款' : '已付款' }}
+                </span>
+              </div>
             </div>
-            <p class="font-black shrink-0" style="font-size:14px"
-              :class="r.type === 'income' ? 'text-emerald-500' : r.type === 'withdrawal' ? 'text-orange-500' : 'text-red-500'">
-              {{ r.type === 'income' ? '+' : '−' }}${{ fmtMoney(r.amount) }}
-            </p>
+            <div v-if="r.photo_url && !r.attachments?.length" class="mt-2" @click.stop>
+              <a :href="r.photo_url" target="_blank" rel="noopener">
+                <img :src="r.photo_url" class="h-14 w-auto rounded-lg border border-slate-200 object-cover hover:opacity-80 cursor-pointer" />
+              </a>
+            </div>
           </div>
         </div>
       </div>

@@ -54,13 +54,21 @@ const showDraftSheet = ref(false)
 const draftsList = ref([])
 
 function saveDraft() {
-  if (!selectedVendor.value || orderedCount.value === 0) return
+  if (!selectedVendor.value) return
+  const hasOrder = orderedCount.value > 0 || adHocItems.value.length > 0
+  const hasStocktake = modeStocktake.value && items.value.some(i => i.actual_qty != null && i.actual_qty !== '')
+  if (!hasOrder && !hasStocktake) return
   try {
     const draft = {
       timestamp: Date.now(),
       vendorId: selectedVendor.value.id,
       vendorName: selectedVendor.value.name,
+      modeOrder: modeOrder.value,
+      modeStocktake: modeStocktake.value,
       qtys: toRaw(items.value).filter(i => i.qty > 0).map(i => ({ id: i.id, qty: i.qty })),
+      stocktakeQtys: toRaw(items.value)
+        .filter(i => i.actual_qty != null && i.actual_qty !== '')
+        .map(i => ({ id: i.id, actual_qty: i.actual_qty })),
       adHocItems: toRaw(adHocItems.value),
       expectedDeliveryDate: expectedDeliveryDate.value
     }
@@ -105,14 +113,28 @@ async function resumeDraft(draft) {
   const v = vendors.value.find(v => v.id === draft.vendorId)
   if (v) {
     await selectVendor(v)
-    draft.qtys.forEach(({ id, qty }) => {
-      const item = items.value.find(i => i.id === id)
-      if (item) item.qty = qty
-    })
+    // 恢復叫貨數量
+    if (draft.qtys) {
+      draft.qtys.forEach(({ id, qty }) => {
+        const item = items.value.find(i => i.id === id)
+        if (item) item.qty = qty
+      })
+    }
+    // 恢復盤點數量
+    if (draft.stocktakeQtys) {
+      draft.stocktakeQtys.forEach(({ id, actual_qty }) => {
+        const item = items.value.find(i => i.id === id)
+        if (item) item.actual_qty = actual_qty
+      })
+    }
+    // 恢復模式
+    if (draft.modeOrder !== undefined) { modeOrder.value = draft.modeOrder; saveMode() }
+    if (draft.modeStocktake !== undefined) { modeStocktake.value = draft.modeStocktake; saveMode() }
     adHocItems.value = draft.adHocItems || []
     if (draft.expectedDeliveryDate) expectedDeliveryDate.value = draft.expectedDeliveryDate
   }
-  localStorage.removeItem(draft._key || DRAFT_KEY(draft.vendorId))
+  // 不在這裡刪草稿——草稿在送出或手動丟棄才清除
+  draftsList.value = getAllDrafts()
 }
 
 function discardDraft(draft) {
@@ -300,10 +322,12 @@ async function submitPendingReceive() {
     } else {
       submitToast.value = '✓ 已送出！'
     }
-    // Reset form
+    // Reset form + 清除草稿
+    const vendorId = selectedVendor.value?.id
     items.value.forEach(i => { i.qty = 0; i.actual_qty = null })
     adHocItems.value = []
-    localStorage.removeItem(DRAFT_KEY())
+    if (vendorId) localStorage.removeItem(DRAFT_KEY(vendorId))
+    draftsList.value = getAllDrafts()
     setTimeout(() => { submitToast.value = ''; switchTab('pending') }, 1800)
   } catch (e) {
     submitToast.value = `⚠ ${e.message || '送出失敗'}`
@@ -615,25 +639,22 @@ const payBadge = (o) => {
           class="bg-white rounded-xl p-3 shadow-sm transition-all duration-300"
           :class="stockBorder(item)"
           style="overflow:hidden">
-          <!-- 品項資訊 -->
-          <div class="flex items-center gap-2 mb-1.5">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="font-bold text-slate-900 text-sm">{{ item.name }}</span>
-                <span v-if="isLowStock(item)" class="text-[9px] font-extrabold bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">低庫存</span>
+
+          <!-- ── 單一模式：名稱＋控制項同一行 ── -->
+          <template v-if="!(modeOrder && modeStocktake)">
+            <div class="flex items-center gap-2">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="font-bold text-slate-900 text-sm">{{ item.name }}</span>
+                  <span v-if="isLowStock(item)" class="text-[9px] font-extrabold bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">低庫存</span>
+                </div>
+                <p class="text-[10px] text-slate-400 mt-0.5">
+                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.current_stock || 0 }}</span>
+                  {{ item.unit }}<span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>
+                </p>
               </div>
-              <p class="text-[10px] text-slate-400 mt-0.5">
-                庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.current_stock || 0 }}</span>
-                {{ item.unit }}<span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>
-              </p>
-            </div>
-          </div>
-          <!-- 模式欄位 -->
-          <div class="flex gap-3" :class="modeOrder && modeStocktake ? 'items-start' : 'items-center justify-end'">
-            <!-- 叫貨數量 (+/-) -->
-            <div v-if="modeOrder" class="flex items-center gap-1.5 shrink-0" :class="modeStocktake ? 'flex-1 flex-col items-center' : ''">
-              <span v-if="modeStocktake" class="text-[10px] font-bold text-orange-500 mb-1">叫貨</span>
-              <div class="flex items-center gap-1">
+              <!-- 叫貨控制 -->
+              <div v-if="modeOrder" class="flex items-center gap-1 shrink-0">
                 <button @click="item.qty=Math.max(0,item.qty-1)"
                   class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-600 active:bg-slate-200 text-lg leading-none">−</button>
                 <input v-model.number="item.qty" type="number" min="0"
@@ -642,18 +663,62 @@ const payBadge = (o) => {
                 <button @click="item.qty+=1"
                   class="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 active:bg-orange-200 text-lg leading-none">+</button>
               </div>
-            </div>
-            <!-- 實盤數量（直接輸入）-->
-            <div v-if="modeStocktake" class="flex-1 flex flex-col items-center">
-              <span class="text-[10px] font-bold text-blue-500 mb-1">實盤</span>
-              <div class="flex items-center gap-1">
-                <input v-model.number="item.actual_qty" type="number" min="0" :placeholder="`原 ${item.current_stock || 0}`"
-                  class="w-20 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none"
+              <!-- 實盤控制 -->
+              <div v-if="modeStocktake" class="flex items-center gap-1 shrink-0">
+                <button @click="item.actual_qty = Math.max(0, (parseFloat(item.actual_qty) || 0) - 1)"
+                  class="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center font-bold text-blue-600 active:bg-blue-100 text-lg leading-none">−</button>
+                <input v-model.number="item.actual_qty" type="number" min="0" :placeholder="`${item.current_stock || 0}`"
+                  class="w-14 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none"
                   :class="item.actual_qty != null && item.actual_qty !== '' ? 'border-blue-500 text-blue-700' : 'border-slate-200 text-slate-400'" />
-                <span class="text-xs text-slate-400">{{ item.unit }}</span>
+                <button @click="item.actual_qty = (parseFloat(item.actual_qty) || 0) + 1"
+                  class="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center font-bold text-blue-600 active:bg-blue-100 text-lg leading-none">+</button>
               </div>
             </div>
-          </div>
+          </template>
+
+          <!-- ── 雙模式：名稱上方，兩欄控制項在下方 ── -->
+          <template v-else>
+            <div class="flex items-center gap-2 mb-2">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="font-bold text-slate-900 text-sm">{{ item.name }}</span>
+                  <span v-if="isLowStock(item)" class="text-[9px] font-extrabold bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">低庫存</span>
+                </div>
+                <p class="text-[10px] text-slate-400 mt-0.5">
+                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.current_stock || 0 }}</span>
+                  {{ item.unit }}<span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>
+                </p>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <!-- 叫貨欄 -->
+              <div class="flex-1 rounded-xl p-2" style="background:#fff7ed">
+                <p class="text-[9px] font-bold text-orange-400 text-center mb-1.5">叫貨</p>
+                <div class="flex items-center justify-center gap-1">
+                  <button @click="item.qty=Math.max(0,item.qty-1)"
+                    class="w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 active:bg-orange-200 text-base leading-none">−</button>
+                  <input v-model.number="item.qty" type="number" min="0"
+                    class="w-10 text-center border-b-2 font-extrabold text-sm bg-transparent focus:outline-none"
+                    :class="item.qty>0?'border-orange-500 text-orange-600':'border-slate-200 text-slate-800'" />
+                  <button @click="item.qty+=1"
+                    class="w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 active:bg-orange-200 text-base leading-none">+</button>
+                </div>
+              </div>
+              <!-- 實盤欄 -->
+              <div class="flex-1 rounded-xl p-2" style="background:#eff6ff">
+                <p class="text-[9px] font-bold text-blue-400 text-center mb-1.5">實盤</p>
+                <div class="flex items-center justify-center gap-1">
+                  <button @click="item.actual_qty = Math.max(0, (parseFloat(item.actual_qty) || 0) - 1)"
+                    class="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center font-bold text-blue-600 active:bg-blue-200 text-base leading-none">−</button>
+                  <input v-model.number="item.actual_qty" type="number" min="0" :placeholder="`${item.current_stock || 0}`"
+                    class="w-10 text-center border-b-2 font-extrabold text-sm bg-transparent focus:outline-none"
+                    :class="item.actual_qty != null && item.actual_qty !== '' ? 'border-blue-500 text-blue-700' : 'border-slate-200 text-slate-400'" />
+                  <button @click="item.actual_qty = (parseFloat(item.actual_qty) || 0) + 1"
+                    class="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center font-bold text-blue-600 active:bg-blue-200 text-base leading-none">+</button>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- Add ad-hoc -->
