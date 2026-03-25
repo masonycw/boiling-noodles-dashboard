@@ -118,6 +118,18 @@ async function confirmDeletePetty() {
   } catch (e) { alert(e.message) }
   finally { deleteSubmitting.value = false }
 }
+
+async function togglePayment(record) {
+  const res = await fetch(`${API_BASE}/finance/petty-cash/${record.id}/toggle-payment`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${auth.token}` }
+  })
+  if (res.ok) {
+    const updated = await res.json()
+    const idx = pettyRecords.value.findIndex(r => r.id === record.id)
+    if (idx !== -1) pettyRecords.value[idx] = updated
+  }
+}
 </script>
 
 <template>
@@ -160,6 +172,7 @@ async function confirmDeletePetty() {
             <th class="px-5 py-3 text-left">說明</th>
             <th class="px-5 py-3 text-right">金額</th>
             <th class="px-5 py-3 text-right">餘額</th>
+            <th class="px-5 py-3 text-center">付款</th>
             <th class="px-5 py-3 text-center">操作</th>
           </tr>
         </thead>
@@ -174,12 +187,30 @@ async function confirmDeletePetty() {
                 {{ r.type === 'income' ? '收入' : r.type === 'withdrawal' ? '提領' : '支出' }}
               </span>
             </td>
-            <td class="px-5 py-2.5 text-gray-400 text-xs">{{ r.note || r.vendor_name || '—' }}</td>
+            <td class="px-5 py-2.5 text-gray-400 text-xs">
+              <div class="flex items-center gap-2">
+                <span>{{ r.note || r.vendor_name || '—' }}</span>
+                <a v-if="r.photo_url" :href="r.photo_url" target="_blank" class="flex-shrink-0">
+                  <img :src="r.photo_url" class="h-8 w-8 object-cover rounded cursor-pointer hover:opacity-80" />
+                </a>
+              </div>
+            </td>
             <td class="px-5 py-2.5 text-right font-mono"
               :class="r.type === 'income' ? 'text-blue-400' : 'text-red-400'">
               {{ r.type === 'income' ? '+' : '-' }}NT$ {{ fmtMoney(r.amount) }}
             </td>
             <td class="px-5 py-2.5 text-right font-mono text-gray-200">NT$ {{ fmtMoney(r.running_balance) }}</td>
+            <td class="px-5 py-2.5 text-center">
+              <div class="flex items-center justify-center gap-1.5">
+                <span class="text-xs font-bold px-2 py-0.5 rounded"
+                  :class="r.is_paid === false ? 'bg-orange-900/40 text-orange-400' : 'bg-emerald-900/40 text-emerald-400'">
+                  {{ r.is_paid === false ? '待付' : '已付' }}
+                </span>
+                <button @click="togglePayment(r)"
+                  class="text-xs px-1.5 py-0.5 rounded bg-[#2d3748] text-gray-400 hover:bg-[#3d4f63]"
+                  title="切換付款狀態">⇄</button>
+              </div>
+            </td>
             <td class="px-5 py-2.5 text-center">
               <button @click="openEditPetty(r)"
                 class="text-xs px-2 py-1 rounded bg-[#2d3748] text-[#63b3ed] hover:bg-[#3d4f63] mr-1">
@@ -192,7 +223,7 @@ async function confirmDeletePetty() {
             </td>
           </tr>
           <tr v-if="pettyWithBalance.length === 0">
-            <td colspan="6" class="px-5 py-10 text-center text-gray-600">無零用金紀錄</td>
+            <td colspan="7" class="px-5 py-10 text-center text-gray-600">無零用金紀錄</td>
           </tr>
         </tbody>
       </table>

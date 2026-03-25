@@ -277,8 +277,9 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
                   </span>
                 </td>
                 <td class="px-4 py-3 text-center">
-                  <span class="text-xs font-bold" :class="o.is_paid ? 'text-emerald-400' : 'text-amber-400'">
-                    {{ o.is_paid ? '✓ 已付' : '未付' }}
+                  <span class="text-xs font-bold px-2 py-0.5 rounded"
+                    :class="o.is_paid ? 'bg-emerald-900/40 text-emerald-400' : 'bg-orange-900/40 text-orange-400'">
+                    {{ o.is_paid ? '已付' : '待付' }}
                   </span>
                 </td>
                 <td class="px-4 py-3 text-center text-[#63b3ed] text-xs font-bold">
@@ -328,6 +329,12 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
                     </tbody>
                   </table>
                   <p v-if="o.note" class="text-gray-500 text-xs mt-3">備註：{{ o.note }}</p>
+                  <div v-if="o.receipt_url" class="mt-3">
+                    <p class="text-gray-500 text-xs mb-1">收據憑證</p>
+                    <a :href="o.receipt_url" target="_blank">
+                      <img :src="o.receipt_url" class="max-h-40 object-cover rounded-lg hover:opacity-80 cursor-pointer" />
+                    </a>
+                  </div>
                 </td>
               </tr>
             </template>
