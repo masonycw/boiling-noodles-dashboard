@@ -10,7 +10,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api
 
 const loading = ref(true)
 const lowStockItems = ref([])
-const pendingOrders = ref([])
+
 const pendingStocktakeGroups = ref([])
 const fixedOrderVendors = ref([])
 
@@ -109,10 +109,6 @@ function goToStocktake(groupId) {
         </div>
         <button class="mt-1 relative">
           <span style="font-size:22px">🔔</span>
-          <span v-if="pendingOrders.length > 0"
-            class="absolute -top-1 -right-1 w-4 h-4 bg-red-600 text-white text-[8px] font-bold rounded-full flex items-center justify-center">
-            {{ pendingOrders.length }}
-          </span>
         </button>
       </div>
     </div>
@@ -147,29 +143,9 @@ function goToStocktake(groupId) {
       <h2 class="font-bold text-slate-700 mb-3" style="font-size:13px">今日待辦</h2>
 
       <!-- 待辦空狀態 -->
-      <div v-if="lowStockItems.length === 0 && pendingStocktakeGroups.length === 0 && fixedOrderVendors.length === 0"
+      <div v-if="pendingStocktakeGroups.length === 0 && fixedOrderVendors.length === 0"
         class="text-center py-8 text-slate-400 text-sm">
         今日無待辦事項 🎉
-      </div>
-
-      <!-- 🛒 待叫貨 -->
-      <div v-if="lowStockItems.length > 0" class="mb-4">
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-extrabold text-slate-500 uppercase tracking-wide">🛒 待叫貨</span>
-          <span class="text-xs font-bold text-orange-500">{{ lowStockItems.length }} 項</span>
-        </div>
-        <button
-          @click="router.push({ name: 'order' })"
-          class="w-full bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:bg-slate-50 transition-colors text-left"
-          style="border-radius:12px">
-          <span style="font-size:24px">🛒</span>
-          <div class="flex-1 min-w-0">
-            <p class="font-bold text-slate-800" style="font-size:14px">需補貨品項</p>
-            <p class="mt-0.5" style="font-size:12px;color:#999">{{ lowStockItems.length }} 項低於安全庫存</p>
-          </div>
-          <span class="font-bold shrink-0" style="background:#fff7ed;color:#ea580c;border-radius:12px;font-size:11px;padding:4px 10px">前往叫貨</span>
-          <span style="color:#ccc;font-size:16px">›</span>
-        </button>
       </div>
 
       <!-- 📅 今日叫貨排程 -->

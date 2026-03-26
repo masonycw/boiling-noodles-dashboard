@@ -406,14 +406,14 @@ async function submit() {
                 class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2" />
               <div v-if="showItemDropdown"
                 class="mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden max-h-48 overflow-y-auto">
-                <button v-for="item in filteredItems" :key="item.id" @click="selectItem(item)"
+                <button v-for="item in filteredItems" :key="item.id" @pointerdown.prevent="selectItem(item)"
                   class="w-full text-left px-4 py-3 flex items-center gap-2 border-b border-slate-50 active:bg-orange-50">
                   <span class="font-bold text-slate-800 text-sm flex-1">{{ item.name }}</span>
                   <span class="text-xs text-slate-400">{{ item.unit }}</span>
                 </button>
                 <div v-if="filteredItems.length === 0" class="px-4 py-3 text-slate-400 text-sm">查無品項</div>
                 <div class="border-t border-slate-200"></div>
-                <button @click="selectOtherItem"
+                <button @pointerdown.prevent="selectOtherItem"
                   class="w-full text-left px-4 py-3 flex items-center gap-2 active:bg-orange-50">
                   <span class="text-sm font-medium text-slate-500">📝 其他（非常規品項）</span>
                 </button>
