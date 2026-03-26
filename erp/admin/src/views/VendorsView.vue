@@ -31,7 +31,7 @@ const form = ref(emptyForm())
 const paymentMethodOptions = ['現金', '轉帳', '支票']
 const expenseCategoryOptions = ['食材費用', '人事費用', '營業費用', '平台費用', '金融費用', '其他']
 const paymentTermsOptions = ['先收款', '現付', '後收款', '週結', '月結']
-const reminderDaysOptions = [3, 5, 7, 14]
+const reminderDaysOptions = [1, 2, 3, 4, 5]
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }

@@ -29,7 +29,7 @@ const selectedItem = ref(null)
 const isOtherItem = ref(false)
 const qty = ref(1)
 const unit = ref('')
-const reason = ref('過期')
+const reason = ref('食材過期')
 const noteText = ref('')
 
 // ── Photo ──
@@ -80,15 +80,15 @@ async function uploadPhoto() {
 }
 
 const reasons = [
-  { key: '過期', icon: '⌛' },
-  { key: '損壞', icon: '💥' },
+  { key: '食材過期', icon: '⌛' },
+  { key: '物品損壞', icon: '💥' },
   { key: '試菜', icon: '🍳' },
   { key: '其他', icon: '📝' },
 ]
 
 const reasonColors = {
-  '過期': { bg: '#fef9c3', text: '#92400e' },
-  '損壞': { bg: '#fee2e2', text: '#991b1b' },
+  '食材過期': { bg: '#fef9c3', text: '#92400e' },
+  '物品損壞': { bg: '#fee2e2', text: '#991b1b' },
   '試菜': { bg: '#f0fdf4', text: '#166534' },
   '其他': { bg: '#f1f5f9', text: '#475569' },
 }
@@ -166,7 +166,7 @@ function openSheet() {
   search.value = ''
   unit.value = ''
   qty.value = 1
-  reason.value = '過期'
+  reason.value = '食材過期'
   noteText.value = ''
   sheetError.value = ''
   photoFile.value = null

@@ -1,11 +1,12 @@
 <script setup>
 import { ref, onMounted, computed, onUnmounted, toRaw } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import UserBadge from '@/components/UserBadge.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 
 // ── Sub-tabs ──────────────────────────────────
@@ -265,10 +266,23 @@ onMounted(async () => {
     const vRes = await fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() })
     if (vRes.ok) {
       vendors.value = await vRes.json()
-      if (vendors.value.length) await selectVendor(vendors.value[0])
+      // F-04: auto-select vendor from query param
+      const qVendorId = route.query.vendorId ? parseInt(route.query.vendorId) : null
+      const initVendor = qVendorId
+        ? (vendors.value.find(v => v.id === qVendorId) || vendors.value[0])
+        : vendors.value[0]
+      if (initVendor) await selectVendor(initVendor)
       else isLoading.value = false
     } else isLoading.value = false
   } catch { isLoading.value = false }
+  // F-05: auto-open receive modal from query param
+  const qOrderId = route.query.orderId ? parseInt(route.query.orderId) : null
+  if (qOrderId) {
+    subTab.value = 'pending'
+    await loadPending()
+    const target = pendingOrders.value.find(o => o.id === qOrderId)
+    if (target) await openReceive(target)
+  }
   // Draft auto-save setup (P3-3)
   loadDraftBanner()
   _draftTimer = setInterval(() => { saveDraft() }, 30000)

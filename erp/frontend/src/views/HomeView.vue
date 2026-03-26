@@ -139,7 +139,7 @@ function goToStocktake(groupId) {
           </div>
         </div>
         <button
-          @click="router.push({ name: 'order' })"
+          @click="router.push({ name: 'order', query: lowStockItems[0]?.vendor_id ? { vendorId: lowStockItems[0].vendor_id } : {} })"
           class="mt-3 w-full text-white font-extrabold rounded-lg active:scale-95 transition-transform"
           style="background:#dc2626;font-size:12px;padding:7px;text-align:center">
           一鍵前往叫貨 →
@@ -174,7 +174,7 @@ function goToStocktake(groupId) {
         <div class="space-y-2">
           <button
             v-for="order in todayPendingOrders" :key="order.id"
-            @click="router.push({ name: 'order' })"
+            @click="router.push({ name: 'order', query: { orderId: order.id } })"
             class="w-full bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:bg-slate-50 transition-colors text-left"
             style="border-radius:12px">
             <span style="font-size:24px">🚚</span>

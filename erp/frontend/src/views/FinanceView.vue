@@ -737,13 +737,6 @@ async function paySelected() {
               class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
           </div>
 
-          <!-- 日期 -->
-          <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">日期</label>
-            <input v-model="sheetForm.date" type="date"
-              class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
-          </div>
-
           <p class="text-center text-slate-400" style="font-size:10px">科目由系統依廠商自動對應，無需手動選擇</p>
 
           <!-- A3: 附件上傳 -->
