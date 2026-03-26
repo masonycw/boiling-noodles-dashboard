@@ -11,10 +11,9 @@ const showModal = ref(false)
 const editTarget = ref(null)
 const saving = ref(false)
 const formError = ref('')
+const categories = ref([])
 
-const form = ref({ name: '', category: '固定費用', amount: '', day_of_month: '', note: '' })
-
-const categoryOptions = ['平台費', '固定費用', '權利金', '手續費', '其他']
+const form = ref({ name: '', category: '', amount: '', day_of_month: '', note: '' })
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
@@ -22,8 +21,15 @@ function authHeaders() {
 
 async function load() {
   loading.value = true
-  const res = await fetch(`${API_BASE}/finance/recurring`, { headers: authHeaders() })
-  if (res.ok) records.value = await res.json()
+  const [recRes, catRes] = await Promise.all([
+    fetch(`${API_BASE}/finance/recurring`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: authHeaders() }),
+  ])
+  if (recRes.ok) records.value = await recRes.json()
+  if (catRes.ok) {
+    const all = await catRes.json()
+    categories.value = all.filter(c => c.type === 'expense' && c.is_active !== false).map(c => c.name)
+  }
   loading.value = false
 }
 
@@ -31,14 +37,14 @@ onMounted(load)
 
 function openAdd() {
   editTarget.value = null
-  form.value = { name: '', category: '固定費用', amount: '', day_of_month: '', note: '' }
+  form.value = { name: '', category: categories.value[0] || '', amount: '', day_of_month: '', note: '' }
   formError.value = ''
   showModal.value = true
 }
 
 function openEdit(r) {
   editTarget.value = r
-  form.value = { name: r.name, category: r.category || '固定費用', amount: String(r.amount), day_of_month: String(r.day_of_month || ''), note: r.note || '' }
+  form.value = { name: r.name, category: r.category || categories.value[0] || '', amount: String(r.amount), day_of_month: String(r.day_of_month || ''), note: r.note || '' }
   formError.value = ''
   showModal.value = true
 }
@@ -151,7 +157,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
             <div>
               <label class="text-xs text-gray-500 mb-1 block">分類</label>
               <select v-model="form.category" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
-                <option v-for="c in categoryOptions" :key="c" :value="c">{{ c }}</option>
+                <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
               </select>
             </div>
             <div>

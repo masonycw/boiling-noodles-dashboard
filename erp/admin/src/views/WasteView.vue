@@ -15,12 +15,19 @@ const filterDateFrom = ref(new Date(new Date().getFullYear(), new Date().getMont
 const filterDateTo = ref(new Date().toISOString().slice(0, 10))
 const filterItem = ref('')
 const filterReason = ref('')
+const filterRecorder = ref('')
 
 // Pagination
 const page = ref(1)
 const PAGE_SIZE = 10
 
-const reasons = ['過期', '損壞', '試菜', '其他', '破損', '烹調損耗', '自然耗損', '操作失誤', '品質不良']
+const reasons = ['食材過期', '物品損壞', '試菜', '其他', '過期', '損壞', '破損', '烹調損耗', '自然耗損', '操作失誤', '品質不良']
+
+// Photo expansion
+const expandedPhotoId = ref(null)
+function togglePhoto(id) {
+  expandedPhotoId.value = expandedPhotoId.value === id ? null : id
+}
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}` }
@@ -41,6 +48,11 @@ async function load() {
 
 onMounted(load)
 
+const recorderOptions = computed(() => {
+  const names = new Set(records.value.map(r => r.recorded_by_name).filter(Boolean))
+  return [...names].sort()
+})
+
 const filtered = computed(() => {
   let list = records.value
   if (filterDateFrom.value) {
@@ -55,6 +67,9 @@ const filtered = computed(() => {
   }
   if (filterReason.value) {
     list = list.filter(r => r.reason === filterReason.value)
+  }
+  if (filterRecorder.value) {
+    list = list.filter(r => r.recorded_by_name === filterRecorder.value)
   }
   return list
 })
@@ -106,6 +121,11 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
         <option value="">全部原因</option>
         <option v-for="r in reasons" :key="r" :value="r">{{ r }}</option>
       </select>
+      <select v-model="filterRecorder"
+        class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
+        <option value="">全部紀錄人</option>
+        <option v-for="n in recorderOptions" :key="n" :value="n">{{ n }}</option>
+      </select>
     </div>
 
     <!-- Table -->
@@ -123,26 +143,41 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               <th class="px-4 py-3 text-right">估值</th>
               <th class="px-4 py-3 text-left">記錄人</th>
               <th class="px-4 py-3 text-left">備註</th>
+              <th class="px-4 py-3 text-center">照片</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-[#2d3748]">
-            <tr v-for="r in paginated" :key="r.id" class="hover:bg-[#1f2937] transition-colors">
-              <td class="px-4 py-3 text-gray-500 text-xs">{{ fmtDate(r.created_at) }}</td>
-              <td class="px-4 py-3 font-medium text-gray-200">{{ r.item_name || r.adhoc_name }}</td>
-              <td class="px-4 py-3 text-right font-mono text-gray-300">{{ r.qty }}</td>
-              <td class="px-4 py-3 text-center text-gray-400">{{ r.unit || '—' }}</td>
-              <td class="px-4 py-3 text-center">
-                <span class="text-xs font-bold text-amber-400">{{ r.reason || '—' }}</span>
-              </td>
-              <td class="px-4 py-3 text-right font-mono text-sm"
-                :class="r.estimated_value ? 'text-[#ef4444]' : 'text-gray-600'">
-                {{ r.estimated_value ? '$' + fmtMoney(r.estimated_value) : '—' }}
-              </td>
-              <td class="px-4 py-3 text-gray-400 text-xs">{{ r.recorded_by_name || '—' }}</td>
-              <td class="px-4 py-3 text-gray-500 text-xs">{{ r.note || '—' }}</td>
-            </tr>
+            <template v-for="r in paginated" :key="r.id">
+              <tr class="hover:bg-[#1f2937] transition-colors" :class="expandedPhotoId === r.id ? 'bg-[#1f2937]' : ''">
+                <td class="px-4 py-3 text-gray-500 text-xs">{{ fmtDate(r.created_at) }}</td>
+                <td class="px-4 py-3 font-medium text-gray-200">{{ r.item_name || r.adhoc_name }}</td>
+                <td class="px-4 py-3 text-right font-mono text-gray-300">{{ r.qty }}</td>
+                <td class="px-4 py-3 text-center text-gray-400">{{ r.unit || '—' }}</td>
+                <td class="px-4 py-3 text-center">
+                  <span class="text-xs font-bold text-amber-400">{{ r.reason || '—' }}</span>
+                </td>
+                <td class="px-4 py-3 text-right font-mono text-sm"
+                  :class="r.estimated_value ? 'text-[#ef4444]' : 'text-gray-600'">
+                  {{ r.estimated_value ? '$' + fmtMoney(r.estimated_value) : '—' }}
+                </td>
+                <td class="px-4 py-3 text-gray-400 text-xs">{{ r.recorded_by_name || '—' }}</td>
+                <td class="px-4 py-3 text-gray-500 text-xs">{{ r.note || '—' }}</td>
+                <td class="px-4 py-3 text-center">
+                  <button v-if="r.photo_url" @click="togglePhoto(r.id)"
+                    class="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">
+                    {{ expandedPhotoId === r.id ? '收起' : '📷 看圖' }}
+                  </button>
+                  <span v-else class="text-gray-700">—</span>
+                </td>
+              </tr>
+              <tr v-if="r.photo_url && expandedPhotoId === r.id">
+                <td colspan="9" class="px-4 py-3 bg-[#0f1117]">
+                  <img :src="r.photo_url" alt="耗損照片" class="max-h-64 rounded-lg object-contain" />
+                </td>
+              </tr>
+            </template>
             <tr v-if="filtered.length === 0">
-              <td colspan="8" class="px-5 py-10 text-center text-gray-600">無損耗紀錄</td>
+              <td colspan="9" class="px-5 py-10 text-center text-gray-600">無損耗紀錄</td>
             </tr>
           </tbody>
         </table>

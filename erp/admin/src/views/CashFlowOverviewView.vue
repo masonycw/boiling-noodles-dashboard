@@ -64,6 +64,8 @@ async function load() {
             income_vs_last_month_pct: null,
             expense_vs_last_month_pct: null,
             net_vs_last_month_pct: null,
+            petty_cash_income: old.petty_cash_income || 0,
+            petty_cash_withdrawal: old.petty_cash_withdrawal || 0,
           },
           trend: [],
           category_breakdown: [],
@@ -192,6 +194,19 @@ onMounted(load)
           <div class="flex justify-between">
             <span class="text-gray-400">零用金餘額</span>
             <span class="text-blue-400 font-mono font-bold">NT$ {{ fmtMoney(overview.summary?.petty_cash_balance) }}</span>
+          </div>
+        </div>
+        <!-- 帳戶間轉移（不計入業務損益） -->
+        <div v-if="overview.kpi?.petty_cash_income || overview.kpi?.petty_cash_withdrawal"
+          class="mt-3 pt-3 border-t border-[#2d3748] space-y-2 text-sm">
+          <p class="text-xs text-gray-600 uppercase tracking-wider">帳戶間轉移（不計入業務損益）</p>
+          <div v-if="overview.kpi?.petty_cash_income" class="flex justify-between text-gray-500">
+            <span>零用金收入（補充）</span>
+            <span class="font-mono">NT$ {{ fmtMoney(overview.kpi.petty_cash_income) }}</span>
+          </div>
+          <div v-if="overview.kpi?.petty_cash_withdrawal" class="flex justify-between text-gray-500">
+            <span>零用金提領</span>
+            <span class="font-mono">NT$ {{ fmtMoney(overview.kpi.petty_cash_withdrawal) }}</span>
           </div>
         </div>
       </div>

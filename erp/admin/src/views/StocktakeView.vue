@@ -28,7 +28,13 @@ const deleteSubmitting = ref(false)
 const filterDateFrom = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10))
 const filterDateTo = ref(new Date().toISOString().slice(0, 10))
 const filterExecutor = ref('')
+const filterGroup = ref('')
 const filterStatus = ref('')   // '' | 'has_discrepancy' | 'no_discrepancy'
+
+const groupOptions = computed(() => {
+  const names = new Set(records.value.map(r => r.group_name).filter(Boolean))
+  return [...names].sort()
+})
 
 // Pagination
 const page = ref(1)
@@ -64,6 +70,9 @@ const filtered = computed(() => {
   }
   if (filterExecutor.value) {
     list = list.filter(r => String(r.user_id) === filterExecutor.value)
+  }
+  if (filterGroup.value) {
+    list = list.filter(r => r.group_name === filterGroup.value)
   }
   if (filterStatus.value === 'has_discrepancy') {
     list = list.filter(r => r.discrepancy_count > 0)
@@ -182,9 +191,14 @@ function fmtDate(d) {
         <option value="">全部執行人</option>
         <option v-for="e in executors" :key="e.id" :value="String(e.id)">{{ e.name }}</option>
       </select>
+      <select v-model="filterGroup"
+        class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
+        <option value="">全部群組</option>
+        <option v-for="g in groupOptions" :key="g" :value="g">{{ g }}</option>
+      </select>
       <select v-model="filterStatus"
         class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
-        <option value="">全部</option>
+        <option value="">全部狀態</option>
         <option value="has_discrepancy">有差異</option>
         <option value="no_discrepancy">無差異</option>
       </select>

@@ -737,7 +737,13 @@ async function paySelected() {
               class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
           </div>
 
-          <p class="text-center text-slate-400" style="font-size:10px">科目由系統依廠商自動對應，無需手動選擇</p>
+          <div v-if="sheetType === 'expense'" class="flex items-center justify-center gap-1.5 text-slate-400" style="font-size:11px">
+            <span>科目：</span>
+            <span class="font-semibold text-orange-500">
+              {{ vendors.find(v => v.id == sheetForm.vendor_id)?.expense_category || '零用金雜費' }}
+            </span>
+            <span>（自動帶入）</span>
+          </div>
 
           <!-- A3: 附件上傳 -->
           <div>

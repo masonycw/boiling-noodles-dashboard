@@ -431,24 +431,46 @@ def delete_daily_settlement(settlement_id: int, db: Session = Depends(get_db)):
 
 @router.get("/overview")
 def get_finance_overview(db: Session = Depends(get_db)):
-    from erp.backend.db.models import PettyCashRecord, AccountsPayable, CashFlowRecurring
+    from erp.backend.db.models import PettyCashRecord, AccountsPayable, CashFlowRecurring, CashFlowRecord
     from sqlalchemy import func as sqlfunc
     import calendar
 
     today = date.today()
     month_start = today.replace(day=1)
 
-    # 本月收入（零用金收入記錄）
-    income_total = db.query(sqlfunc.sum(PettyCashRecord.amount)).filter(
+    # 正式金流收入（業務收入，不含零用金帳戶轉移）
+    business_income = db.query(sqlfunc.sum(CashFlowRecord.amount)).filter(
+        CashFlowRecord.type == 'income',
+        CashFlowRecord.transaction_date >= month_start,
+    ).scalar() or 0
+
+    # 正式金流支出
+    business_expense = db.query(sqlfunc.sum(CashFlowRecord.amount)).filter(
+        CashFlowRecord.type == 'expense',
+        CashFlowRecord.transaction_date >= month_start,
+    ).scalar() or 0
+
+    # 零用金支出（採購等實際支出，已付款）
+    petty_expense = db.query(sqlfunc.sum(PettyCashRecord.amount)).filter(
+        PettyCashRecord.type == 'expense',
+        PettyCashRecord.is_paid == True,
+        PettyCashRecord.created_at >= month_start,
+    ).scalar() or 0
+
+    # 零用金收入（帳戶轉入，屬帳戶間轉移，不計入業務收入）
+    petty_income = db.query(sqlfunc.sum(PettyCashRecord.amount)).filter(
         PettyCashRecord.type == 'income',
         PettyCashRecord.created_at >= month_start,
     ).scalar() or 0
 
-    # 本月支出（零用金支出+提領）
-    expense_total = db.query(sqlfunc.sum(PettyCashRecord.amount)).filter(
-        PettyCashRecord.type.in_(['expense', 'withdrawal']),
+    # 零用金提領（帳戶轉出，屬帳戶間轉移，不計入業務支出）
+    petty_withdrawal = db.query(sqlfunc.sum(PettyCashRecord.amount)).filter(
+        PettyCashRecord.type == 'withdrawal',
         PettyCashRecord.created_at >= month_start,
     ).scalar() or 0
+
+    income_total = float(business_income)
+    expense_total = float(business_expense) + float(petty_expense)
 
     # 零用金餘額
     from erp.backend.services.finance_service import get_petty_cash_balance
@@ -464,9 +486,11 @@ def get_finance_overview(db: Session = Depends(get_db)):
     recurring_count = len(recurring_active)
 
     return {
-        "month_income": float(income_total),
-        "month_expense": float(expense_total),
-        "projected_net": float(income_total) - float(expense_total),
+        "month_income": income_total,
+        "month_expense": expense_total,
+        "projected_net": income_total - expense_total,
+        "petty_cash_income": float(petty_income),
+        "petty_cash_withdrawal": float(petty_withdrawal),
         "petty_cash_balance": float(balance),
         "payable_count": payable_count,
         "payable_amount": float(payable_amount),

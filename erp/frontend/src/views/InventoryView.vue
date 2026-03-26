@@ -21,7 +21,14 @@ function saveMode() { localStorage.setItem(MODE_KEY, JSON.stringify({ order: mod
 
 // ── 叫貨 tab ──────────────────────────────────
 const vendors = ref([])
+const stocktakeGroups = ref([])
 const selectedVendor = ref(null)
+
+// Merged list: vendors first, then active stocktake groups (marked with _isGroup)
+const vendorAndGroupList = computed(() => [
+  ...vendors.value,
+  ...stocktakeGroups.value.filter(g => g.is_active).map(g => ({ ...g, _isGroup: true })),
+])
 const items = ref([])
 const isLoading = ref(true)
 const submitting = ref(false)
@@ -263,17 +270,20 @@ onMounted(async () => {
   tomorrow.setDate(tomorrow.getDate() + 1)
   expectedDeliveryDate.value = tomorrow.toISOString().split('T')[0]
   try {
-    const vRes = await fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() })
-    if (vRes.ok) {
-      vendors.value = await vRes.json()
-      // F-04: auto-select vendor from query param
-      const qVendorId = route.query.vendorId ? parseInt(route.query.vendorId) : null
-      const initVendor = qVendorId
-        ? (vendors.value.find(v => v.id === qVendorId) || vendors.value[0])
-        : vendors.value[0]
-      if (initVendor) await selectVendor(initVendor)
-      else isLoading.value = false
-    } else isLoading.value = false
+    const [vRes, gRes] = await Promise.all([
+      fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() }),
+      fetch(`${API_BASE}/stocktake/groups`, { headers: authHeaders() }),
+    ])
+    if (vRes.ok) vendors.value = await vRes.json()
+    if (gRes.ok) stocktakeGroups.value = await gRes.json()
+
+    // F-04: auto-select vendor from query param
+    const qVendorId = route.query.vendorId ? parseInt(route.query.vendorId) : null
+    const initVendor = qVendorId
+      ? (vendors.value.find(v => v.id === qVendorId) || vendors.value[0])
+      : vendors.value[0]
+    if (initVendor) await selectVendor(initVendor)
+    else isLoading.value = false
   } catch { isLoading.value = false }
   // F-05: auto-open receive modal from query param
   const qOrderId = route.query.orderId ? parseInt(route.query.orderId) : null
@@ -294,7 +304,8 @@ async function selectVendor(v) {
   selectedVendor.value = v
   isLoading.value = true
   try {
-    const iRes = await fetch(`${API_BASE}/inventory/items?vendor_id=${v.id}`, { headers: authHeaders() })
+    const param = v._isGroup ? `stocktake_group_id=${v.id}` : `vendor_id=${v.id}`
+    const iRes = await fetch(`${API_BASE}/inventory/items?${param}`, { headers: authHeaders() })
     items.value = iRes.ok ? (await iRes.json()).map(i => ({ ...i, qty: 0, actual_qty: null })) : []
   } finally { isLoading.value = false }
 }
@@ -760,17 +771,19 @@ const payBadge = (o) => {
           📌 草稿{{ getAllDrafts().length ? `（${getAllDrafts().length}）` : '（無）' }}
         </button>
 
-        <!-- Vendor chips -->
+        <!-- Vendor / group chips -->
         <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          <button v-for="v in vendors" :key="v.id" @click="selectVendor(v)"
+          <button v-for="v in vendorAndGroupList" :key="(v._isGroup ? 'g' : 'v') + v.id" @click="selectVendor(v)"
             class="shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all"
-            :class="selectedVendor?.id===v.id ? 'bg-orange-500 text-white shadow' : 'bg-slate-100 text-slate-500'">
-            {{ v.name }}
+            :class="selectedVendor?.id===v.id && selectedVendor?._isGroup===v._isGroup
+              ? (v._isGroup ? 'bg-teal-500 text-white shadow' : 'bg-orange-500 text-white shadow')
+              : (v._isGroup ? 'bg-teal-50 text-teal-600' : 'bg-slate-100 text-slate-500')">
+            {{ v._isGroup ? '📦 ' : '' }}{{ v.name }}
           </button>
         </div>
 
         <!-- Free shipping progress -->
-        <div v-if="freeShippingThreshold > 0">
+        <div v-if="freeShippingThreshold > 0 && !selectedVendor?.value?._isGroup">
           <div class="flex justify-between items-center mb-1">
             <span class="text-[10px] font-bold text-slate-500">{{ selectedVendor?.name }} 免運門檻</span>
             <span class="text-[10px] font-bold" :class="orderTotal>=freeShippingThreshold?'text-emerald-600':'text-orange-500'">
