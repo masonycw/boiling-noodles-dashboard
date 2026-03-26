@@ -105,6 +105,13 @@ class Vendor(Base):
     reminder_days = Column(Integer, default=5)               # 到期前提醒天數
     order_cycle = Column(String)                             # 叫貨週期文字
     payment_method = Column(String)                          # 付款方式（現金/轉帳/支票）
+    show_in_ordering = Column(Boolean, default=False)        # 是否出現在前台叫貨/盤點系統
+    is_fixed_order = Column(Boolean, default=False)          # 是否有固定叫貨排程
+    order_days = Column(JSON)                                # 需叫貨星期 [1..7] 1=週一 7=週日
+    order_time = Column(String(5))                           # 截單時間 "HH:MM"
+    closed_days = Column(JSON)                               # 休息日星期 [1..7] 1=週一 7=週日
+    closed_on_holidays = Column(Boolean, default=False)      # 國定假日休息
+    vendor_type = Column(String, default='supplier')         # 'supplier' 叫貨廠商 | 'payee' 費用對象
 
 
 class ItemCategory(Base):
@@ -130,6 +137,7 @@ class StocktakeGroup(Base):
     # O5 新增
     stocktake_cycle_days = Column(Integer, nullable=True)    # 盤點週期（天）
     next_stocktake_due = Column(Date, nullable=True)         # 下次預定盤點日
+    stocktake_time = Column(String(5))                       # 預計盤點時間 "HH:MM"
 
 
 class Item(Base):
@@ -173,6 +181,8 @@ class PurchaseOrder(Base):
     # Phase 3 新增
     confirmation_status = Column(String, default="unconfirmed")  # unconfirmed / confirmed（廠商確認）
     receive_user_id = Column(Integer, ForeignKey("erp_users.id"), nullable=True)  # 簽收人
+    # P4 新增
+    is_prepaid = Column(Boolean, default=False)  # 已收款（叫貨時已付款）
 
 
 class PurchaseOrderDetail(Base):
@@ -342,13 +352,14 @@ class AccountsPayable(Base):
     __tablename__ = "erp_accounts_payable"
 
     id = Column(Integer, primary_key=True, index=True)
-    vendor_id = Column(Integer, ForeignKey("erp_vendors.id"), nullable=False)
+    vendor_id = Column(Integer, ForeignKey("erp_vendors.id"), nullable=True)
     order_id = Column(Integer, ForeignKey("erp_purchase_orders.id"), nullable=True)
     amount = Column(Numeric(10, 2), nullable=False)
     due_date = Column(DateTime(timezone=True))               # 應付日期
     is_paid = Column(Boolean, default=False)
     paid_at = Column(DateTime(timezone=True))
     paid_by_user_id = Column(Integer, ForeignKey("erp_users.id"), nullable=True)
+    payment_method = Column(String)                          # 付款方式（現金/轉帳/支票）
     note = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

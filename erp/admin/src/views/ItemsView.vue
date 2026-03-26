@@ -207,6 +207,7 @@ async function saveReorder() {
             <th class="px-4 py-3 text-center" style="width:50px">單位</th>
             <th class="px-4 py-3 text-right" style="width:70px">安全庫存</th>
             <th class="px-4 py-3 text-right" style="width:70px">目前庫存</th>
+            <th class="px-4 py-3 text-right" style="width:70px">參考價格</th>
             <th class="px-4 py-3 text-center" style="width:80px">狀態</th>
             <th class="px-4 py-3 text-center" style="width:120px">操作</th>
           </tr>
@@ -240,6 +241,9 @@ async function saveReorder() {
               :class="parseFloat(item.min_stock) > 0 && parseFloat(item.current_stock) <= parseFloat(item.min_stock) ? 'text-amber-400 font-bold' : 'text-gray-300'">
               {{ item.current_stock ?? 0 }}
             </td>
+            <td class="px-4 py-3 text-right font-mono text-gray-400">
+              {{ item.price != null ? '$' + Number(item.price).toLocaleString('zh-TW') : '—' }}
+            </td>
             <td class="px-4 py-3 text-center">
               <span class="text-xs font-bold px-2 py-0.5 rounded-full" :class="stockStatus(item).cls">
                 {{ stockStatus(item).label }}
@@ -250,7 +254,7 @@ async function saveReorder() {
             </td>
           </tr>
           <tr v-if="filtered.length === 0">
-            <td colspan="10" class="px-4 py-10 text-center text-gray-600">無品項資料</td>
+            <td colspan="11" class="px-4 py-10 text-center text-gray-600">無品項資料</td>
           </tr>
         </tbody>
       </table>

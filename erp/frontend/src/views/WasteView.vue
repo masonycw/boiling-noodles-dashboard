@@ -160,6 +160,10 @@ function clearItem() {
   unit.value = ''
 }
 
+function handleSearchBlur() {
+  setTimeout(() => { showItemDropdown.value = false }, 150)
+}
+
 function openSheet() {
   selectedItem.value = null
   isOtherItem.value = false
@@ -397,7 +401,7 @@ async function submit() {
               <button @click="clearItem" class="font-bold" style="color:#fb923c">✕</button>
             </div>
             <div v-else>
-              <input v-model="search" @focus="showItemDropdown = true" type="text"
+              <input v-model="search" @focus="showItemDropdown = true" @blur="handleSearchBlur" type="text"
                 placeholder="搜尋品項名稱…"
                 class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2" />
               <div v-if="showItemDropdown"

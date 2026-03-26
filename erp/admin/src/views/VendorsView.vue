@@ -15,15 +15,23 @@ const saving = ref(false)
 const saveError = ref('')
 const toast = ref('')
 
+const filterCategoryId = ref('')
+
 const emptyForm = () => ({
   name: '', contact_person: '', phone: '', line_id: '',
   payment_method: '現金',
-  expense_category: '食材費用',
   payment_terms: '現付',
   default_category_id: null,
   bank_account: '', bank_account_holder: '',
   reminder_days: 5,
   order_cycle: '',
+  show_in_ordering: false,
+  is_fixed_order: false,
+  order_days: [],
+  order_time: '',
+  delivery_days_to_arrive: 1,
+  closed_days: [],
+  closed_on_holidays: false,
 })
 
 const form = ref(emptyForm())
@@ -54,16 +62,22 @@ async function loadCashflowCategories() {
   if (res.ok) cashflowCategories.value = await res.json()
 }
 
-onMounted(load)
+onMounted(() => { load(); loadCashflowCategories() })
 
 const filtered = computed(() => {
-  if (!search.value.trim()) return vendors.value
-  const q = search.value.toLowerCase()
-  return vendors.value.filter(v =>
-    v.name.toLowerCase().includes(q) ||
-    (v.contact_person || '').toLowerCase().includes(q) ||
-    (v.phone || '').includes(q)
-  )
+  let list = vendors.value
+  if (search.value.trim()) {
+    const q = search.value.toLowerCase()
+    list = list.filter(v =>
+      v.name.toLowerCase().includes(q) ||
+      (v.contact_person || '').toLowerCase().includes(q) ||
+      (v.phone || '').includes(q)
+    )
+  }
+  if (filterCategoryId.value) {
+    list = list.filter(v => String(v.default_category_id) === filterCategoryId.value)
+  }
+  return list
 })
 
 function selectVendor(v) {
@@ -76,13 +90,19 @@ function selectVendor(v) {
     phone: v.phone || '',
     line_id: v.line_id || '',
     payment_method: v.payment_method || '現金',
-    expense_category: v.expense_category || '食材費用',
     payment_terms: v.payment_terms || '現付',
     default_category_id: v.default_category_id || null,
     bank_account: v.bank_account || '',
     bank_account_holder: v.bank_account_holder || '',
     reminder_days: v.reminder_days || 5,
     order_cycle: v.order_cycle || '',
+    show_in_ordering: v.show_in_ordering || false,
+    is_fixed_order: v.is_fixed_order || false,
+    order_days: v.order_days || [],
+    order_time: v.order_time || '',
+    delivery_days_to_arrive: v.delivery_days_to_arrive ?? 1,
+    closed_days: v.closed_days || [],
+    closed_on_holidays: v.closed_on_holidays || false,
   }
 }
 
@@ -218,9 +238,14 @@ async function deleteVendor() {
     <div class="grid gap-5" style="grid-template-columns: 1fr 1fr; max-width: 1400px;">
       <!-- Left: List -->
       <div>
-        <div class="flex items-center gap-3 mb-4">
+        <div class="flex items-center gap-3 mb-4 flex-wrap">
           <input v-model="search" type="text" placeholder="搜尋供應商..."
             class="bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-4 py-2 text-sm flex-1 focus:outline-none focus:border-[#63b3ed]" />
+          <select v-model="filterCategoryId"
+            class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
+            <option value="">全部科目</option>
+            <option v-for="c in cashflowCategories.filter(c => c.type === 'expense')" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
+          </select>
           <button @click="openNew"
             class="bg-[#63b3ed] hover:bg-blue-400 text-black font-bold px-4 py-2 rounded-lg text-sm transition-colors whitespace-nowrap">
             + 新增供應商
@@ -263,9 +288,13 @@ async function deleteVendor() {
                 </div>
                 <div class="grid grid-cols-2 gap-3">
                   <div>
-                    <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">交貨週期（選填）</label>
-                    <input v-model="form.order_cycle" type="text" placeholder="如 D+2"
-                      class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+                    <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">到貨日（選填）</label>
+                    <div class="flex items-center gap-2">
+                      <span class="text-gray-400 text-sm">D+</span>
+                      <input v-model.number="form.delivery_days_to_arrive" type="number" min="0" max="30" placeholder="1"
+                        class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+                      <span class="text-gray-500 text-xs shrink-0">天後到貨</span>
+                    </div>
                   </div>
                   <div>
                     <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">付款條件（選填）</label>
@@ -331,7 +360,7 @@ async function deleteVendor() {
                 <th class="px-4 py-3 text-left">聯絡人</th>
                 <th class="px-4 py-3 text-left">電話</th>
                 <th class="px-4 py-3 text-left">付款方式</th>
-                <th class="px-4 py-3 text-left">叫貨週期</th>
+                <th class="px-4 py-3 text-left">到貨日</th>
                 <th class="px-4 py-3 text-center">操作</th>
               </tr>
             </thead>
@@ -347,7 +376,7 @@ async function deleteVendor() {
                   <div v-if="v.line_id" class="text-xs text-green-400">LINE: {{ v.line_id }}</div>
                 </td>
                 <td class="px-4 py-3 text-gray-400">{{ v.payment_method || '—' }}</td>
-                <td class="px-4 py-3 text-gray-400 text-xs">{{ v.order_cycle || '—' }}</td>
+                <td class="px-4 py-3 text-gray-400 text-xs">{{ v.delivery_days_to_arrive ? 'D+' + v.delivery_days_to_arrive : '—' }}</td>
                 <td class="px-4 py-3 text-center">
                   <button @click.stop="selectVendor(v)"
                     class="text-[#63b3ed] hover:text-blue-300 text-xs font-bold">編輯</button>
@@ -412,6 +441,44 @@ async function deleteVendor() {
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
 
+            <!-- 叫貨系統設定 -->
+            <div class="text-xs font-bold text-[#63b3ed] uppercase tracking-wider pb-1 border-b border-[#2d3748] pt-2">
+              叫貨系統
+            </div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" v-model="form.show_in_ordering"
+                class="w-4 h-4 rounded accent-orange-500" />
+              <span class="text-[#9ca3af] text-[13px] font-semibold">出現在前台叫貨/盤點系統</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer mt-1">
+              <input type="checkbox" v-model="form.is_fixed_order"
+                class="w-4 h-4 rounded accent-orange-500" />
+              <span class="text-[#9ca3af] text-[13px] font-semibold">固定叫貨排程</span>
+            </label>
+            <div v-if="form.is_fixed_order" class="mt-2 p-3 rounded-lg space-y-3" style="background:#0f1117;border:1px solid #2d3748">
+              <!-- 需叫貨星期 -->
+              <div>
+                <label class="block text-[#9ca3af] text-[12px] font-semibold mb-2">需叫貨星期 <span class="text-gray-600 font-normal">（排程參考，不限制叫貨）</span></label>
+                <div class="flex gap-2 flex-wrap">
+                  <label v-for="(day, idx) in ['一','二','三','四','五','六','日']" :key="idx+1"
+                    class="flex flex-col items-center gap-1 cursor-pointer">
+                    <input type="checkbox" :value="idx+1" v-model="form.order_days"
+                      class="w-4 h-4 accent-orange-500" />
+                    <span class="text-[11px]" :class="form.order_days.includes(idx+1) ? 'text-orange-400 font-bold' : 'text-gray-500'">
+                      {{ day }}
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <!-- 截單時間 -->
+              <div>
+                <label class="block text-[#9ca3af] text-[12px] font-semibold mb-1">應下單截止時間</label>
+                <input v-model="form.order_time" type="time"
+                  class="bg-[#1a202c] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400" />
+                <span class="text-[11px] text-gray-600 ml-2">當天此時間前需下單</span>
+              </div>
+            </div>
+
             <!-- 財務與付款 -->
             <div class="text-xs font-bold text-[#63b3ed] uppercase tracking-wider pb-1 border-b border-[#2d3748] pt-2">
               財務與付款
@@ -427,16 +494,7 @@ async function deleteVendor() {
                 </select>
               </div>
               <div>
-                <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                  預設科目分類 <span class="text-red-400">*</span>
-                </label>
-                <select v-model="form.expense_category"
-                  class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
-                  <option v-for="o in expenseCategoryOptions" :key="o" :value="o">{{ o }}</option>
-                </select>
-              </div>
-              <div>
-                <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">金流預設科目</label>
+                <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">金流科目</label>
                 <select v-model="form.default_category_id"
                   class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
                   <option :value="null">（不設定）</option>
@@ -470,12 +528,32 @@ async function deleteVendor() {
               <input v-model="form.bank_account_holder" type="text"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
-            <div>
-              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                叫貨週期 <span class="text-red-400">*</span>
+            <!-- 到貨日 + 休息日設定 -->
+            <div class="p-3 rounded-lg space-y-3" style="background:#0f1117;border:1px solid #2d3748">
+              <p class="text-[#9ca3af] text-[12px] font-bold uppercase tracking-wide">到貨設定</p>
+              <div class="flex items-center gap-3">
+                <label class="text-[#9ca3af] text-[13px] font-semibold shrink-0">到貨日</label>
+                <span class="text-gray-400 text-sm">D+</span>
+                <input v-model.number="form.delivery_days_to_arrive" type="number" min="0" max="30"
+                  class="w-20 bg-[#1a202c] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400" />
+                <span class="text-gray-500 text-xs">天後到貨</span>
+              </div>
+              <div>
+                <label class="block text-[#9ca3af] text-[12px] font-semibold mb-2">休息日星期</label>
+                <div class="flex gap-2 flex-wrap">
+                  <label v-for="(day, idx) in ['一','二','三','四','五','六','日']" :key="idx+1"
+                    class="flex flex-col items-center gap-1 cursor-pointer">
+                    <input type="checkbox" :value="idx+1" v-model="form.closed_days" class="w-4 h-4 accent-red-500" />
+                    <span class="text-[11px]" :class="form.closed_days.includes(idx+1) ? 'text-red-400 font-bold' : 'text-gray-500'">
+                      {{ day }}
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" v-model="form.closed_on_holidays" class="w-4 h-4 rounded accent-red-500" />
+                <span class="text-[#9ca3af] text-[13px] font-semibold">國定假日休息</span>
               </label>
-              <input v-model="form.order_cycle" type="text" placeholder="每週一、四 / 每日"
-                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
 
             <div v-if="saveError" class="text-red-400 text-xs text-center">{{ saveError }}</div>

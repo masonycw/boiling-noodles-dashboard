@@ -16,6 +16,8 @@ const cfDateFrom = ref(`${currentYM}-01`)
 const cfDateTo = ref(now.toISOString().slice(0, 10))
 const cfType = ref('')
 const cfCategory = ref('')
+const cfPayee = ref('')  // 費用對象篩選
+const payees = ref([])  // vendor_type=payee
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
@@ -118,12 +120,14 @@ async function load() {
   const params = new URLSearchParams({ limit: 500 })
   if (cfDateFrom.value) params.set('date_from', cfDateFrom.value)
   if (cfDateTo.value) params.set('date_to', cfDateTo.value)
-  const [cfRes, catRes] = await Promise.all([
+  const [cfRes, catRes, payeeRes] = await Promise.all([
     fetch(`${API_BASE}/finance/cash-flow?${params}`, { headers: authHeaders() }),
     fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/inventory/vendors?vendor_type=payee`, { headers: authHeaders() }),
   ])
   if (cfRes.ok) records.value = await cfRes.json()
   if (catRes.ok) categories.value = await catRes.json()
+  if (payeeRes.ok) payees.value = await payeeRes.json()
   loading.value = false
 }
 onMounted(load)
@@ -134,6 +138,7 @@ const filtered = computed(() => {
   if (cfDateTo.value) list = list.filter(r => r.created_at <= cfDateTo.value + 'T23:59:59')
   if (cfType.value) list = list.filter(r => r.type === cfType.value)
   if (cfCategory.value) list = list.filter(r => (r.category_name || '') === cfCategory.value)
+  if (cfPayee.value) list = list.filter(r => String(r.vendor_id) === cfPayee.value)
   return list
 })
 
@@ -172,6 +177,11 @@ async function updateCategory(record, catId) {
         class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400">
         <option value="">全部科目</option>
         <option v-for="c in categories" :key="c.id" :value="c.name">{{ c.name }}</option>
+      </select>
+      <select v-if="payees.length > 0" v-model="cfPayee"
+        class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400">
+        <option value="">全部費用對象</option>
+        <option v-for="p in payees" :key="p.id" :value="String(p.id)">{{ p.name }}</option>
       </select>
     </div>
 

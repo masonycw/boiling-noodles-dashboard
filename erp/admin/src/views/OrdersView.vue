@@ -262,7 +262,8 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               <th class="px-4 py-3 text-left">供應商</th>
               <th class="px-4 py-3 text-left">送出人</th>
               <th class="px-4 py-3 text-center">品項數</th>
-              <th class="px-4 py-3 text-right">總金額</th>
+              <th class="px-4 py-3 text-right">參考金額</th>
+              <th class="px-4 py-3 text-right">實際金額</th>
               <th class="px-4 py-3 text-center">狀態</th>
               <th class="px-4 py-3 text-center">付款</th>
               <th class="px-4 py-3 text-center">查看</th>
@@ -277,7 +278,12 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
                 <td class="px-4 py-3 font-semibold text-gray-200">{{ o.vendor_name }}</td>
                 <td class="px-4 py-3"><UserBadge :user="o.created_by" size="sm" /></td>
                 <td class="px-4 py-3 text-center text-gray-400">{{ o.total_items }}</td>
-                <td class="px-4 py-3 text-right font-mono text-gray-300">${{ fmtMoney(o.total_amount) }}</td>
+                <td class="px-4 py-3 text-right font-mono text-gray-500">
+                  {{ o.reference_amount > 0 ? '$' + fmtMoney(o.reference_amount) : '—' }}
+                </td>
+                <td class="px-4 py-3 text-right font-mono text-gray-300">
+                  {{ o.total_amount ? '$' + fmtMoney(o.total_amount) : '—' }}
+                </td>
                 <td class="px-4 py-3 text-center">
                   <span class="text-xs font-bold px-2 py-0.5 rounded-full" :class="statusBadge(o.status)">
                     {{ statusLabel(o.status) }}

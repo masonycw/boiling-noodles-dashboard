@@ -79,6 +79,11 @@ const routes = [
     name: 'cashflow-ratio-costs',
     component: () => import('@/views/ProportionalFeesView.vue')
   },
+  {
+    path: '/cashflow/payees',
+    name: 'cashflow-payees',
+    component: () => import('@/views/ExpensePayeesView.vue')
+  },
 
   // ── 財務管理 ──
   {

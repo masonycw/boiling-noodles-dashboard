@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, onUnmounted, toRaw } from 'vue'
+import { ref, onMounted, computed, onUnmounted, toRaw, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import UserBadge from '@/components/UserBadge.vue'
@@ -29,6 +29,39 @@ const vendorAndGroupList = computed(() => [
   ...vendors.value,
   ...stocktakeGroups.value.filter(g => g.is_active).map(g => ({ ...g, _isGroup: true })),
 ])
+
+// 下拉選單 key helper
+const selectedVendorKey = ref('')
+const vendorSearch = ref('')
+const showVendorDropdown = ref(false)
+const filteredVendorList = computed(() => {
+  const q = vendorSearch.value.trim().toLowerCase()
+  if (!q) return vendorAndGroupList.value
+  return vendorAndGroupList.value.filter(v => v.name.toLowerCase().includes(q))
+})
+function vendorKey(v) { return (v._isGroup ? 'g' : 'v') + v.id }
+watch(selectedVendorKey, async (key) => {
+  const v = vendorAndGroupList.value.find(v => vendorKey(v) === key)
+  if (v) await selectVendor(v)
+})
+function handleVendorFocus() {
+  vendorSearch.value = ''
+  showVendorDropdown.value = true
+}
+function handleVendorBlur() {
+  setTimeout(() => {
+    showVendorDropdown.value = false
+    // 恢復顯示已選廠商名稱
+    if (selectedVendor.value) {
+      vendorSearch.value = (selectedVendor.value._isGroup ? '📦 ' : '🏪 ') + selectedVendor.value.name
+    }
+  }, 150)
+}
+async function pickVendor(v) {
+  vendorSearch.value = (v._isGroup ? '📦 ' : '🏪 ') + v.name
+  showVendorDropdown.value = false
+  await selectVendor(v)
+}
 const items = ref([])
 const isLoading = ref(true)
 const submitting = ref(false)
@@ -271,7 +304,7 @@ onMounted(async () => {
   expectedDeliveryDate.value = tomorrow.toISOString().split('T')[0]
   try {
     const [vRes, gRes] = await Promise.all([
-      fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() }),
+      fetch(`${API_BASE}/inventory/vendors?show_in_ordering=true`, { headers: authHeaders() }),
       fetch(`${API_BASE}/stocktake/groups`, { headers: authHeaders() }),
     ])
     if (vRes.ok) vendors.value = await vRes.json()
@@ -302,6 +335,8 @@ onUnmounted(() => { if (_draftTimer) clearInterval(_draftTimer) })
 
 async function selectVendor(v) {
   selectedVendor.value = v
+  selectedVendorKey.value = vendorKey(v)
+  vendorSearch.value = (v._isGroup ? '📦 ' : '🏪 ') + v.name
   isLoading.value = true
   try {
     const param = v._isGroup ? `stocktake_group_id=${v.id}` : `vendor_id=${v.id}`
@@ -529,7 +564,19 @@ async function copyOrderLineMsg(order) {
       [],
       order.expected_delivery_date
     )
-    await navigator.clipboard.writeText(lineMsg)
+    try {
+      await navigator.clipboard.writeText(lineMsg)
+    } catch {
+      // HTTP fallback (navigator.clipboard requires HTTPS)
+      const el = document.createElement('textarea')
+      el.value = lineMsg
+      el.style.position = 'fixed'
+      el.style.opacity = '0'
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+    }
     submitToast.value = '已複製 LINE 訊息 ✓'
     setTimeout(() => { submitToast.value = '' }, 2000)
   } catch {
@@ -629,7 +676,8 @@ function openEditOrder(order) {
       ? new Date(order.expected_delivery_date).toISOString().split('T')[0]
       : '',
     total_amount: order.total_amount || '',
-    note: order.note || ''
+    note: order.note || '',
+    is_prepaid: order.is_prepaid || false
   }
   showEditOrderModal.value = true
 }
@@ -645,6 +693,7 @@ async function submitEditOrder() {
       body.total_amount = parseFloat(editOrderForm.value.total_amount)
     if (editOrderForm.value.note !== undefined)
       body.note = editOrderForm.value.note
+    body.is_prepaid = editOrderForm.value.is_prepaid
     const res = await fetch(`${API_BASE}/inventory/orders/${editOrderTarget.value.id}`, {
       method: 'PATCH', headers: authHeaders(),
       body: JSON.stringify(body)
@@ -771,15 +820,32 @@ const payBadge = (o) => {
           📌 草稿{{ getAllDrafts().length ? `（${getAllDrafts().length}）` : '（無）' }}
         </button>
 
-        <!-- Vendor / group chips -->
-        <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          <button v-for="v in vendorAndGroupList" :key="(v._isGroup ? 'g' : 'v') + v.id" @click="selectVendor(v)"
-            class="shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all"
-            :class="selectedVendor?.id===v.id && selectedVendor?._isGroup===v._isGroup
-              ? (v._isGroup ? 'bg-teal-500 text-white shadow' : 'bg-orange-500 text-white shadow')
-              : (v._isGroup ? 'bg-teal-50 text-teal-600' : 'bg-slate-100 text-slate-500')">
-            {{ v._isGroup ? '📦 ' : '' }}{{ v.name }}
-          </button>
+        <!-- Vendor / group 可搜尋下拉選單 -->
+        <div v-if="vendorAndGroupList.length === 0" class="text-xs text-slate-400 text-center py-2">
+          尚無叫貨廠商，請至後台供應商管理勾選「出現在叫貨/盤點系統」
+        </div>
+        <div v-else class="relative">
+          <input
+            v-model="vendorSearch"
+            @focus="handleVendorFocus"
+            @blur="handleVendorBlur"
+            type="text"
+            placeholder="搜尋廠商或群組…"
+            class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
+          />
+          <div v-if="showVendorDropdown"
+            class="absolute z-50 w-full bg-white border border-slate-200 rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto">
+            <div v-if="filteredVendorList.length === 0" class="px-3 py-2 text-xs text-slate-400">無符合結果</div>
+            <button
+              v-for="v in filteredVendorList" :key="vendorKey(v)"
+              @mousedown.prevent="pickVendor(v)"
+              class="w-full text-left px-3 py-2.5 text-sm font-bold hover:bg-orange-50 flex items-center gap-2"
+              :class="vendorKey(v) === selectedVendorKey ? 'text-orange-600 bg-orange-50' : 'text-slate-700'">
+              <span>{{ v._isGroup ? '📦' : '🏪' }}</span>
+              <span>{{ v.name }}</span>
+              <span v-if="v._isGroup" class="ml-auto text-[10px] text-slate-400">盤點群組</span>
+            </button>
+          </div>
         </div>
 
         <!-- Free shipping progress -->
@@ -1116,11 +1182,16 @@ const payBadge = (o) => {
                     :class="orderDateBadge(item).cls">
                     {{ orderDateBadge(item).label }}
                   </span>
+                  <span v-if="item.is_prepaid"
+                    class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-600">
+                    ✓ 已收款
+                  </span>
                 </div>
                 <p class="text-xs text-slate-400 mt-0.5">
                   預計 {{ item.expected_delivery_date ? fmtDate(item.expected_delivery_date) : '待定' }}
                   · {{ item.total_items || '?' }} 項品項
-                  <span v-if="item.total_amount"> · ${{ fmtMoney(item.total_amount) }}</span>
+                  <span v-if="item.reference_amount > 0"> · 參考 ${{ fmtMoney(item.reference_amount) }}</span>
+                  <span v-if="item.total_amount"> · 實際 ${{ fmtMoney(item.total_amount) }}</span>
                 </p>
                 <UserBadge v-if="item.created_by" :user="item.created_by" size="sm" class="mt-0.5" />
               </div>
@@ -1180,6 +1251,13 @@ const payBadge = (o) => {
               <input v-model="editOrderForm.note" type="text" placeholder="輸入備注…"
                 class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
             </div>
+            <label class="flex items-center gap-3 cursor-pointer py-1">
+              <input type="checkbox" v-model="editOrderForm.is_prepaid" class="w-5 h-5 accent-green-500 rounded" />
+              <div>
+                <p class="text-sm font-bold text-slate-700">已收款（已付清）</p>
+                <p class="text-xs text-slate-400">勾選後簽收時自動設為「已收款」，不計入零用金待付</p>
+              </div>
+            </label>
           </div>
           <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
             <button @click="submitEditOrder" :disabled="editOrderSubmitting"
@@ -1219,7 +1297,12 @@ const payBadge = (o) => {
 
             <!-- Amount -->
             <div>
-              <p class="text-xs font-bold text-slate-500 mb-1">本次訂單金額</p>
+              <div class="flex items-center justify-between mb-1">
+                <p class="text-xs font-bold text-slate-500">本次訂單金額</p>
+                <span v-if="receiveTarget?.reference_amount > 0" class="text-xs font-bold px-2 py-0.5 rounded-lg" style="background:#fff7ed;color:#ea580c">
+                  參考 ${{ fmtMoney(receiveTarget.reference_amount) }}
+                </span>
+              </div>
               <p class="text-[10px] text-slate-400 mb-1">菜商等現場議價廠商請直接輸入今日金額</p>
               <input v-model="receiveForm.total_amount" type="number" inputmode="decimal" placeholder="0"
                 class="w-full border border-slate-200 rounded-xl px-4 py-3 text-2xl font-extrabold text-center focus:outline-none focus:ring-2 focus:ring-orange-400" />

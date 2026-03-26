@@ -7,8 +7,12 @@ from erp.backend.services import inventory_service
 router = APIRouter()
 
 @router.get("/vendors")
-def list_vendors(db: Session = Depends(get_db)):
+def list_vendors(show_in_ordering: bool = None, vendor_type: str = None, db: Session = Depends(get_db)):
     vendors = inventory_service.get_vendors(db)
+    if show_in_ordering is not None:
+        vendors = [v for v in vendors if bool(v.show_in_ordering) == show_in_ordering]
+    if vendor_type is not None:
+        vendors = [v for v in vendors if (v.vendor_type or 'supplier') == vendor_type]
     result = []
     for v in vendors:
         d = v.__dict__.copy() if hasattr(v, '__dict__') else dict(v)
@@ -46,6 +50,16 @@ def list_items(vendor_id: int = None, stocktake_group_id: int = None, db: Sessio
 @router.post("/items")
 def create_item(item: dict, db: Session = Depends(get_db)):
     return inventory_service.create_item(db, item)
+
+@router.patch("/items/reorder")
+def reorder_items(data: dict, db: Session = Depends(get_db)):
+    from erp.backend.db.models import Item as ItemModel
+    for entry in data.get('items', []):
+        item = db.query(ItemModel).filter(ItemModel.id == entry['id']).first()
+        if item:
+            item.display_order = entry.get('sort_order', 999)
+    db.commit()
+    return {"success": True}
 
 @router.put("/items/{item_id}")
 def update_item(item_id: int, item: dict, db: Session = Depends(get_db)):
@@ -93,8 +107,14 @@ def update_order(order_id: int, order_data: OrderCreate, db: Session = Depends(g
 
 @router.get("/orders")
 def list_orders(days_limit: int = None, status: str = None, limit: int = 500, db: Session = Depends(get_db)):
-    from erp.backend.db.models import User
+    from erp.backend.db.models import User, PurchaseOrderDetail
     orders = inventory_service.get_orders(db, days_limit=days_limit, status=status)
+    # Preload items for reference_amount calculation
+    all_items = {i.id: i for i in db.query(inventory_service.Item).all()}
+    all_details = db.query(PurchaseOrderDetail).all()
+    details_by_order = {}
+    for d in all_details:
+        details_by_order.setdefault(d.order_id, []).append(d)
     result = []
     for order in orders:
         vendor = db.query(inventory_service.Vendor).filter(inventory_service.Vendor.id == order.vendor_id).first()
@@ -114,6 +134,11 @@ def list_orders(days_limit: int = None, status: str = None, limit: int = 500, db
                     "id": recv_user.id,
                     "name": "(已刪除帳號)" if recv_user.deleted_at else (recv_user.full_name or recv_user.username)
                 }
+        ref_amount = sum(
+            float(d.qty or 0) * float(all_items[d.item_id].price or 0)
+            for d in details_by_order.get(order.id, [])
+            if d.item_id and d.item_id in all_items and all_items[d.item_id].price
+        )
         result.append({
             "id": order.id,
             "vendor_id": order.vendor_id,
@@ -125,7 +150,9 @@ def list_orders(days_limit: int = None, status: str = None, limit: int = 500, db
             "expected_delivery_date": order.expected_delivery_date,
             "total_amount": order.total_amount,
             "amount_paid": order.amount_paid,
+            "reference_amount": ref_amount,
             "is_paid": order.is_paid,
+            "is_prepaid": order.is_prepaid or False,
             "receipt_url": order.receipt_url,
             "note": order.note,
             "ordered_by": ordered_by,
@@ -144,13 +171,20 @@ class OrderReceive(BaseModel):
 
 @router.post("/orders/{order_id}/receive")
 def receive_order(order_id: int, receive_data: OrderReceive, db: Session = Depends(get_db)):
+    from erp.backend.db.models import PurchaseOrder as PO
     user_id = 1
+    # 若叫貨時已標記「已收款」，自動套用 pre_paid
+    payment_mode = receive_data.payment_mode
+    if not payment_mode:
+        order_obj = db.query(PO).filter(PO.id == order_id).first()
+        if order_obj and order_obj.is_prepaid:
+            payment_mode = 'pre_paid'
     return inventory_service.receive_order(
         db, order_id, user_id,
         receive_data.amount_paid, receive_data.total_amount,
         receive_data.is_paid, receive_data.note,
         receive_data.receive_photo_url,
-        receive_data.payment_mode
+        payment_mode
     )
 
 import os
@@ -189,6 +223,7 @@ class OrderPatch(BaseModel):
     ordered_at: Optional[str] = None
     expected_delivery_date: Optional[str] = None
     total_amount: Optional[float] = None
+    is_prepaid: Optional[bool] = None
     items: Optional[List[OrderItemCreate]] = None
 
 @router.patch("/orders/{order_id}")
@@ -214,6 +249,8 @@ def patch_order(order_id: int, data: OrderPatch, db: Session = Depends(get_db)):
             pass
     if data.total_amount is not None:
         order.total_amount = data.total_amount
+    if data.is_prepaid is not None:
+        order.is_prepaid = data.is_prepaid
     if data.items is not None:
         db.query(PurchaseOrderDetail).filter(PurchaseOrderDetail.order_id == order_id).delete()
         for item in data.items:

@@ -131,6 +131,29 @@ def create_petty_cash_record(db: Session, user_id: int, data: dict) -> dict:
         order_id=data.get("order_id")
     )
     db.add(record)
+
+    # B-13: 零用金支出（已付）自動寫入金流紀錄
+    if data["type"] == "expense" and data.get("is_paid", True):
+        from erp.backend.db.models import Vendor as VendorModel
+        # 嘗試從廠商取預設科目
+        category_id = data.get("category_id")
+        if not category_id and data.get("vendor_id"):
+            v = db.query(VendorModel).filter(VendorModel.id == data["vendor_id"]).first()
+            if v and v.default_category_id:
+                category_id = v.default_category_id
+        cf = CashFlowRecord(
+            user_id=user_id,
+            category_id=category_id,
+            amount=data["amount"],
+            type="expense",
+            source="petty_cash",
+            description=data.get("note"),
+            vendor_id=data.get("vendor_id"),
+            is_categorized=category_id is not None,
+            transaction_date=datetime.utcnow()
+        )
+        db.add(cf)
+
     db.commit()
     db.refresh(record)
     return _format_petty_cash(record, db)
@@ -262,13 +285,15 @@ def get_accounts_payable(
     return [_format_payable(r, db) for r in records]
 
 
-def mark_payable_paid(db: Session, payable_id: int, user_id: int) -> dict:
+def mark_payable_paid(db: Session, payable_id: int, user_id: int, payment_method: str = None) -> dict:
     record = db.query(AccountsPayable).filter(AccountsPayable.id == payable_id).first()
     if not record:
         raise ValueError(f"AccountsPayable {payable_id} not found")
     record.is_paid = True
     record.paid_at = datetime.utcnow()
     record.paid_by_user_id = user_id
+    if payment_method is not None:
+        record.payment_method = payment_method
     db.commit()
     db.refresh(record)
     return _format_payable(record, db)
@@ -332,9 +357,12 @@ def _format_cash_flow(record: CashFlowRecord, db: Session) -> dict:
 def _format_payable(record: AccountsPayable, db: Session) -> dict:
     from erp.backend.db.models import Vendor
     vendor_name = None
+    payment_terms = None
     if record.vendor_id:
         v = db.query(Vendor).filter(Vendor.id == record.vendor_id).first()
-        vendor_name = v.name if v else None
+        if v:
+            vendor_name = v.name
+            payment_terms = v.payment_terms
 
     return {
         "id": record.id,
@@ -345,6 +373,9 @@ def _format_payable(record: AccountsPayable, db: Session) -> dict:
         "due_date": record.due_date,
         "is_paid": record.is_paid,
         "paid_at": record.paid_at,
+        "payment_method": record.payment_method,
+        "note": record.note,
+        "payment_terms": payment_terms,
         "created_at": record.created_at
     }
 

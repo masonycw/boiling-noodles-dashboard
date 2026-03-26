@@ -9,6 +9,8 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api
 const records = ref([])
 const executors = ref([])
 const monthlyKpi = ref(null)
+const vendors = ref([])
+const allItems = ref([])
 const loading = ref(true)
 const expandedId = ref(null)
 
@@ -30,6 +32,7 @@ const filterDateTo = ref(new Date().toISOString().slice(0, 10))
 const filterExecutor = ref('')
 const filterGroup = ref('')
 const filterStatus = ref('')   // '' | 'has_discrepancy' | 'no_discrepancy'
+const filterVendor = ref('')
 
 const groupOptions = computed(() => {
   const names = new Set(records.value.map(r => r.group_name).filter(Boolean))
@@ -44,16 +47,26 @@ function authHeaders() {
   return { Authorization: `Bearer ${auth.token}` }
 }
 
+const itemVendorMap = computed(() => {
+  const m = {}
+  allItems.value.forEach(i => { m[i.id] = i.vendor_id })
+  return m
+})
+
 async function load() {
   loading.value = true
-  const [recRes, execRes, kpiRes] = await Promise.all([
+  const [recRes, execRes, kpiRes, vendorRes, itemRes] = await Promise.all([
     fetch(`${API_BASE}/stocktake/?limit=500`, { headers: authHeaders() }),
     fetch(`${API_BASE}/stocktake/executors`, { headers: authHeaders() }),
     fetch(`${API_BASE}/stocktake/monthly-kpi`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/inventory/items?limit=500`, { headers: authHeaders() }),
   ])
   if (recRes.ok) records.value = await recRes.json()
   if (execRes.ok) executors.value = await execRes.json()
   if (kpiRes.ok) monthlyKpi.value = await kpiRes.json()
+  if (vendorRes.ok) vendors.value = await vendorRes.json()
+  if (itemRes.ok) allItems.value = await itemRes.json()
   loading.value = false
 }
 
@@ -78,6 +91,10 @@ const filtered = computed(() => {
     list = list.filter(r => r.discrepancy_count > 0)
   } else if (filterStatus.value === 'no_discrepancy') {
     list = list.filter(r => r.discrepancy_count === 0)
+  }
+  if (filterVendor.value) {
+    const vendId = parseInt(filterVendor.value)
+    list = list.filter(r => r.items?.some(i => itemVendorMap.value[i.item_id] === vendId))
   }
   return list
 })
@@ -201,6 +218,11 @@ function fmtDate(d) {
         <option value="">全部狀態</option>
         <option value="has_discrepancy">有差異</option>
         <option value="no_discrepancy">無差異</option>
+      </select>
+      <select v-model="filterVendor"
+        class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
+        <option value="">全部廠商</option>
+        <option v-for="v in vendors" :key="v.id" :value="String(v.id)">{{ v.name }}</option>
       </select>
     </div>
 

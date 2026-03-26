@@ -38,6 +38,7 @@ const navGroups = [
       { name: 'cashflow-transactions',label: '金流紀錄',    icon: '📋' },
       { name: 'cashflow-petty-cash',  label: '零用金管理',  icon: '💰' },
       { name: 'cashflow-payables',    label: '應付帳款',    icon: '🧾' },
+      { name: 'cashflow-payees',      label: '費用對象',    icon: '🏷️' },
       { name: 'cashflow-recurring',   label: '重複預約設定', icon: '🔁' },
       { name: 'cashflow-ratio-costs', label: '比例費用設定', icon: '📐' },
     ]

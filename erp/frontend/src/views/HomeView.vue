@@ -12,6 +12,7 @@ const loading = ref(true)
 const lowStockItems = ref([])
 const pendingOrders = ref([])
 const pendingStocktakeGroups = ref([])
+const fixedOrderVendors = ref([])
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}` }
@@ -30,35 +31,13 @@ const greeting = computed(() => {
   return '晚安'
 })
 
-const overdueReceive = computed(() => {
-  if (!pendingOrders.value.length) return null
-  const today = new Date().toDateString()
-  return pendingOrders.value.find(o => {
-    if (!o.expected_delivery_date) return false
-    return new Date(o.expected_delivery_date).toDateString() === today
-  }) || null
-})
-
-// F-06: 首頁待收貨只顯示今天預計到貨的卡片
-const todayPendingOrders = computed(() => {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const tomorrow = new Date(today)
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  return pendingOrders.value.filter(o => {
-    if (!o.expected_delivery_date) return false
-    const d = new Date(o.expected_delivery_date)
-    d.setHours(0, 0, 0, 0)
-    return d.getTime() === today.getTime()
-  })
-})
 
 async function loadData() {
   try {
-    const [itemsRes, ordersRes, stocktakeRes] = await Promise.all([
+    const [itemsRes, stocktakeRes, vendorRes] = await Promise.all([
       fetch(`${API_BASE}/inventory/items?limit=500`, { headers: authHeaders() }),
-      fetch(`${API_BASE}/inventory/orders?status=confirmed&limit=20`, { headers: authHeaders() }),
       fetch(`${API_BASE}/stocktake/pending-groups`, { headers: authHeaders() }),
+      fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() }),
     ])
     if (itemsRes.ok) {
       const allItems = await itemsRes.json()
@@ -66,15 +45,31 @@ async function loadData() {
         parseFloat(i.min_stock) > 0 && parseFloat(i.current_stock) <= parseFloat(i.min_stock)
       )
     }
-    if (ordersRes.ok) {
-      pendingOrders.value = await ordersRes.json()
-    }
     if (stocktakeRes.ok) {
       pendingStocktakeGroups.value = await stocktakeRes.json()
+    }
+    if (vendorRes.ok) {
+      const allVendors = await vendorRes.json()
+      const dow = new Date().getDay() || 7 // JS: 0=Sunday→7
+      fixedOrderVendors.value = allVendors
+        .filter(v => v.is_fixed_order && v.show_in_ordering && Array.isArray(v.order_days) && v.order_days.includes(dow))
+        .sort((a, b) => (a.order_time || '99:99').localeCompare(b.order_time || '99:99'))
     }
   } finally {
     loading.value = false
   }
+}
+
+function orderDeadlineStatus(vendor) {
+  if (!vendor.order_time) return null
+  const now = new Date()
+  const [h, m] = vendor.order_time.split(':').map(Number)
+  const deadline = new Date(now)
+  deadline.setHours(h, m, 0, 0)
+  const diffMin = Math.round((deadline - now) / 60000)
+  if (diffMin < 0) return { label: `截單已過 ${vendor.order_time}`, cls: 'bg-red-50 text-red-500', overdue: true }
+  if (diffMin <= 60) return { label: `截單倒數 ${diffMin} 分`, cls: 'bg-amber-50 text-amber-600', overdue: false }
+  return { label: `截單 ${vendor.order_time}`, cls: 'bg-orange-50 text-orange-500', overdue: false }
 }
 
 onMounted(loadData)
@@ -151,40 +146,57 @@ function goToStocktake(groupId) {
     <div v-if="!loading" class="px-4 mt-5">
       <h2 class="font-bold text-slate-700 mb-3" style="font-size:13px">今日待辦</h2>
 
-      <!-- 黃色警示條 -->
-      <div v-if="overdueReceive"
-        @click="router.push({ name: 'order' })"
-        class="rounded-lg px-3 py-2.5 mb-3 cursor-pointer"
-        style="background:#fefce8;border:1px solid #fde68a;font-size:12px;font-weight:600;color:#92400e">
-        ⚠️ {{ overdueReceive.vendor_name }} 今日到貨，尚未簽收 — 點此處理
-      </div>
-
-      <!-- 待簽收訂單卡片 -->
-      <div v-if="todayPendingOrders.length === 0 && pendingStocktakeGroups.length === 0"
+      <!-- 待辦空狀態 -->
+      <div v-if="lowStockItems.length === 0 && pendingStocktakeGroups.length === 0 && fixedOrderVendors.length === 0"
         class="text-center py-8 text-slate-400 text-sm">
         今日無待辦事項 🎉
       </div>
 
-      <!-- 📦 待收貨（只顯示今日） -->
-      <div v-if="todayPendingOrders.length > 0" class="mb-4">
+      <!-- 🛒 待叫貨 -->
+      <div v-if="lowStockItems.length > 0" class="mb-4">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-xs font-extrabold text-slate-500 uppercase tracking-wide">📦 今日到貨</span>
-          <span class="text-xs font-bold text-orange-500">{{ todayPendingOrders.length }} 筆</span>
+          <span class="text-xs font-extrabold text-slate-500 uppercase tracking-wide">🛒 待叫貨</span>
+          <span class="text-xs font-bold text-orange-500">{{ lowStockItems.length }} 項</span>
+        </div>
+        <button
+          @click="router.push({ name: 'order' })"
+          class="w-full bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:bg-slate-50 transition-colors text-left"
+          style="border-radius:12px">
+          <span style="font-size:24px">🛒</span>
+          <div class="flex-1 min-w-0">
+            <p class="font-bold text-slate-800" style="font-size:14px">需補貨品項</p>
+            <p class="mt-0.5" style="font-size:12px;color:#999">{{ lowStockItems.length }} 項低於安全庫存</p>
+          </div>
+          <span class="font-bold shrink-0" style="background:#fff7ed;color:#ea580c;border-radius:12px;font-size:11px;padding:4px 10px">前往叫貨</span>
+          <span style="color:#ccc;font-size:16px">›</span>
+        </button>
+      </div>
+
+      <!-- 📅 今日叫貨排程 -->
+      <div v-if="fixedOrderVendors.length > 0" class="mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-extrabold text-slate-500 uppercase tracking-wide">📅 今日叫貨排程</span>
+          <span class="text-xs font-bold text-orange-500">{{ fixedOrderVendors.length }} 家</span>
         </div>
         <div class="space-y-2">
           <button
-            v-for="order in todayPendingOrders" :key="order.id"
-            @click="router.push({ name: 'order', query: { orderId: order.id } })"
+            v-for="v in fixedOrderVendors" :key="v.id"
+            @click="router.push({ name: 'order' })"
             class="w-full bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:bg-slate-50 transition-colors text-left"
             style="border-radius:12px">
-            <span style="font-size:24px">🚚</span>
+            <span style="font-size:22px">🏪</span>
             <div class="flex-1 min-w-0">
-              <p class="font-bold text-slate-800" style="font-size:14px">{{ order.vendor_name }}</p>
+              <p class="font-bold text-slate-800" style="font-size:14px">{{ v.name }}</p>
               <p class="mt-0.5" style="font-size:12px;color:#999">
-                {{ order.total_items || '?' }} 項品項
+                {{ v.order_time ? `截單 ${v.order_time}` : '今日需叫貨' }}
               </p>
             </div>
-            <span class="font-bold shrink-0" style="background:#fff7ed;color:#ea580c;border-radius:12px;font-size:11px;padding:4px 10px">今日到貨</span>
+            <span v-if="orderDeadlineStatus(v)"
+              class="font-bold shrink-0 text-[11px] px-2.5 py-1 rounded-full"
+              :class="orderDeadlineStatus(v).cls">
+              {{ orderDeadlineStatus(v).label }}
+            </span>
+            <span v-else class="font-bold shrink-0" style="background:#fff7ed;color:#ea580c;border-radius:12px;font-size:11px;padding:4px 10px">前往叫貨</span>
             <span style="color:#ccc;font-size:16px">›</span>
           </button>
         </div>

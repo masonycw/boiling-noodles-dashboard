@@ -172,7 +172,9 @@ def receive_order(db: Session, order_id: int, user_id: int, amount_paid: float,
                 else:
                     due = date_cls(today.year, today.month + 1, 5)
             elif pt in ('週結', 'weekly'):
-                due = today + timedelta(days=7)
+                # 下個禮拜一（weekday 0=週一，若今天是週一則取下週一）
+                days_ahead = (7 - today.weekday()) % 7 or 7
+                due = today + timedelta(days=days_ahead)
             elif pt in ('後收款', 'after_delivery'):
                 due = today + timedelta(days=max(1, vendor_payment_days or 14))
             else:

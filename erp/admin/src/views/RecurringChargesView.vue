@@ -12,8 +12,9 @@ const editTarget = ref(null)
 const saving = ref(false)
 const formError = ref('')
 const categories = ref([])
+const payees = ref([])
 
-const form = ref({ name: '', category: '', amount: '', day_of_month: '', note: '' })
+const form = ref({ name: '', category: '', amount: '', day_of_month: '', vendor_id: null, note: '' })
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
@@ -21,15 +22,17 @@ function authHeaders() {
 
 async function load() {
   loading.value = true
-  const [recRes, catRes] = await Promise.all([
+  const [recRes, catRes, payeeRes] = await Promise.all([
     fetch(`${API_BASE}/finance/recurring`, { headers: authHeaders() }),
     fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/inventory/vendors?vendor_type=payee`, { headers: authHeaders() }),
   ])
   if (recRes.ok) records.value = await recRes.json()
   if (catRes.ok) {
     const all = await catRes.json()
     categories.value = all.filter(c => c.type === 'expense' && c.is_active !== false).map(c => c.name)
   }
+  if (payeeRes.ok) payees.value = await payeeRes.json()
   loading.value = false
 }
 
@@ -37,14 +40,14 @@ onMounted(load)
 
 function openAdd() {
   editTarget.value = null
-  form.value = { name: '', category: categories.value[0] || '', amount: '', day_of_month: '', note: '' }
+  form.value = { name: '', category: categories.value[0] || '', amount: '', day_of_month: '', vendor_id: null, note: '' }
   formError.value = ''
   showModal.value = true
 }
 
 function openEdit(r) {
   editTarget.value = r
-  form.value = { name: r.name, category: r.category || categories.value[0] || '', amount: String(r.amount), day_of_month: String(r.day_of_month || ''), note: r.note || '' }
+  form.value = { name: r.name, category: r.category || categories.value[0] || '', amount: String(r.amount), day_of_month: String(r.day_of_month || ''), vendor_id: r.vendor_id || null, note: r.note || '' }
   formError.value = ''
   showModal.value = true
 }
@@ -61,6 +64,7 @@ async function save() {
       amount: parseFloat(form.value.amount),
       type: 'expense',
       day_of_month: form.value.day_of_month ? parseInt(form.value.day_of_month) : null,
+      vendor_id: form.value.vendor_id || null,
       note: form.value.note || null,
     }
     let res
@@ -90,6 +94,41 @@ async function deactivate(r) {
 }
 
 function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
+
+// B-12: 產生應付帳款
+const generateModal = ref(null)  // { r }
+const generateDueDate = ref('')
+const generating = ref(false)
+const toast = ref('')
+function showToast(msg) { toast.value = msg; setTimeout(() => { toast.value = '' }, 2500) }
+
+function openGenerateModal(r) {
+  const today = new Date()
+  const d = r.day_of_month ? new Date(today.getFullYear(), today.getMonth(), r.day_of_month) : today
+  generateDueDate.value = d.toISOString().split('T')[0]
+  generateModal.value = { r }
+}
+
+async function confirmGenerate() {
+  const r = generateModal.value.r
+  generating.value = true
+  try {
+    const res = await fetch(`${API_BASE}/finance/recurring/${r.id}/generate-payable`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ due_date: generateDueDate.value || null })
+    })
+    if (res.ok) {
+      showToast(`✓ 已產生「${r.name}」應付帳款`)
+      generateModal.value = null
+    } else {
+      const d = await res.json()
+      showToast(d.detail || '建立失敗')
+    }
+  } finally {
+    generating.value = false
+  }
+}
 </script>
 
 <template>
@@ -127,7 +166,8 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               </span>
             </td>
             <td class="px-4 py-3 text-center">
-              <div v-if="r.is_active" class="flex items-center justify-center gap-2">
+              <div v-if="r.is_active" class="flex items-center justify-center gap-2 flex-wrap">
+                <button @click="openGenerateModal(r)" class="text-xs px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30" title="產生應付帳款">帳款</button>
                 <button @click="openEdit(r)" class="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">編輯</button>
                 <button @click="deactivate(r)" class="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">停用</button>
               </div>
@@ -139,6 +179,29 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- B-12: 產生應付帳款 Modal -->
+    <div v-if="generateModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center" @click.self="generateModal = null">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl p-6 w-full max-w-sm mx-4 space-y-4">
+        <h3 class="font-bold text-gray-200">產生應付帳款</h3>
+        <div class="bg-[#0f1117] rounded-lg p-3 text-sm space-y-1">
+          <p class="text-gray-400">項目：<span class="text-gray-200 font-semibold">{{ generateModal.r.name }}</span></p>
+          <p class="text-gray-400">金額：<span class="text-amber-400 font-bold">NT$ {{ fmtMoney(generateModal.r.amount) }}</span></p>
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">到期日</label>
+          <input v-model="generateDueDate" type="date"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-400" />
+        </div>
+        <div class="flex gap-2">
+          <button @click="generateModal = null" class="flex-1 py-2 rounded-lg text-sm text-gray-400 border border-[#2d3748] hover:bg-[#1f2937]">取消</button>
+          <button @click="confirmGenerate" :disabled="generating"
+            class="flex-1 py-2 rounded-lg font-bold text-sm bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40">
+            {{ generating ? '建立中…' : '確認產生' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Modal -->
@@ -169,6 +232,13 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
             <label class="text-xs text-gray-500 mb-1 block">執行日（每月幾號，留空表示不固定）</label>
             <input v-model="form.day_of_month" type="number" min="1" max="31" placeholder="1-31" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]" />
           </div>
+          <div v-if="payees.length > 0">
+            <label class="text-xs text-gray-500 mb-1 block">費用對象（選填）</label>
+            <select v-model="form.vendor_id" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
+              <option :value="null">不選擇</option>
+              <option v-for="p in payees" :key="p.id" :value="p.id">{{ p.name }}</option>
+            </select>
+          </div>
           <div>
             <label class="text-xs text-gray-500 mb-1 block">備注</label>
             <input v-model="form.note" type="text" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]" />
@@ -184,5 +254,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
         </div>
       </div>
     </div>
+    <!-- Toast -->
+    <div v-if="toast" class="fixed bottom-6 right-6 bg-green-600 text-white px-4 py-2 rounded-lg text-sm shadow-xl z-50">{{ toast }}</div>
   </div>
 </template>

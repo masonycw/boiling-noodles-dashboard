@@ -303,13 +303,50 @@ def list_accounts_payable(
     )
 
 
+class PayablePayBody(BaseModel):
+    payment_method: Optional[str] = None
+
 @router.put("/accounts-payable/{payable_id}/pay")
-def mark_paid(payable_id: int, db: Session = Depends(get_db)):
-    user_id = 1  # TODO: 從 JWT 取得
+def mark_paid(payable_id: int, body: PayablePayBody = PayablePayBody(), db: Session = Depends(get_db)):
+    user_id = 1
     try:
-        return finance_service.mark_payable_paid(db, payable_id, user_id)
+        return finance_service.mark_payable_paid(db, payable_id, user_id, body.payment_method)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+@router.put("/accounts-payable/{payable_id}/unpay")
+def mark_unpaid(payable_id: int, db: Session = Depends(get_db)):
+    from erp.backend.db.models import AccountsPayable
+    p = db.query(AccountsPayable).filter(AccountsPayable.id == payable_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Not found")
+    p.is_paid = False
+    p.paid_at = None
+    p.paid_by_user_id = None
+    p.payment_method = None
+    db.commit()
+    return {"success": True}
+
+class PayablePatch(BaseModel):
+    due_date: Optional[str] = None
+    note: Optional[str] = None
+
+@router.patch("/accounts-payable/{payable_id}")
+def patch_payable(payable_id: int, data: PayablePatch, db: Session = Depends(get_db)):
+    from erp.backend.db.models import AccountsPayable
+    from datetime import datetime as dt
+    p = db.query(AccountsPayable).filter(AccountsPayable.id == payable_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Not found")
+    if data.due_date is not None:
+        try:
+            p.due_date = dt.fromisoformat(data.due_date)
+        except Exception:
+            pass
+    if data.note is not None:
+        p.note = data.note
+    db.commit()
+    return {"success": True}
 
 
 # ─────────────────────────────────────────────
@@ -567,6 +604,44 @@ def delete_recurring(rec_id: int, db: Session = Depends(get_db)):
     rec.is_active = False
     db.commit()
     return {"ok": True}
+
+
+class GeneratePayableBody(BaseModel):
+    due_date: Optional[str] = None   # YYYY-MM-DD；留空時自動計算 day_of_month
+
+
+@router.post("/recurring/{rec_id}/generate-payable")
+def generate_recurring_payable(rec_id: int, body: GeneratePayableBody = GeneratePayableBody(), db: Session = Depends(get_db)):
+    """B-12: 將重複預約轉為應付帳款"""
+    from erp.backend.db.models import CashFlowRecurring, AccountsPayable as AP
+    from datetime import datetime as dt
+    import calendar
+
+    rec = db.query(CashFlowRecurring).filter(CashFlowRecurring.id == rec_id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="重複預約不存在")
+
+    # 計算到期日
+    if body.due_date:
+        due = dt.fromisoformat(body.due_date)
+    elif rec.day_of_month:
+        today = date.today()
+        max_day = calendar.monthrange(today.year, today.month)[1]
+        due = today.replace(day=min(rec.day_of_month, max_day))
+    else:
+        due = None
+
+    payable = AP(
+        vendor_id=rec.vendor_id,
+        amount=rec.amount or 0,
+        due_date=due,
+        note=rec.name,
+        is_paid=False,
+    )
+    db.add(payable)
+    db.commit()
+    db.refresh(payable)
+    return finance_service._format_payable(payable, db)
 
 
 # ─────────────────────────────────────────────

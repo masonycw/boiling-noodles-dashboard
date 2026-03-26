@@ -15,6 +15,7 @@ const todayRecords = ref([])
 const yesterdayRecords = ref([])
 const settlements = ref([])  // A3: 多次日結記錄
 const vendors = ref([])
+const cashflowCategories = ref([])
 
 // ---- Daily settlement (A3: 多次日結) ----
 const showSettleModal = ref(false)
@@ -99,11 +100,12 @@ async function loadAll() {
     const today = _toLocalDate(_now)
     const yesterday = _toLocalDate(_yest)
 
-    const [balRes, todayRes, yestRes, vendRes, settleRes, canSettleRes] = await Promise.all([
+    const [balRes, todayRes, yestRes, vendRes, settleRes, canSettleRes, catRes] = await Promise.all([
       fetch(`${API_BASE}/finance/petty-cash/balance`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/petty-cash?date=${today}&limit=100`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/petty-cash?date=${yesterday}&limit=100`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/inventory/vendors`, { headers: { Authorization: `Bearer ${auth.token}` } }),
+      fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: { Authorization: `Bearer ${auth.token}` } }).catch(() => null),
       fetch(`${API_BASE}/finance/daily-settlement/today`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/daily-settlement/can-settle`, { headers: { Authorization: `Bearer ${auth.token}` } }).catch(() => null),
     ])
@@ -122,6 +124,7 @@ async function loadAll() {
       yesterdayRecords.value = Array.isArray(records) ? records : []
     }
     if (vendRes.ok) vendors.value = await vendRes.json()
+    if (catRes?.ok) cashflowCategories.value = await catRes.json()
     if (settleRes.ok) {
       const sd = await settleRes.json()
       // A3: support multiple settlements
@@ -689,7 +692,12 @@ async function paySelected() {
             <select v-model="sheetForm.vendor_id"
               class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-orange-400">
               <option value="">零用金雜費</option>
-              <option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option>
+              <optgroup v-if="vendors.filter(v => v.vendor_type === 'payee').length" label="費用對象">
+                <option v-for="v in vendors.filter(v => v.vendor_type === 'payee')" :key="v.id" :value="v.id">{{ v.name }}</option>
+              </optgroup>
+              <optgroup label="叫貨廠商">
+                <option v-for="v in vendors.filter(v => !v.vendor_type || v.vendor_type === 'supplier')" :key="v.id" :value="v.id">{{ v.name }}</option>
+              </optgroup>
             </select>
           </div>
 
@@ -740,7 +748,13 @@ async function paySelected() {
           <div v-if="sheetType === 'expense'" class="flex items-center justify-center gap-1.5 text-slate-400" style="font-size:11px">
             <span>科目：</span>
             <span class="font-semibold text-orange-500">
-              {{ vendors.find(v => v.id == sheetForm.vendor_id)?.expense_category || '零用金雜費' }}
+              {{
+                (() => {
+                  const v = vendors.find(v => v.id == sheetForm.vendor_id)
+                  if (!v || !v.default_category_id) return '零用金雜費'
+                  return cashflowCategories.find(c => c.id === v.default_category_id)?.name || '零用金雜費'
+                })()
+              }}
             </span>
             <span>（自動帶入）</span>
           </div>

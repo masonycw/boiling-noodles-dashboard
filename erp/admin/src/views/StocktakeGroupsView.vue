@@ -16,7 +16,7 @@ const showModal = ref(false)
 const editTarget = ref(null)
 const saving = ref(false)
 const saveError = ref('')
-const form = ref({ name: '', description: '', suggested_frequency: '每日', is_active: true, stocktake_cycle_days: null, next_stocktake_due: '' })
+const form = ref({ name: '', description: '', suggested_frequency: '每日', is_active: true, stocktake_cycle_days: null, next_stocktake_due: '', stocktake_time: '' })
 
 // 品項管理 Modal（B3 新功能）
 const showItemsModal = ref(false)
@@ -54,7 +54,7 @@ onMounted(load)
 // ── 群組 CRUD ──
 function openCreate() {
   editTarget.value = null
-  form.value = { name: '', description: '', suggested_frequency: '每日', is_active: true, stocktake_cycle_days: null, next_stocktake_due: '' }
+  form.value = { name: '', description: '', suggested_frequency: '每日', is_active: true, stocktake_cycle_days: null, next_stocktake_due: '', stocktake_time: '' }
   saveError.value = ''
   showModal.value = true
 }
@@ -66,7 +66,8 @@ function openEdit(g) {
     suggested_frequency: g.suggested_frequency || '每日',
     is_active: g.is_active !== false,
     stocktake_cycle_days: g.stocktake_cycle_days || null,
-    next_stocktake_due: g.next_stocktake_due || ''
+    next_stocktake_due: g.next_stocktake_due || '',
+    stocktake_time: g.stocktake_time || ''
   }
   saveError.value = ''
   showModal.value = true
@@ -192,7 +193,7 @@ async function saveGroupItems() {
                 每 {{ g.stocktake_cycle_days }} 天
               </span>
               <p v-if="g.next_stocktake_due" class="text-xs text-gray-600 mt-0.5">
-                下次：{{ g.next_stocktake_due }}
+                下次：{{ g.next_stocktake_due }}<span v-if="g.stocktake_time"> {{ g.stocktake_time }}</span>
               </p>
             </td>
             <td class="px-5 py-3 text-center">
@@ -257,6 +258,13 @@ async function saveGroupItems() {
             <input v-model="form.next_stocktake_due" type="date"
               class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400" />
             <p class="text-xs text-gray-600 mt-1">可手動覆蓋；盤點完成後系統自動 +週期天數</p>
+          </div>
+          <!-- 預計盤點時間 -->
+          <div>
+            <label class="block text-gray-400 text-xs font-semibold mb-1">預計盤點時間</label>
+            <input v-model="form.stocktake_time" type="time"
+              class="bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+            <span class="text-[11px] text-gray-600 ml-2">用於時間序排列（選填）</span>
           </div>
           <div class="flex items-center gap-3">
             <input v-model="form.is_active" type="checkbox" id="grp_active" class="w-4 h-4 accent-blue-500" />
