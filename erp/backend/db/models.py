@@ -482,3 +482,12 @@ class LinePendingGroup(Base):
     group_id = Column(String(100), unique=True)
     first_seen = Column(DateTime(timezone=True), server_default=func.now())
     matched = Column(Boolean, default=False)
+
+class Announcement(Base):
+    __tablename__ = "erp_announcements"
+    id = Column(Integer, primary_key=True)
+    content = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_by = Column(Integer, ForeignKey("erp_users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=True)

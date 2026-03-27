@@ -22,6 +22,8 @@ function saveMode() { localStorage.setItem(MODE_KEY, JSON.stringify({ order: mod
 // ── 叫貨 tab ──────────────────────────────────
 const vendors = ref([])
 const stocktakeGroups = ref([])
+const vendorDeliveryDates = ref({})  // { vendor_id: 'YYYY-MM-DD' }，群組模式各廠商獨立到貨日
+const vendorMeta = ref({})           // { vendor_id: vendorObject }，含 free_shipping_threshold 等
 const selectedVendor = ref(null)
 
 // Merged list: vendors first, then active stocktake groups (marked with _isGroup)
@@ -76,6 +78,37 @@ const showPreviewSheet = ref(false)
 const previewText = ref('')
 const previewCopied = ref(false)
 
+// ── 品項依廠商分組（群組叫貨模式用）──────────────────
+const itemsByVendor = computed(() => {
+  const map = {}
+  for (const item of items.value) {
+    const vid = item.vendor_id || 0
+    if (!map[vid]) {
+      const meta = vendorMeta.value[vid] || vendors.value.find(v => v.id === vid) || {}
+      map[vid] = {
+        vendor_id: vid,
+        vendor_name: meta.name || '其他',
+        free_shipping_threshold: parseFloat(meta.free_shipping_threshold) || 0,
+        note: meta.note || '',
+        items: []
+      }
+    }
+    map[vid].items.push(item)
+  }
+  return Object.values(map)
+})
+
+// 各廠商目前叫貨金額小計
+const vendorOrderTotals = computed(() => {
+  const totals = {}
+  for (const group of itemsByVendor.value) {
+    totals[group.vendor_id] = group.items.reduce(
+      (sum, i) => sum + (i.qty || 0) * (parseFloat(i.price) || 0), 0
+    )
+  }
+  return totals
+})
+
 // ── D+N 到貨倒數 (P3-3) ──────────────────────────
 const deliveryDays = computed(() => selectedVendor.value?.delivery_days_to_arrive || 2)
 const estimatedDeliveryLabel = computed(() => {
@@ -87,7 +120,7 @@ const estimatedDeliveryLabel = computed(() => {
 // ── 草稿自動儲存 (P3-3) ──────────────────────────
 const draftBanner = ref(null)
 const DRAFT_PREFIX = () => `draft:order:${auth.user?.id || 'anon'}:`
-const DRAFT_KEY = (vendorId) => `${DRAFT_PREFIX()}${vendorId || 'none'}`
+const DRAFT_KEY = (vkey) => `${DRAFT_PREFIX()}${vkey || 'none'}`
 const DRAFT_TTL = 48 * 60 * 60 * 1000
 
 // 草稿選單
@@ -100,9 +133,12 @@ function saveDraft() {
   const hasStocktake = modeStocktake.value && items.value.some(i => i.actual_qty != null && i.actual_qty !== '')
   if (!hasOrder && !hasStocktake) return
   try {
+    const vkey = vendorKey(selectedVendor.value)  // 'v2' = 廠商, 'g2' = 群組
     const draft = {
       timestamp: Date.now(),
+      vendorKey: vkey,
       vendorId: selectedVendor.value.id,
+      isGroup: selectedVendor.value._isGroup || false,
       vendorName: selectedVendor.value.name,
       modeOrder: modeOrder.value,
       modeStocktake: modeStocktake.value,
@@ -113,7 +149,7 @@ function saveDraft() {
       adHocItems: toRaw(adHocItems.value),
       expectedDeliveryDate: expectedDeliveryDate.value
     }
-    localStorage.setItem(DRAFT_KEY(selectedVendor.value.id), JSON.stringify(draft))
+    localStorage.setItem(DRAFT_KEY(vkey), JSON.stringify(draft))
   } catch (e) {
     console.error('Draft save failed:', e)
   }
@@ -151,7 +187,25 @@ function loadDraftBanner() {
 async function resumeDraft(draft) {
   showDraftSheet.value = false
   draftBanner.value = null
-  const v = vendors.value.find(v => v.id === draft.vendorId)
+  let v
+  if (draft.vendorKey) {
+    // 新格式：直接用 vendorKey（'g2'/'v2'）比對
+    v = vendorAndGroupList.value.find(x => vendorKey(x) === draft.vendorKey)
+  } else if (draft.isGroup) {
+    // 新格式有 isGroup 但無 vendorKey
+    v = vendorAndGroupList.value.find(x => x._isGroup && x.id === draft.vendorId)
+  } else {
+    // 舊格式（只有 vendorId 數字）：先嘗試比名稱找群組，避免 id 碰撞（如群組2 ≠ 廠商2）
+    v = vendorAndGroupList.value.find(x => x._isGroup && x.name === draft.vendorName)
+      || vendors.value.find(x => x.id === draft.vendorId)
+  }
+  // 自動遷移舊草稿：re-save 成新格式並刪除舊 key
+  if (v && !draft.vendorKey) {
+    const newVkey = vendorKey(v)
+    const migrated = { ...draft, vendorKey: newVkey, isGroup: v._isGroup || false }
+    localStorage.setItem(DRAFT_KEY(newVkey), JSON.stringify(migrated))
+    if (draft._key) localStorage.removeItem(draft._key)
+  }
   if (v) {
     await selectVendor(v)
     // 恢復叫貨數量
@@ -308,8 +362,23 @@ onMounted(async () => {
       fetch(`${API_BASE}/inventory/vendors?show_in_ordering=true`, { headers: authHeaders() }),
       fetch(`${API_BASE}/stocktake/groups`, { headers: authHeaders() }),
     ])
-    if (vRes.ok) vendors.value = await vRes.json()
+    if (vRes.ok) {
+      vendors.value = await vRes.json()
+      vendors.value.forEach(v => {
+        vendorDeliveryDates.value[v.id] = calcDeliveryDate(v)
+        vendorMeta.value[v.id] = v
+      })
+    }
     if (gRes.ok) stocktakeGroups.value = await gRes.json()
+    // 再載入所有廠商（不過濾 show_in_ordering），補充群組內廠商的 meta
+    fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : [])
+      .then(all => all.forEach(v => {
+        if (!vendorMeta.value[v.id]) {
+          vendorDeliveryDates.value[v.id] = calcDeliveryDate(v)
+          vendorMeta.value[v.id] = v
+        }
+      }))
 
     // F-04: auto-select vendor from query param
     const qVendorId = route.query.vendorId ? parseInt(route.query.vendorId) : null
@@ -477,9 +546,8 @@ async function submitPendingReceive() {
           byVendor[vid].push({ item_id: i.id, qty: i.qty })
         }
         for (const [vid, vendorItems] of Object.entries(byVendor)) {
-          // 用該廠商的 D+X 計算到貨日
-          const vendorObj = vendors.value.find(v => v.id === parseInt(vid))
-          const delivDate = vendorObj ? calcDeliveryDate(vendorObj) : expectedDeliveryDate.value
+          // 優先用使用者在分隔線調整過的到貨日，否則用 D+X 計算
+          const delivDate = vendorDeliveryDates.value[parseInt(vid)] || expectedDeliveryDate.value
           const res = await fetch(`${API_BASE}/inventory/orders`, {
             method: 'POST', headers: authHeaders(),
             body: JSON.stringify({
@@ -969,8 +1037,8 @@ const payBadge = (o) => {
           </div>
         </div>
 
-        <!-- D+N 到貨倒數 + 日期選擇器 (P3-3) -->
-        <div class="bg-orange-50 rounded-xl px-3 py-2 border border-orange-100 space-y-1">
+        <!-- D+N 到貨倒數 + 日期選擇器（群組模式改由各廠商分隔線顯示，此處隱藏） -->
+        <div v-if="!selectedVendor?._isGroup" class="bg-orange-50 rounded-xl px-3 py-2 border border-orange-100 space-y-1">
           <div class="flex items-center justify-between">
             <span class="text-[10px] font-bold text-orange-600">⚡ {{ estimatedDeliveryLabel }}</span>
           </div>
@@ -1002,8 +1070,41 @@ const payBadge = (o) => {
           </div>
         </div>
 
-        <!-- A1: Regular items（支援雙模式） -->
-        <div v-for="item in items" :key="item.id"
+        <!-- A1: Regular items（支援雙模式，群組時依廠商分組） -->
+        <template v-for="group in itemsByVendor" :key="group.vendor_id">
+          <!-- 廠商分隔線（選了群組 + 多廠商時顯示） -->
+          <div v-if="selectedVendor?._isGroup && itemsByVendor.length > 1"
+            class="pt-2 pb-0.5 space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-extrabold text-slate-600">🏪 {{ group.vendor_name }}</span>
+              <div class="flex-1 h-px bg-slate-200"></div>
+              <!-- 到貨日 -->
+              <div v-if="modeOrder" class="flex items-center gap-1 shrink-0">
+                <span class="text-[10px] text-slate-400">到貨日</span>
+                <input
+                  v-model="vendorDeliveryDates[group.vendor_id]"
+                  type="date"
+                  class="text-[11px] border border-slate-200 rounded-lg px-1.5 py-0.5 text-slate-600 bg-white focus:outline-none focus:ring-1 focus:ring-orange-300" />
+              </div>
+            </div>
+            <!-- 免運門檻進度（有設定且叫貨模式時顯示） -->
+            <div v-if="modeOrder && group.free_shipping_threshold > 0"
+              class="flex items-center gap-2 pl-1">
+              <span class="text-[10px]"
+                :class="vendorOrderTotals[group.vendor_id] >= group.free_shipping_threshold ? 'text-emerald-600 font-bold' : 'text-slate-400'">
+                滿${{ fmtMoney(group.free_shipping_threshold) }}免運
+              </span>
+              <span class="text-[10px]"
+                :class="vendorOrderTotals[group.vendor_id] >= group.free_shipping_threshold ? 'text-emerald-600 font-bold' : 'text-orange-500'">
+                目前 ${{ fmtMoney(vendorOrderTotals[group.vendor_id] || 0) }}
+                <span v-if="vendorOrderTotals[group.vendor_id] < group.free_shipping_threshold">
+                  （差 ${{ fmtMoney(group.free_shipping_threshold - (vendorOrderTotals[group.vendor_id] || 0)) }}）
+                </span>
+                <span v-else>✓</span>
+              </span>
+            </div>
+          </div>
+        <div v-for="item in group.items" :key="item.id"
           class="bg-white rounded-xl p-3 shadow-sm transition-all duration-300"
           :class="stockBorder(item)"
           style="overflow:hidden">
@@ -1088,6 +1189,7 @@ const payBadge = (o) => {
             </div>
           </template>
         </div>
+        </template>
 
         <!-- Add ad-hoc -->
         <div class="flex justify-center pt-1">
@@ -1230,9 +1332,15 @@ const payBadge = (o) => {
             <div v-for="d in draftsList" :key="d._key"
               class="bg-slate-50 rounded-xl p-4 flex items-center justify-between gap-3">
               <div class="flex-1 min-w-0">
-                <p class="font-bold text-slate-800 text-sm">{{ d.vendorName }}</p>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <p class="font-bold text-slate-800 text-sm">{{ d.vendorName }}</p>
+                  <span class="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                    :style="d.modeOrder && d.modeStocktake ? 'background:#fef3c7;color:#92400e' : d.modeOrder ? 'background:#dcfce7;color:#166534' : 'background:#dbeafe;color:#1e40af'">
+                    {{ d.modeOrder && d.modeStocktake ? '叫貨＋盤點' : d.modeOrder ? '叫貨' : '盤點' }}
+                  </span>
+                </div>
                 <p class="text-xs text-slate-400 mt-0.5">
-                  {{ d.qtys.length + (d.adHocItems?.length || 0) }} 品項
+                  {{ (d.qtys?.length || 0) + (d.adHocItems?.length || 0) + (d.stocktakeQtys?.length || 0) }} 筆
                   · {{ new Date(d.timestamp).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}
                 </p>
               </div>

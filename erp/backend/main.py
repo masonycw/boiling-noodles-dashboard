@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from erp.backend.api import auth, inventory, finance, stocktake, waste, users, notifications, reports
-from erp.backend.api import webhook, uploads
+from erp.backend.api import webhook, uploads, announcements
 from erp.backend.api.admin import settings as admin_settings
 
 app = FastAPI(
@@ -33,6 +33,7 @@ app.include_router(reports.router,       prefix="/api/v1",          tags=["repor
 app.include_router(webhook.router,       prefix="/api/v1",          tags=["webhook"])
 app.include_router(admin_settings.router, prefix="/api/v1/admin",   tags=["settings"])
 app.include_router(uploads.router,        prefix="/api/v1",            tags=["uploads"])
+app.include_router(announcements.router,  prefix="/api/v1",            tags=["announcements"])
 
 # ─── Static files (uploaded images) ───
 _UPLOAD_DIR = os.environ.get(

@@ -32,6 +32,8 @@ const emptyForm = () => ({
   delivery_days_to_arrive: 1,
   closed_days: [],
   closed_on_holidays: false,
+  free_shipping_threshold: '',
+  note: '',
 })
 
 const form = ref(emptyForm())
@@ -103,6 +105,8 @@ function selectVendor(v) {
     delivery_days_to_arrive: v.delivery_days_to_arrive ?? 1,
     closed_days: v.closed_days || [],
     closed_on_holidays: v.closed_on_holidays || false,
+    free_shipping_threshold: v.free_shipping_threshold || '',
+    note: v.note || '',
   }
 }
 
@@ -554,6 +558,20 @@ async function deleteVendor() {
                 <input type="checkbox" v-model="form.closed_on_holidays" class="w-4 h-4 rounded accent-red-500" />
                 <span class="text-[#9ca3af] text-[13px] font-semibold">國定假日休息</span>
               </label>
+            </div>
+
+            <!-- 免運門檻 + 備注 -->
+            <div class="flex gap-3 items-end">
+              <div class="flex-1">
+                <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">免運門檻（元）</label>
+                <input v-model.number="form.free_shipping_threshold" type="number" min="0" placeholder="0 = 不設定"
+                  class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">備注</label>
+              <textarea v-model="form.note" rows="2" placeholder="廠商備注、注意事項…"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed] text-sm resize-none"></textarea>
             </div>
 
             <div v-if="saveError" class="text-red-400 text-xs text-center">{{ saveError }}</div>
