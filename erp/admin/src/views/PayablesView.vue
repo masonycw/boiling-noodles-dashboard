@@ -9,7 +9,7 @@ const payables = ref([])
 const vendors = ref([])
 const loading = ref(true)
 const payVendor = ref('')
-const payStatus = ref('')
+const payStatus = ref('unpaid')  // 預設只顯示未付款
 const toast = ref('')
 const selectedIds = ref(new Set())
 const batchPaying = ref(false)
@@ -111,7 +111,7 @@ async function confirmPay() {
     headers: authHeaders(),
     body: JSON.stringify({ payment_method: payMethodInput.value })
   })
-  if (res.ok) { showToast('✓ 已標記付款'); payModal.value = null; await load() }
+  if (res.ok) { showToast('✓ 已付款，已進入金流紀錄'); payModal.value = null; await load() }
 }
 
 // B-09: 返回未付款
@@ -192,15 +192,15 @@ async function confirmBatchPay() {
   batchPaying.value = true
   batchPayModal.value = false
   try {
-    await Promise.all(ids.map(id =>
-      fetch(`${API_BASE}/finance/accounts-payable/${id}/pay`, {
-        method: 'PUT',
-        headers: authHeaders(),
-        body: JSON.stringify({ payment_method: batchPayMethod.value })
-      })
-    ))
+    // 用批次端點：產生單一金流總結紀錄
+    const res = await fetch(`${API_BASE}/finance/accounts-payable/batch-pay`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ ids, payment_method: batchPayMethod.value })
+    })
+    if (!res.ok) throw new Error('批次付款失敗')
     selectedIds.value = new Set()
-    showToast(`✓ 已結清 ${ids.length} 筆帳款`)
+    showToast(`✓ 已結清 ${ids.length} 筆帳款，已進入金流紀錄`)
     await load()
   } catch {
     showToast('部分結清失敗，請重試')

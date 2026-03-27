@@ -407,14 +407,130 @@ def mark_payable_paid(db: Session, payable_id: int, user_id: int, payment_method
     record = db.query(AccountsPayable).filter(AccountsPayable.id == payable_id).first()
     if not record:
         raise ValueError(f"AccountsPayable {payable_id} not found")
+    now = datetime.utcnow()
     record.is_paid = True
-    record.paid_at = datetime.utcnow()
+    record.paid_at = now
     record.paid_by_user_id = user_id
     if payment_method is not None:
         record.payment_method = payment_method
+
+    # 取廠商資訊
+    from erp.backend.db.models import Vendor as VendorModel
+    vendor_name = None
+    vendor_cat_id = None
+    if record.vendor_id:
+        vdr = db.query(VendorModel).filter(VendorModel.id == record.vendor_id).first()
+        if vdr:
+            vendor_name = vdr.name
+            vendor_cat_id = vdr.default_category_id
+
+    # 建立金流紀錄
+    desc_parts = [f"應付帳款 - {vendor_name}" if vendor_name else "應付帳款"]
+    if record.note:
+        desc_parts.append(record.note)
+    cf = CashFlowRecord(
+        user_id=user_id,
+        category_id=vendor_cat_id,
+        amount=record.amount,
+        type="expense",
+        source="accounts_payable",
+        description=" / ".join(desc_parts),
+        vendor_id=record.vendor_id,
+        is_categorized=vendor_cat_id is not None,
+        payment_method=payment_method,
+        ref_payable_ids=[payable_id],
+        transaction_date=now,
+    )
+    db.add(cf)
+
+    # 同步零用金：若有關聯叫貨單，將零用金待付記錄標記為已結帳（不計入支出）
+    if record.order_id:
+        from erp.backend.db.models import PurchaseOrder
+        petty_records = db.query(PettyCashRecord).filter(
+            PettyCashRecord.order_id == record.order_id,
+            PettyCashRecord.is_paid == False,
+            PettyCashRecord.settled_at == None,
+        ).all()
+        for pr in petty_records:
+            pr.settled_at = now  # 標記已結帳，但 is_paid 維持 False，不計入餘額支出
+
     db.commit()
     db.refresh(record)
     return _format_payable(record, db)
+
+
+def batch_pay_payables(db: Session, payable_ids: list, user_id: int, payment_method: str = None) -> dict:
+    """批次付清多筆應付帳款，產生單一金流紀錄"""
+    from erp.backend.db.models import Vendor as VendorModel
+    if not payable_ids:
+        raise ValueError("未選擇帳款")
+
+    records = db.query(AccountsPayable).filter(AccountsPayable.id.in_(payable_ids)).all()
+    if len(records) != len(payable_ids):
+        raise ValueError("部分帳款不存在")
+
+    now = datetime.utcnow()
+    total_amount = sum(float(r.amount) for r in records)
+
+    # 取廠商資訊（可能多個廠商）
+    vendor_ids = list({r.vendor_id for r in records if r.vendor_id})
+    vendor_names = []
+    vendor_cat_id = None
+    for vid in vendor_ids:
+        vdr = db.query(VendorModel).filter(VendorModel.id == vid).first()
+        if vdr:
+            vendor_names.append(vdr.name)
+            if not vendor_cat_id and vdr.default_category_id:
+                vendor_cat_id = vdr.default_category_id
+
+    # 標記每筆帳款已付
+    for r in records:
+        r.is_paid = True
+        r.paid_at = now
+        r.paid_by_user_id = user_id
+        if payment_method:
+            r.payment_method = payment_method
+        # 同步零用金 settled_at
+        if r.order_id:
+            petty_records = db.query(PettyCashRecord).filter(
+                PettyCashRecord.order_id == r.order_id,
+                PettyCashRecord.is_paid == False,
+                PettyCashRecord.settled_at == None,
+            ).all()
+            for pr in petty_records:
+                pr.settled_at = now
+
+    # 建立單一金流總結紀錄
+    if len(vendor_names) == 1:
+        desc = f"應付帳款 - {vendor_names[0]}（{len(records)} 筆）"
+    elif vendor_names:
+        desc = f"應付帳款批次付款：{', '.join(vendor_names)}（共 {len(records)} 筆）"
+    else:
+        desc = f"應付帳款批次付款（{len(records)} 筆）"
+
+    main_vendor_id = vendor_ids[0] if len(vendor_ids) == 1 else None
+    cf = CashFlowRecord(
+        user_id=user_id,
+        category_id=vendor_cat_id,
+        amount=total_amount,
+        type="expense",
+        source="accounts_payable",
+        description=desc,
+        vendor_id=main_vendor_id,
+        is_categorized=vendor_cat_id is not None,
+        payment_method=payment_method,
+        ref_payable_ids=payable_ids,
+        transaction_date=now,
+    )
+    db.add(cf)
+    db.commit()
+    db.refresh(cf)
+
+    return {
+        "paid_ids": payable_ids,
+        "total_amount": total_amount,
+        "cashflow_record_id": cf.id,
+    }
 
 
 # ─────────────────────────────────────────────
@@ -478,6 +594,8 @@ def _format_cash_flow(record: CashFlowRecord, db: Session) -> dict:
         "description": record.description,
         "vendor_id": record.vendor_id,
         "is_categorized": record.is_categorized,
+        "payment_method": getattr(record, 'payment_method', None),
+        "ref_payable_ids": getattr(record, 'ref_payable_ids', None),
         "transaction_date": record.transaction_date,
         "created_at": record.created_at
     }

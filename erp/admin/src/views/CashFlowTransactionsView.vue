@@ -34,7 +34,16 @@ function cfSourceInfo(r) {
   if (src === 'system') return { label: '🔗 營運系統', bg: 'bg-[#1e3a5f]', txt: 'text-[#63b3ed]' }
   if (src === 'manual') return { label: '✏ 手動', bg: 'bg-[#2d1a00]', txt: 'text-[#fb923c]' }
   if (src === 'auto') return { label: '⚙ 自動', bg: 'bg-[#1a2e1a]', txt: 'text-[#4ade80]' }
+  if (src === 'petty_cash') return { label: '💰 零用金', bg: 'bg-[#1a1a3e]', txt: 'text-violet-400' }
+  if (src === 'accounts_payable') return { label: '📋 應付帳款', bg: 'bg-[#0f2a1a]', txt: 'text-emerald-400' }
   return { label: src || '—', bg: 'bg-[#1f2937]', txt: 'text-gray-400' }
+}
+
+// 展開應付帳款明細
+const expandedCfId = ref(null)
+function toggleCfExpand(r) {
+  if (r.source !== 'accounts_payable' && r.source !== 'petty_cash') return
+  expandedCfId.value = expandedCfId.value === r.id ? null : r.id
 }
 
 const showAddModal = ref(false)
@@ -227,46 +236,86 @@ async function updateCategory(record, catId) {
             <th class="px-5 py-3 text-left">科目</th>
             <th class="px-5 py-3 text-left">說明</th>
             <th class="px-5 py-3 text-right">金額</th>
+            <th class="px-5 py-3 text-center">付款方式</th>
             <th class="px-5 py-3 text-center">來源</th>
             <th class="px-5 py-3 text-center">操作</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-[#2d3748]">
-          <tr v-for="r in filtered" :key="r.id" class="hover:bg-[#1f2937]">
-            <td class="px-5 py-2.5 text-gray-500 text-xs">{{ fmtDate(r.created_at) }}</td>
-            <td class="px-5 py-2.5 text-center">
-              <span class="text-xs font-bold" :class="r.type === 'income' ? 'text-emerald-400' : 'text-blue-400'">
-                {{ r.type === 'income' ? '收入' : '支出' }}
-              </span>
-            </td>
-            <td class="px-5 py-2.5 text-xs">
-              <select v-if="!r.is_categorized"
-                @change="updateCategory(r, $event.target.value)"
-                class="bg-[#0f1117] border border-amber-500/50 text-amber-400 rounded px-2 py-1 text-xs focus:outline-none">
-                <option value="">-- 選擇科目 --</option>
-                <option v-for="c in categories.filter(c => c.type === r.type)" :key="c.id" :value="c.id">
-                  {{ c.name }}
-                </option>
-              </select>
-              <span v-else class="text-gray-300">{{ r.category_name || '—' }}</span>
-            </td>
-            <td class="px-5 py-2.5 text-gray-500 text-xs">{{ r.description || '—' }}</td>
-            <td class="px-5 py-2.5 text-right font-mono"
-              :class="r.type === 'income' ? 'text-emerald-400' : 'text-red-400'">
-              {{ r.type === 'income' ? '+' : '-' }}NT$ {{ fmtMoney(r.amount) }}
-            </td>
-            <td class="px-5 py-2.5 text-center">
-              <span class="text-xs font-bold px-2 py-0.5 rounded" :class="[cfSourceInfo(r).bg, cfSourceInfo(r).txt]">
-                {{ cfSourceInfo(r).label }}
-              </span>
-            </td>
-            <td class="px-5 py-2.5 text-center" @click.stop>
-              <button @click="openEdit(r)" class="text-xs px-2 py-1 rounded bg-[#2d3748] text-blue-400 hover:bg-[#3d4f63] mr-1">編輯</button>
-              <button @click="deleteRecord_fn(r)" class="text-xs px-2 py-1 rounded bg-[#2d3748] text-red-400 hover:bg-red-900/30">刪除</button>
-            </td>
-          </tr>
+          <template v-for="r in filtered" :key="r.id">
+            <tr class="hover:bg-[#1f2937]"
+              :class="(r.source === 'accounts_payable' || r.source === 'petty_cash') ? 'cursor-pointer' : ''"
+              @click="toggleCfExpand(r)">
+              <td class="px-5 py-2.5 text-gray-500 text-xs">{{ fmtDate(r.created_at) }}</td>
+              <td class="px-5 py-2.5 text-center">
+                <span class="text-xs font-bold" :class="r.type === 'income' ? 'text-emerald-400' : 'text-blue-400'">
+                  {{ r.type === 'income' ? '收入' : '支出' }}
+                </span>
+              </td>
+              <td class="px-5 py-2.5 text-xs">
+                <select v-if="!r.is_categorized"
+                  @change="updateCategory(r, $event.target.value)"
+                  @click.stop
+                  class="bg-[#0f1117] border border-amber-500/50 text-amber-400 rounded px-2 py-1 text-xs focus:outline-none">
+                  <option value="">-- 選擇科目 --</option>
+                  <option v-for="c in categories.filter(c => c.type === r.type)" :key="c.id" :value="c.id">
+                    {{ c.name }}
+                  </option>
+                </select>
+                <span v-else class="text-gray-300">{{ r.category_name || '—' }}</span>
+              </td>
+              <td class="px-5 py-2.5 text-gray-400 text-xs">
+                {{ r.description || '—' }}
+                <span v-if="r.source === 'accounts_payable' && r.ref_payable_ids?.length"
+                  class="ml-1 text-[10px] text-emerald-600">▼ 展開明細</span>
+              </td>
+              <td class="px-5 py-2.5 text-right font-mono"
+                :class="r.type === 'income' ? 'text-emerald-400' : 'text-red-400'">
+                {{ r.type === 'income' ? '+' : '-' }}NT$ {{ fmtMoney(r.amount) }}
+              </td>
+              <td class="px-5 py-2.5 text-center">
+                <span v-if="r.payment_method" class="text-xs px-2 py-0.5 rounded bg-[#1f2937] text-gray-300 border border-[#2d3748]">
+                  {{ r.payment_method }}
+                </span>
+                <span v-else class="text-gray-600 text-xs">—</span>
+              </td>
+              <td class="px-5 py-2.5 text-center">
+                <span class="text-xs font-bold px-2 py-0.5 rounded" :class="[cfSourceInfo(r).bg, cfSourceInfo(r).txt]">
+                  {{ cfSourceInfo(r).label }}
+                </span>
+              </td>
+              <td class="px-5 py-2.5 text-center" @click.stop>
+                <button @click="openEdit(r)" class="text-xs px-2 py-1 rounded bg-[#2d3748] text-blue-400 hover:bg-[#3d4f63] mr-1">編輯</button>
+                <button @click="deleteRecord_fn(r)" class="text-xs px-2 py-1 rounded bg-[#2d3748] text-red-400 hover:bg-red-900/30">刪除</button>
+              </td>
+            </tr>
+            <!-- 展開：應付帳款明細 -->
+            <tr v-if="expandedCfId === r.id && r.source === 'accounts_payable'" class="bg-[#0a1a0f]">
+              <td colspan="8" class="px-8 py-3">
+                <p class="text-xs font-bold text-emerald-400 mb-2">📋 應付帳款明細</p>
+                <div class="text-xs text-gray-300 space-y-1">
+                  <p>{{ r.description }}</p>
+                  <p v-if="r.payment_method" class="text-gray-500">付款方式：{{ r.payment_method }}</p>
+                  <p class="text-gray-500">付款日期：{{ fmtDate(r.transaction_date || r.created_at) }}</p>
+                  <p v-if="r.ref_payable_ids?.length" class="text-gray-500">
+                    包含帳款 ID：{{ r.ref_payable_ids.join(', ') }}
+                  </p>
+                </div>
+              </td>
+            </tr>
+            <!-- 展開：零用金結帳明細 -->
+            <tr v-if="expandedCfId === r.id && r.source === 'petty_cash'" class="bg-[#0a0a1f]">
+              <td colspan="8" class="px-8 py-3">
+                <p class="text-xs font-bold text-violet-400 mb-2">💰 零用金支出明細</p>
+                <div class="text-xs text-gray-300 space-y-1">
+                  <p>{{ r.description }}</p>
+                  <p class="text-gray-500">日期：{{ fmtDate(r.transaction_date || r.created_at) }}</p>
+                </div>
+              </td>
+            </tr>
+          </template>
           <tr v-if="filtered.length === 0">
-            <td colspan="7" class="px-5 py-10 text-center text-gray-600">無金流紀錄</td>
+            <td colspan="8" class="px-5 py-10 text-center text-gray-600">無金流紀錄</td>
           </tr>
         </tbody>
       </table>

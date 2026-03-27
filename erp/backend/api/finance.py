@@ -328,6 +328,24 @@ def list_accounts_payable(
 class PayablePayBody(BaseModel):
     payment_method: Optional[str] = None
 
+
+class BatchPayBody(BaseModel):
+    ids: list[int]
+    payment_method: Optional[str] = None
+
+
+@router.post("/accounts-payable/batch-pay")
+def batch_pay(body: BatchPayBody, db: Session = Depends(get_db),
+              current_user: User = Depends(get_current_user)):
+    """批次付清多筆應付帳款，產生單一金流總結紀錄"""
+    try:
+        return finance_service.batch_pay_payables(
+            db, body.ids, current_user.id, body.payment_method
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.put("/accounts-payable/{payable_id}/pay")
 def mark_paid(payable_id: int, body: PayablePayBody = PayablePayBody(), db: Session = Depends(get_db)):
     user_id = 1

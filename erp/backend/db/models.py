@@ -325,6 +325,8 @@ class CashFlowRecord(Base):
     is_categorized = Column(Boolean, default=True)           # False = 未分類（臨時支出）
     transaction_date = Column(DateTime(timezone=True))       # 實際發生日期
     is_locked = Column(Boolean, default=False)               # P2-3 日結後鎖定
+    payment_method = Column(String, nullable=True)           # 付款方式（應付帳款付款時帶入）
+    ref_payable_ids = Column(JSON, nullable=True)            # 關聯應付帳款 ID 列表（source=accounts_payable 時使用）
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

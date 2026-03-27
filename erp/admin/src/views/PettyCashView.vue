@@ -259,7 +259,14 @@ async function togglePayment(record) {
               </td>
               <td class="px-5 py-2.5 text-right font-mono text-gray-200">NT$ {{ fmtMoney(r.running_balance) }}</td>
               <td class="px-5 py-2.5 text-center">
-                <span class="text-xs font-bold px-2 py-0.5 rounded"
+                <!-- settled_at 且 is_paid=false → 應付帳款已付清（不計入支出） -->
+                <template v-if="r.is_paid === false && r.settled_at">
+                  <span class="text-xs font-bold px-2 py-0.5 rounded bg-teal-900/40 text-teal-300 block leading-tight">
+                    {{ new Date(r.settled_at).toLocaleDateString('zh-TW', { month:'2-digit', day:'2-digit' }) }} 已付款
+                  </span>
+                  <span class="text-[10px] text-gray-600 mt-0.5 block">不計入支出</span>
+                </template>
+                <span v-else class="text-xs font-bold px-2 py-0.5 rounded"
                   :class="r.is_paid === false ? 'bg-orange-900/40 text-orange-400' : 'bg-emerald-900/40 text-emerald-400'">
                   {{ r.is_paid === false ? '待付' : '已付' }}
                 </span>
@@ -297,7 +304,13 @@ async function togglePayment(record) {
                   </div>
                   <div class="space-y-0.5">
                     <p class="text-gray-500">付款狀態</p>
-                    <p class="font-semibold" :class="r.is_paid === false ? 'text-orange-400' : 'text-emerald-400'">
+                    <template v-if="r.is_paid === false && r.settled_at">
+                      <p class="font-semibold text-teal-300">
+                        已付款（應付帳款）
+                      </p>
+                      <p class="text-[10px] text-gray-500">{{ new Date(r.settled_at).toLocaleDateString('zh-TW') }}・不計入零用金支出</p>
+                    </template>
+                    <p v-else class="font-semibold" :class="r.is_paid === false ? 'text-orange-400' : 'text-emerald-400'">
                       {{ r.is_paid === false ? '待付款' : '已付款' }}
                     </p>
                   </div>

@@ -312,9 +312,19 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               <!-- Expanded detail -->
               <tr v-if="expandedId === o.id" class="border-b border-[#2d3748] bg-[#0f1117]">
                 <td colspan="9" class="px-6 py-4">
-                  <div class="flex items-center gap-4 mb-3 text-xs">
-                    <span class="text-gray-500">送出人：</span>
-                    <UserBadge :user="o.created_by" size="md" />
+                  <div class="flex flex-wrap items-center gap-6 mb-3 text-xs">
+                    <div class="flex items-center gap-2">
+                      <span class="text-gray-500">叫貨人：</span>
+                      <UserBadge :user="o.ordered_by || o.created_by" size="md" />
+                    </div>
+                    <div v-if="o.received_by" class="flex items-center gap-2">
+                      <span class="text-gray-500">收貨人：</span>
+                      <UserBadge :user="o.received_by" size="md" />
+                    </div>
+                    <div v-else-if="o.status === 'received'" class="flex items-center gap-2">
+                      <span class="text-gray-500">收貨人：</span>
+                      <span class="text-gray-500">未紀錄</span>
+                    </div>
                   </div>
                   <div v-if="!orderDetails[o.id]" class="text-gray-500 text-sm">載入中…</div>
                   <table v-else class="w-full text-xs">
