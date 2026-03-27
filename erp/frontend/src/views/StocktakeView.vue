@@ -10,13 +10,15 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api
 
 // ── State ──────────────────────────────────────
 const groups = ref([])
+const vendors = ref([])
 const selectedGroup = ref(null)   // null = 全部品項
 const items = ref([])
 const loading = ref(false)
 const submitting = ref(false)
 const submitted = ref(false)
 const showOrderSheets = ref(false)
-const vendorSheets = ref([])       // [{ vendor_name, items: [], total, text }]
+const vendorSheets = ref([])       // [{ vendor_id, vendor_name, items: [], total, text }]
+const vendorDeliveryDates = ref({})  // { vendor_id: 'YYYY-MM-DD' }
 
 // Mode toggles (independent, both can be on)
 const modeStocktake = ref(true)   // 📋 盤點
@@ -25,6 +27,41 @@ const modeOrder = ref(true)       // 📦 叫貨
 // counts: { item_id: { actual: number|null, order: number|null } }
 const counts = ref({})
 
+// ── D+X 到貨日計算（含廠商休息日遞延）──────────────────
+// closed_days DB 格式：1=週一 … 7=週日；JS getDay()：0=週日, 1=週一 … 6=週六
+function calcDeliveryDate(vendor) {
+  if (!vendor) return ''
+  const daysToAdd = vendor.delivery_days_to_arrive || 1
+  const closedSet = new Set((vendor.closed_days || []).map(d => d === 7 ? 0 : d))
+  const date = new Date()
+  date.setHours(0, 0, 0, 0)
+  date.setDate(date.getDate() + daysToAdd)
+  let safety = 0
+  while (closedSet.has(date.getDay()) && safety++ < 7) {
+    date.setDate(date.getDate() + 1)
+  }
+  // 用本地時區格式化，避免 toISOString() 的 UTC 偏移問題
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+// 品項依廠商分組
+const itemsByVendor = computed(() => {
+  const map = {}
+  for (const item of items.value) {
+    const vid = item.vendor_id || 0
+    if (!map[vid]) {
+      // 優先從已載入的 vendors ref 查廠商名稱
+      const vendorObj = vendors.value.find(v => v.id === vid)
+      map[vid] = { vendor_id: vid, vendor_name: vendorObj?.name || item.vendor_name || '其他', items: [] }
+    }
+    map[vid].items.push(item)
+  }
+  return Object.values(map)
+})
+
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
 }
@@ -32,8 +69,15 @@ function authHeaders() {
 // ── Load groups ──────────────────────────────────
 onMounted(async () => {
   try {
-    const res = await fetch(`${API_BASE}/stocktake/groups`, { headers: authHeaders() })
-    if (res.ok) groups.value = await res.json()
+    const [gRes, vRes] = await Promise.all([
+      fetch(`${API_BASE}/stocktake/groups`, { headers: authHeaders() }),
+      fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() }),
+    ])
+    if (gRes.ok) groups.value = await gRes.json()
+    if (vRes.ok) {
+      vendors.value = await vRes.json()
+      vendors.value.forEach(v => { vendorDeliveryDates.value[v.id] = calcDeliveryDate(v) })
+    }
   } catch {}
 
   // O5: 讀取 route.query.group 自動選取群組
@@ -137,24 +181,41 @@ const progressPct = computed(() =>
 )
 
 // ── Vendor grouping for order sheets ──────────────────
+function buildSheetText(v) {
+  const delivDate = vendorDeliveryDates.value[v.vendor_id]
+  const today = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: 'numeric', day: 'numeric' })
+  let text = `【叫貨單】${v.vendor_name}\n日期：${today}\n──────────\n`
+  v.items.forEach(i => { text += `${i.name} × ${i.orderQty} ${i.unit || ''}\n` })
+  text += `──────────`
+  if (v.total > 0) text += `\n合計金額 $${v.total.toLocaleString('zh-TW')}`
+  if (delivDate) {
+    const d = new Date(delivDate + 'T00:00:00')
+    text += `\n預計到貨：${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`
+  }
+  return text
+}
+
 function buildVendorSheets() {
   const map = {}
   items.value.forEach(item => {
     const qty = getOrder(item.id) ?? 0
     if (qty <= 0) return
+    const vid = item.vendor_id || 0
     const vname = item.vendor_name || '未分類廠商'
-    if (!map[vname]) map[vname] = { vendor_name: vname, items: [], total: 0 }
-    map[vname].items.push({ ...item, orderQty: qty })
-    map[vname].total += qty * (parseFloat(item.price) || 0)
+    if (!map[vid]) map[vid] = { vendor_id: vid, vendor_name: vname, items: [], total: 0 }
+    map[vid].items.push({ ...item, orderQty: qty })
+    map[vid].total += qty * (parseFloat(item.price) || 0)
   })
-  const today = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: 'numeric', day: 'numeric' })
-  vendorSheets.value = Object.values(map).map(v => {
-    let text = `【叫貨單】${v.vendor_name}\n日期：${today}\n──────────\n`
-    v.items.forEach(i => { text += `${i.name} × ${i.orderQty} ${i.unit || ''}\n` })
-    text += `──────────`
-    if (v.total > 0) text += `\n合計金額 $${v.total.toLocaleString('zh-TW')}`
-    return { ...v, text, copied: false }
-  })
+  vendorSheets.value = Object.values(map).map(v => ({
+    ...v,
+    text: buildSheetText(v),
+    copied: false
+  }))
+}
+
+function onSheetDateChange(sheet) {
+  sheet.text = buildSheetText(sheet)
+  sheet.copied = false
 }
 
 async function copySheet(sheet) {
@@ -419,13 +480,22 @@ async function openDiscrepancy(item) {
         <p class="text-xs text-slate-400 mt-1">以下為各廠商叫貨單，請複製後傳送</p>
       </div>
       <div class="px-4 space-y-4">
-        <div v-for="sheet in vendorSheets" :key="sheet.vendor_name"
+        <div v-for="sheet in vendorSheets" :key="sheet.vendor_id"
           class="bg-white rounded-xl shadow-sm p-4">
           <div class="flex items-center justify-between mb-2">
             <p class="font-extrabold text-slate-800">{{ sheet.vendor_name }}</p>
             <span class="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
               {{ sheet.items.length }} 項
             </span>
+          </div>
+          <!-- 到貨日期（可調整） -->
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-xs text-slate-500 font-bold">預計到貨</span>
+            <input
+              v-model="vendorDeliveryDates[sheet.vendor_id]"
+              type="date"
+              @change="onSheetDateChange(sheet)"
+              class="flex-1 text-sm border border-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300" />
           </div>
           <pre class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 whitespace-pre-wrap font-mono">{{ sheet.text }}</pre>
           <button @click="copySheet(sheet)"
@@ -473,9 +543,24 @@ async function openDiscrepancy(item) {
         </div>
       </div>
 
-      <!-- Items -->
+      <!-- Items（依廠商分組，群組盤點時加分隔線） -->
       <div class="px-4 space-y-2 pb-4">
-        <div v-for="item in items" :key="item.id"
+        <template v-for="group in itemsByVendor" :key="group.vendor_id">
+          <!-- 廠商分隔線（群組盤點 + 叫貨模式 + 多廠商時顯示） -->
+          <div v-if="selectedGroup && itemsByVendor.length > 1 && modeOrder"
+            class="flex items-center gap-2 pt-2 pb-1">
+            <span class="text-xs font-extrabold text-slate-500">🏪 {{ group.vendor_name }}</span>
+            <div class="flex-1 h-px bg-slate-200"></div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] text-slate-400">到貨日</span>
+              <input
+                v-model="vendorDeliveryDates[group.vendor_id]"
+                type="date"
+                class="text-[11px] border border-slate-200 rounded-lg px-2 py-0.5 text-slate-600 focus:outline-none focus:ring-1 focus:ring-orange-300" />
+            </div>
+          </div>
+
+        <div v-for="item in group.items" :key="item.id"
           class="bg-white rounded-xl shadow-sm overflow-hidden"
           :class="isLowStock(item) ? 'border-l-4 border-l-red-400' : 'border-l-4 border-l-slate-100'">
           <div class="p-3">
@@ -582,6 +667,7 @@ async function openDiscrepancy(item) {
             </div>
           </div>
         </div>
+        </template>
 
         <div v-if="!items.length && !loading" class="text-center py-12 text-slate-400">
           此分組暫無品項

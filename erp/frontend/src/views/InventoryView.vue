@@ -303,9 +303,6 @@ function authHeaders() {
 }
 
 onMounted(async () => {
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  expectedDeliveryDate.value = tomorrow.toISOString().split('T')[0]
   try {
     const [vRes, gRes] = await Promise.all([
       fetch(`${API_BASE}/inventory/vendors?show_in_ordering=true`, { headers: authHeaders() }),
@@ -337,6 +334,25 @@ onMounted(async () => {
 
 onUnmounted(() => { if (_draftTimer) clearInterval(_draftTimer) })
 
+// D+X 到貨日計算（含廠商休息日遞延）
+// closed_days DB 格式：1=週一 … 7=週日；JS getDay()：0=週日, 1=週一 … 6=週六
+function calcDeliveryDate(vendor) {
+  if (!vendor) return ''
+  const daysToAdd = vendor.delivery_days_to_arrive || 1
+  const closedSet = new Set((vendor.closed_days || []).map(d => d === 7 ? 0 : d))
+  const date = new Date()
+  date.setHours(0, 0, 0, 0)
+  date.setDate(date.getDate() + daysToAdd)
+  let safety = 0
+  while (closedSet.has(date.getDay()) && safety++ < 7) {
+    date.setDate(date.getDate() + 1)
+  }
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 async function selectVendor(v) {
   selectedVendor.value = v
   selectedVendorKey.value = vendorKey(v)
@@ -346,6 +362,10 @@ async function selectVendor(v) {
     const param = v._isGroup ? `stocktake_group_id=${v.id}` : `vendor_id=${v.id}`
     const iRes = await fetch(`${API_BASE}/inventory/items?${param}`, { headers: authHeaders() })
     items.value = iRes.ok ? (await iRes.json()).map(i => ({ ...i, qty: 0, actual_qty: null })) : []
+    // 單一廠商模式：自動設定預計到貨日（D+X + 休息日遞延）
+    if (!v._isGroup) {
+      expectedDeliveryDate.value = calcDeliveryDate(v)
+    }
   } finally { isLoading.value = false }
 }
 
@@ -457,12 +477,15 @@ async function submitPendingReceive() {
           byVendor[vid].push({ item_id: i.id, qty: i.qty })
         }
         for (const [vid, vendorItems] of Object.entries(byVendor)) {
+          // 用該廠商的 D+X 計算到貨日
+          const vendorObj = vendors.value.find(v => v.id === parseInt(vid))
+          const delivDate = vendorObj ? calcDeliveryDate(vendorObj) : expectedDeliveryDate.value
           const res = await fetch(`${API_BASE}/inventory/orders`, {
             method: 'POST', headers: authHeaders(),
             body: JSON.stringify({
               vendor_id: parseInt(vid),
               status: 'confirmed',
-              expected_delivery_date: expectedDeliveryDate.value ? new Date(expectedDeliveryDate.value).toISOString() : null,
+              expected_delivery_date: delivDate ? new Date(delivDate + 'T00:00:00').toISOString() : null,
               items: vendorItems
             })
           })
