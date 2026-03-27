@@ -431,9 +431,33 @@ async function selectVendor(v) {
     const param = v._isGroup ? `stocktake_group_id=${v.id}` : `vendor_id=${v.id}`
     const iRes = await fetch(`${API_BASE}/inventory/items?${param}`, { headers: authHeaders() })
     items.value = iRes.ok ? (await iRes.json()).map(i => ({ ...i, qty: 0, actual_qty: null })) : []
-    // 單一廠商模式：自動設定預計到貨日（D+X + 休息日遞延）
     if (!v._isGroup) {
+      // 單一廠商模式：自動設定預計到貨日
       expectedDeliveryDate.value = calcDeliveryDate(v)
+    } else {
+      // 群組模式：確保每個廠商的 delivery date 和 meta 都有值
+      const uniqueVids = [...new Set(items.value.map(i => i.vendor_id).filter(Boolean))]
+      const missingVids = uniqueVids.filter(vid => !vendorMeta.value[vid])
+      if (missingVids.length > 0) {
+        // 補載入缺少的廠商資訊
+        const allVRes = await fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() })
+        if (allVRes.ok) {
+          const allVendors = await allVRes.json()
+          allVendors.forEach(vendor => {
+            vendorMeta.value[vendor.id] = vendor
+            if (!vendorDeliveryDates.value[vendor.id]) {
+              vendorDeliveryDates.value[vendor.id] = calcDeliveryDate(vendor)
+            }
+          })
+        }
+      }
+      // 確保每個 vid 都有 delivery date
+      uniqueVids.forEach(vid => {
+        if (!vendorDeliveryDates.value[vid]) {
+          const meta = vendorMeta.value[vid]
+          vendorDeliveryDates.value[vid] = meta ? calcDeliveryDate(meta) : ''
+        }
+      })
     }
   } finally { isLoading.value = false }
 }
@@ -1077,18 +1101,23 @@ const payBadge = (o) => {
             class="pt-2 pb-0.5 space-y-1">
             <div class="flex items-center gap-2">
               <span class="text-xs font-extrabold text-slate-600">🏪 {{ group.vendor_name }}</span>
+              <span v-if="vendorMeta[group.vendor_id]?.delivery_days_to_arrive"
+                class="text-[10px] font-bold text-orange-500 shrink-0">
+                D+{{ vendorMeta[group.vendor_id].delivery_days_to_arrive }}
+              </span>
               <div class="flex-1 h-px bg-slate-200"></div>
-              <!-- 到貨日 -->
-              <div v-if="modeOrder" class="flex items-center gap-1 shrink-0">
+              <!-- 到貨日（永遠顯示，供叫貨時手動調整） -->
+              <div class="flex items-center gap-1 shrink-0">
                 <span class="text-[10px] text-slate-400">到貨日</span>
                 <input
-                  v-model="vendorDeliveryDates[group.vendor_id]"
+                  :value="vendorDeliveryDates[group.vendor_id] || ''"
+                  @change="vendorDeliveryDates[group.vendor_id] = $event.target.value"
                   type="date"
                   class="text-[11px] border border-slate-200 rounded-lg px-1.5 py-0.5 text-slate-600 bg-white focus:outline-none focus:ring-1 focus:ring-orange-300" />
               </div>
             </div>
-            <!-- 免運門檻進度（有設定且叫貨模式時顯示） -->
-            <div v-if="modeOrder && group.free_shipping_threshold > 0"
+            <!-- 免運門檻進度（有設定時顯示） -->
+            <div v-if="group.free_shipping_threshold > 0"
               class="flex items-center gap-2 pl-1">
               <span class="text-[10px]"
                 :class="vendorOrderTotals[group.vendor_id] >= group.free_shipping_threshold ? 'text-emerald-600 font-bold' : 'text-slate-400'">

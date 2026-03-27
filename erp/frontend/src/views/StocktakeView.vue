@@ -233,7 +233,7 @@ async function submit() {
   try {
     const createRes = await fetch(`${API_BASE}/stocktake/`, {
       method: 'POST', headers: authHeaders(),
-      body: JSON.stringify({ group_id: selectedGroup.value?.id || null, mode: modeStocktake.value && modeOrder.value ? 'both' : modeStocktake.value ? 'stocktake' : 'order' })
+      body: JSON.stringify({ stocktake_group_id: selectedGroup.value?.id || null, mode: modeStocktake.value && modeOrder.value ? 'both' : modeStocktake.value ? 'stocktake' : 'order' })
     })
     if (!createRes.ok) throw new Error('建立盤點失敗')
     const session = await createRes.json()
