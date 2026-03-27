@@ -424,9 +424,16 @@ def mark_payable_paid(db: Session, payable_id: int, user_id: int, payment_method
 def _format_petty_cash(record: PettyCashRecord, db: Session) -> dict:
     from erp.backend.db.models import Vendor, User
     vendor_name = None
+    category_id = None
+    category_name = None
     if record.vendor_id:
         v = db.query(Vendor).filter(Vendor.id == record.vendor_id).first()
-        vendor_name = v.name if v else None
+        if v:
+            vendor_name = v.name
+            if v.default_category_id:
+                category_id = v.default_category_id
+                cat = db.query(CashFlowCategory).filter(CashFlowCategory.id == v.default_category_id).first()
+                category_name = cat.name if cat else None
 
     recorded_by_name = None
     if record.user_id:
@@ -445,6 +452,8 @@ def _format_petty_cash(record: PettyCashRecord, db: Session) -> dict:
         "is_paid": record.is_paid if record.is_paid is not None else True,
         "vendor_id": record.vendor_id,
         "vendor_name": vendor_name,
+        "category_id": category_id,
+        "category_name": category_name,
         "order_id": record.order_id,
         "settled_at": record.settled_at if hasattr(record, 'settled_at') else None,
         "settlement_ref_id": record.settlement_ref_id if hasattr(record, 'settlement_ref_id') else None,

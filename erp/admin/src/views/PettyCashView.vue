@@ -224,6 +224,7 @@ async function togglePayment(record) {
             <th class="px-5 py-3 text-left">日期時間</th>
             <th class="px-5 py-3 text-center">類型</th>
             <th class="px-5 py-3 text-left">說明</th>
+            <th class="px-5 py-3 text-left">科目</th>
             <th class="px-5 py-3 text-right">金額</th>
             <th class="px-5 py-3 text-right">餘額</th>
             <th class="px-5 py-3 text-center">付款</th>
@@ -244,6 +245,13 @@ async function togglePayment(record) {
               </td>
               <td class="px-5 py-2.5 text-gray-400 text-xs">
                 {{ r.note || r.vendor_name || '—' }}
+              </td>
+              <td class="px-5 py-2.5 text-xs">
+                <span v-if="r.type === 'expense' && r.category_name"
+                  class="px-2 py-0.5 rounded bg-[#2d3748] text-[#9ca3af]">
+                  {{ r.category_name }}
+                </span>
+                <span v-else class="text-gray-600">—</span>
               </td>
               <td class="px-5 py-2.5 text-right font-mono"
                 :class="r.type === 'income' ? 'text-blue-400' : 'text-red-400'">
@@ -269,11 +277,15 @@ async function togglePayment(record) {
             </tr>
             <!-- 展開詳情 -->
             <tr v-if="expandedId === r.id" class="bg-[#0f1117] border-b border-[#2d3748]">
-              <td colspan="7" class="px-6 py-4">
+              <td colspan="8" class="px-6 py-4">
                 <div class="flex flex-wrap gap-6 text-xs">
                   <div v-if="r.vendor_name" class="space-y-0.5">
                     <p class="text-gray-500">廠商</p>
                     <p class="text-gray-200 font-semibold">{{ r.vendor_name }}</p>
+                  </div>
+                  <div v-if="r.type === 'expense' && r.category_name" class="space-y-0.5">
+                    <p class="text-gray-500">科目</p>
+                    <p class="text-gray-200 font-semibold">{{ r.category_name }}</p>
                   </div>
                   <div v-if="r.recorded_by_name" class="space-y-0.5">
                     <p class="text-gray-500">紀錄人</p>
