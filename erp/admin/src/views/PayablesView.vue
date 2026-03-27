@@ -32,9 +32,10 @@ const payModal = ref(null)  // { p } or null
 const payMethodInput = ref('轉帳')
 const payMethods = ['轉帳', '現金', '支票', '其他']
 
-// B-09: 到期日 inline edit
-const editingDueDate = ref(null)  // payable id
-const dueDateInput = ref('')
+// inline edit: 金額 & 付款日
+const editingId = ref(null)   // payable id 正在編輯
+const editAmount = ref('')
+const editPaymentDate = ref('')
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
@@ -122,19 +123,32 @@ async function markUnpaid(p) {
   if (res.ok) { showToast('已還原為未付款'); await load() }
 }
 
-// B-09: 到期日 inline edit
-function startEditDue(p) {
-  editingDueDate.value = p.id
-  dueDateInput.value = p.due_date ? new Date(p.due_date).toISOString().split('T')[0] : ''
+// inline edit：開啟
+function startEdit(p) {
+  editingId.value = p.id
+  editAmount.value = String(p.amount || '')
+  editPaymentDate.value = p.payment_date
+    ? new Date(p.payment_date).toISOString().split('T')[0]
+    : (p.paid_at ? new Date(p.paid_at).toISOString().split('T')[0] : '')
 }
 
-async function saveDueDate(p) {
+async function saveEdit(p) {
+  const body = {}
+  const amt = parseFloat(editAmount.value)
+  if (!isNaN(amt) && amt !== p.amount) body.amount = amt
+  body.payment_date = editPaymentDate.value || null
   const res = await fetch(`${API_BASE}/finance/accounts-payable/${p.id}`, {
-    method: 'PATCH',
-    headers: authHeaders(),
-    body: JSON.stringify({ due_date: dueDateInput.value })
+    method: 'PATCH', headers: authHeaders(), body: JSON.stringify(body)
   })
-  if (res.ok) { editingDueDate.value = null; showToast('到期日已更新'); await load() }
+  if (res.ok) { editingId.value = null; showToast('已更新'); await load() }
+}
+
+async function deletePayable(p) {
+  if (!confirm(`確認刪除「${p.vendor_name}」的帳款 NT$${fmtMoney(p.amount)}？`)) return
+  const res = await fetch(`${API_BASE}/finance/accounts-payable/${p.id}`, {
+    method: 'DELETE', headers: authHeaders()
+  })
+  if (res.ok) { showToast('已刪除'); await load() }
 }
 
 function toggleSelect(id) {
@@ -248,6 +262,7 @@ async function confirmBatchPay() {
             <th class="px-5 py-3 text-left">付款條件</th>
             <th class="px-5 py-3 text-right">應付金額</th>
             <th class="px-5 py-3 text-left">到期日</th>
+            <th class="px-5 py-3 text-left">付款日</th>
             <th class="px-5 py-3 text-center">狀態</th>
             <th class="px-5 py-3 text-center">操作</th>
           </tr>
@@ -262,22 +277,30 @@ async function confirmBatchPay() {
             <td class="px-5 py-3 font-semibold text-gray-200">{{ p.vendor_name || '—' }}</td>
             <td class="px-5 py-3 text-gray-400 text-xs">{{ fmtDate(p.created_at) }}</td>
             <td class="px-5 py-3 text-gray-400 text-xs">{{ p.payment_terms || '—' }}</td>
-            <td class="px-5 py-3 text-right font-mono" :class="p.is_paid ? 'text-gray-500' : 'text-amber-400'">
-              NT$ {{ fmtMoney(p.amount) }}
+            <!-- 金額（可 inline edit） -->
+            <td class="px-5 py-3 text-right font-mono">
+              <template v-if="editingId === p.id">
+                <input v-model="editAmount" type="number" min="0"
+                  class="w-24 bg-[#0f1117] border border-amber-400 text-amber-300 rounded px-1 py-0.5 text-xs text-right focus:outline-none" />
+              </template>
+              <span v-else :class="p.is_paid ? 'text-gray-500' : 'text-amber-400'">
+                NT$ {{ fmtMoney(p.amount) }}
+              </span>
             </td>
-            <!-- B-09: 到期日 inline edit -->
+            <!-- 到期日（唯讀，自動計算）-->
+            <td class="px-5 py-3 text-xs text-gray-400">
+              {{ p.due_date ? new Date(p.due_date).toLocaleDateString('zh-TW') : '—' }}
+              <span v-if="p.payment_terms" class="block text-[10px] text-gray-600">{{ p.payment_terms }}</span>
+            </td>
+            <!-- 付款日（可編輯）-->
             <td class="px-5 py-3 text-xs">
-              <div v-if="editingDueDate === p.id" class="flex items-center gap-1">
-                <input v-model="dueDateInput" type="date"
+              <template v-if="editingId === p.id">
+                <input v-model="editPaymentDate" type="date"
                   class="bg-[#0f1117] border border-blue-400 text-gray-200 rounded px-1 py-0.5 text-xs focus:outline-none" />
-                <button @click="saveDueDate(p)" class="text-blue-400 hover:text-blue-300 font-bold">✓</button>
-                <button @click="editingDueDate = null" class="text-gray-500 hover:text-gray-300">✕</button>
-              </div>
-              <button v-else @click="startEditDue(p)"
-                class="text-gray-400 hover:text-blue-300 text-left transition-colors"
-                :title="'點擊編輯到期日'">
-                {{ p.due_date ? new Date(p.due_date).toLocaleDateString('zh-TW') : '未設定' }}
-              </button>
+              </template>
+              <span v-else class="text-gray-400">
+                {{ p.payment_date ? new Date(p.payment_date).toLocaleDateString('zh-TW') : (p.paid_at ? new Date(p.paid_at).toLocaleDateString('zh-TW') : '—') }}
+              </span>
             </td>
             <td class="px-5 py-3 text-center">
               <span class="text-xs font-bold px-2 py-0.5 rounded-full" :class="payableStatusInfo(p).cls">
@@ -285,25 +308,51 @@ async function confirmBatchPay() {
               </span>
             </td>
             <td class="px-5 py-3 text-center">
-              <div v-if="!p.is_paid">
-                <!-- B-11: 付款時選擇方式 -->
-                <button @click="openPayModal(p)"
-                  class="bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-lg transition-colors">
-                  標記付款
-                </button>
-              </div>
-              <div v-else class="flex flex-col items-center gap-1">
-                <span class="text-gray-400 text-xs">{{ p.paid_at ? fmtDate(p.paid_at) : '—' }}</span>
-                <!-- B-09: 返回未付款 -->
-                <button @click="markUnpaid(p)"
-                  class="text-red-500 hover:text-red-400 text-[10px] underline">
-                  返回未付款
-                </button>
-              </div>
+              <!-- 編輯中：儲存/取消 -->
+              <template v-if="editingId === p.id">
+                <div class="flex gap-1 justify-center">
+                  <button @click="saveEdit(p)" class="text-blue-400 hover:text-blue-300 font-bold text-xs">儲存</button>
+                  <button @click="editingId = null" class="text-gray-500 hover:text-gray-300 text-xs">取消</button>
+                </div>
+              </template>
+              <template v-else>
+                <div class="flex flex-col items-center gap-1">
+                  <div v-if="!p.is_paid" class="flex gap-1">
+                    <button @click="openPayModal(p)"
+                      class="bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold px-2 py-1 rounded-lg transition-colors">
+                      付款
+                    </button>
+                    <button @click="startEdit(p)"
+                      class="bg-[#2d3748] hover:bg-[#374151] text-gray-300 text-xs font-bold px-2 py-1 rounded-lg transition-colors">
+                      編輯
+                    </button>
+                    <button @click="deletePayable(p)"
+                      class="text-red-500 hover:text-red-400 text-xs font-bold px-2 py-1 rounded-lg border border-red-800 hover:border-red-600 transition-colors">
+                      刪
+                    </button>
+                  </div>
+                  <div v-else class="flex flex-col items-center gap-1">
+                    <div class="flex gap-1">
+                      <button @click="startEdit(p)"
+                        class="bg-[#2d3748] hover:bg-[#374151] text-gray-300 text-xs px-2 py-0.5 rounded transition-colors">
+                        編輯日期
+                      </button>
+                      <button @click="deletePayable(p)"
+                        class="text-red-500 hover:text-red-400 text-xs px-1 py-0.5 rounded transition-colors">
+                        刪
+                      </button>
+                    </div>
+                    <button @click="markUnpaid(p)"
+                      class="text-red-500 hover:text-red-400 text-[10px] underline">
+                      返回未付款
+                    </button>
+                  </div>
+                </div>
+              </template>
             </td>
           </tr>
           <tr v-if="filtered.length === 0">
-            <td colspan="8" class="px-5 py-10 text-center text-gray-600">無應付帳款</td>
+            <td colspan="9" class="px-5 py-10 text-center text-gray-600">無應付帳款</td>
           </tr>
         </tbody>
       </table>

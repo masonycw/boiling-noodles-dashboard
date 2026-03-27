@@ -500,6 +500,7 @@ def _format_payable(record: AccountsPayable, db: Session) -> dict:
         "order_id": record.order_id,
         "amount": float(record.amount),
         "due_date": record.due_date,
+        "payment_date": getattr(record, 'payment_date', None),
         "is_paid": record.is_paid,
         "paid_at": record.paid_at,
         "payment_method": record.payment_method,

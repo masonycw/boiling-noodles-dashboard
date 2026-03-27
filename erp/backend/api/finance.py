@@ -350,7 +350,8 @@ def mark_unpaid(payable_id: int, db: Session = Depends(get_db)):
     return {"success": True}
 
 class PayablePatch(BaseModel):
-    due_date: Optional[str] = None
+    amount: Optional[float] = None
+    payment_date: Optional[str] = None   # 實際付款日 YYYY-MM-DD
     note: Optional[str] = None
 
 @router.patch("/accounts-payable/{payable_id}")
@@ -360,13 +361,25 @@ def patch_payable(payable_id: int, data: PayablePatch, db: Session = Depends(get
     p = db.query(AccountsPayable).filter(AccountsPayable.id == payable_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Not found")
-    if data.due_date is not None:
+    if data.amount is not None:
+        p.amount = data.amount
+    if data.payment_date is not None:
         try:
-            p.due_date = dt.fromisoformat(data.due_date)
+            p.payment_date = dt.fromisoformat(data.payment_date) if data.payment_date else None
         except Exception:
             pass
     if data.note is not None:
         p.note = data.note
+    db.commit()
+    return {"success": True}
+
+@router.delete("/accounts-payable/{payable_id}")
+def delete_payable(payable_id: int, db: Session = Depends(get_db)):
+    from erp.backend.db.models import AccountsPayable
+    p = db.query(AccountsPayable).filter(AccountsPayable.id == payable_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete(p)
     db.commit()
     return {"success": True}
 

@@ -360,6 +360,7 @@ class AccountsPayable(Base):
     due_date = Column(DateTime(timezone=True))               # 應付日期
     is_paid = Column(Boolean, default=False)
     paid_at = Column(DateTime(timezone=True))
+    payment_date = Column(DateTime(timezone=True), nullable=True)  # 實際付款日（手動填入）
     paid_by_user_id = Column(Integer, ForeignKey("erp_users.id"), nullable=True)
     payment_method = Column(String)                          # 付款方式（現金/轉帳/支票）
     note = Column(Text)
