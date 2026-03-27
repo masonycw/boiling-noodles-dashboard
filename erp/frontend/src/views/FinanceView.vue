@@ -340,10 +340,10 @@ async function loadPendingPayments() {
   pendingLoading.value = true
   try {
     const [pendRes, settledRes] = await Promise.all([
-      fetch(`${API_BASE}/finance/petty-cash?type=expense&is_paid=false&limit=200`, {
+      fetch(`${API_BASE}/finance/petty-cash?type=expense&is_paid=false&vendor_payment_method=現金&limit=200`, {
         headers: { Authorization: `Bearer ${auth.token}` }
       }),
-      fetch(`${API_BASE}/finance/petty-cash?type=expense&is_paid=false&include_settled=true&limit=200`, {
+      fetch(`${API_BASE}/finance/petty-cash?type=expense&is_paid=false&include_settled=true&vendor_payment_method=現金&limit=200`, {
         headers: { Authorization: `Bearer ${auth.token}` }
       }),
     ])
