@@ -11,6 +11,7 @@ const executors = ref([])
 const monthlyKpi = ref(null)
 const vendors = ref([])
 const allItems = ref([])
+const groups = ref([])
 const loading = ref(true)
 const expandedId = ref(null)
 
@@ -34,10 +35,7 @@ const filterGroup = ref('')
 const filterStatus = ref('')   // '' | 'has_discrepancy' | 'no_discrepancy'
 const filterVendor = ref('')
 
-const groupOptions = computed(() => {
-  const names = new Set(records.value.map(r => r.group_name).filter(Boolean))
-  return [...names].sort()
-})
+const groupOptions = computed(() => groups.value.slice().sort((a, b) => a.display_order - b.display_order))
 
 // Pagination
 const page = ref(1)
@@ -55,18 +53,20 @@ const itemVendorMap = computed(() => {
 
 async function load() {
   loading.value = true
-  const [recRes, execRes, kpiRes, vendorRes, itemRes] = await Promise.all([
+  const [recRes, execRes, kpiRes, vendorRes, itemRes, groupRes] = await Promise.all([
     fetch(`${API_BASE}/stocktake/?limit=500`, { headers: authHeaders() }),
     fetch(`${API_BASE}/stocktake/executors`, { headers: authHeaders() }),
     fetch(`${API_BASE}/stocktake/monthly-kpi`, { headers: authHeaders() }),
     fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() }),
     fetch(`${API_BASE}/inventory/items?limit=500`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/stocktake/groups`, { headers: authHeaders() }),
   ])
   if (recRes.ok) records.value = await recRes.json()
   if (execRes.ok) executors.value = await execRes.json()
   if (kpiRes.ok) monthlyKpi.value = await kpiRes.json()
   if (vendorRes.ok) vendors.value = await vendorRes.json()
   if (itemRes.ok) allItems.value = await itemRes.json()
+  if (groupRes.ok) groups.value = await groupRes.json()
   loading.value = false
 }
 
@@ -85,7 +85,7 @@ const filtered = computed(() => {
     list = list.filter(r => String(r.user_id) === filterExecutor.value)
   }
   if (filterGroup.value) {
-    list = list.filter(r => r.group_name === filterGroup.value)
+    list = list.filter(r => String(r.stocktake_group_id) === filterGroup.value)
   }
   if (filterStatus.value === 'has_discrepancy') {
     list = list.filter(r => r.discrepancy_count > 0)
@@ -211,7 +211,7 @@ function fmtDate(d) {
       <select v-model="filterGroup"
         class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
         <option value="">全部群組</option>
-        <option v-for="g in groupOptions" :key="g" :value="g">{{ g }}</option>
+        <option v-for="g in groupOptions" :key="g.id" :value="String(g.id)">{{ g.name }}</option>
       </select>
       <select v-model="filterStatus"
         class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
