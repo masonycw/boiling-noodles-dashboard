@@ -78,6 +78,8 @@ def get_petty_cash_records(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     is_paid: Optional[bool] = None,
+    vendor_payment_method: Optional[str] = None,
+    include_settled: Optional[bool] = None,
     limit: int = 100
 ) -> List[dict]:
     query = db.query(PettyCashRecord).order_by(desc(PettyCashRecord.created_at))
@@ -103,6 +105,21 @@ def get_petty_cash_records(
         query = query.filter(PettyCashRecord.type == type_filter)
     if is_paid is not None:
         query = query.filter(PettyCashRecord.is_paid == is_paid)
+        # 待付款查詢時，排除已結帳的（除非明確要求包含）
+        if is_paid is False and not include_settled:
+            query = query.filter(PettyCashRecord.settled_at == None)
+
+    # 只顯示已結帳紀錄（最近 7 天）
+    if include_settled:
+        cutoff_7d = datetime.utcnow() - timedelta(days=7)
+        query = query.filter(PettyCashRecord.settled_at != None,
+                             PettyCashRecord.settled_at >= cutoff_7d)
+
+    # 按廠商付款方式過濾
+    if vendor_payment_method:
+        from erp.backend.db.models import Vendor as VendorModel
+        query = query.join(VendorModel, PettyCashRecord.vendor_id == VendorModel.id)\
+                     .filter(VendorModel.payment_method == vendor_payment_method)
 
     records = query.limit(limit).all()
     return [_format_petty_cash(r, db) for r in records]
@@ -168,6 +185,107 @@ def toggle_petty_cash_payment(db: Session, record_id: int) -> dict:
     db.commit()
     db.refresh(record)
     return _format_petty_cash(record, db)
+
+
+def batch_settle_payments(db: Session, user_id: int, record_ids: list, photo_url: str = None) -> dict:
+    """批次結帳代收款：標記舊紀錄已結帳 + 建立合併付款紀錄 + 同步應付帳款"""
+    if not record_ids:
+        raise ValueError("未選擇紀錄")
+
+    records = db.query(PettyCashRecord).filter(PettyCashRecord.id.in_(record_ids)).all()
+    if len(records) != len(record_ids):
+        raise ValueError("部分紀錄不存在")
+
+    # 驗證：都是未付款且未結帳
+    for r in records:
+        if r.is_paid:
+            raise ValueError(f"紀錄 #{r.id} 已付款，無法結帳")
+        if r.settled_at is not None:
+            raise ValueError(f"紀錄 #{r.id} 已結帳，無法重複結帳")
+
+    # 驗證：同一廠商
+    vendor_ids = set(r.vendor_id for r in records if r.vendor_id)
+    if len(vendor_ids) > 1:
+        raise ValueError("一次只能結帳同一廠商的紀錄")
+    vendor_id = vendor_ids.pop() if vendor_ids else None
+
+    # 取得廠商資訊
+    from erp.backend.db.models import Vendor as VendorModel
+    vendor_name = None
+    vendor_cat_id = None
+    if vendor_id:
+        vdr = db.query(VendorModel).filter(VendorModel.id == vendor_id).first()
+        if vdr:
+            vendor_name = vdr.name
+            if vdr.default_category_id:
+                vendor_cat_id = vdr.default_category_id
+
+    # 計算總金額
+    total_amount = sum(float(r.amount) for r in records)
+
+    # 收集訂單號
+    order_ids = [r.order_id for r in records if r.order_id]
+    order_text = ", ".join(f"#{oid}" for oid in order_ids) if order_ids else ""
+    note_text = f"付款{' - ' + vendor_name if vendor_name else ''}"
+    if order_text:
+        note_text += f": 訂單 {order_text}"
+
+    # 1. 標記原始紀錄為已結帳（is_paid 維持 false）
+    now = datetime.utcnow()
+    for r in records:
+        r.settled_at = now
+
+    # 2. 建立合併付款 PettyCashRecord（is_paid=True，計入支出）
+    settlement_record = PettyCashRecord(
+        user_id=user_id,
+        type=PettyCashTypeEnum.expense,
+        amount=total_amount,
+        note=note_text,
+        photo_url=photo_url,
+        is_paid=True,
+        vendor_id=vendor_id,
+    )
+    db.add(settlement_record)
+    db.flush()  # 取得 settlement_record.id
+
+    # 3. 回寫 settlement_ref_id
+    for r in records:
+        r.settlement_ref_id = settlement_record.id
+
+    # 4. 建立 CashFlowRecord
+    cf = CashFlowRecord(
+        user_id=user_id,
+        category_id=vendor_cat_id,
+        amount=total_amount,
+        type="expense",
+        source="petty_cash",
+        description=note_text,
+        vendor_id=vendor_id,
+        is_categorized=vendor_cat_id is not None,
+        transaction_date=now,
+    )
+    db.add(cf)
+
+    # 5. 同步 AccountsPayable：標記對應的應付帳款為已付
+    for r in records:
+        if r.order_id:
+            ap = db.query(AccountsPayable).filter(
+                AccountsPayable.order_id == r.order_id,
+                AccountsPayable.is_paid == False,
+            ).first()
+            if ap:
+                ap.is_paid = True
+                ap.paid_at = now
+                ap.paid_by_user_id = user_id
+                ap.payment_method = "現金"
+
+    db.commit()
+    db.refresh(settlement_record)
+
+    return {
+        "settlement": _format_petty_cash(settlement_record, db),
+        "settled_ids": record_ids,
+    }
 
 
 # ─────────────────────────────────────────────
@@ -328,6 +446,8 @@ def _format_petty_cash(record: PettyCashRecord, db: Session) -> dict:
         "vendor_id": record.vendor_id,
         "vendor_name": vendor_name,
         "order_id": record.order_id,
+        "settled_at": record.settled_at if hasattr(record, 'settled_at') else None,
+        "settlement_ref_id": record.settlement_ref_id if hasattr(record, 'settlement_ref_id') else None,
         "created_at": record.created_at
     }
 

@@ -290,6 +290,8 @@ class PettyCashRecord(Base):
     is_paid = Column(Boolean, default=True)                  # 已付款=True計入餘額；False只記錄待付
     vendor_id = Column(Integer, ForeignKey("erp_vendors.id"), nullable=True)  # 支出時關聯廠商
     order_id = Column(Integer, ForeignKey("erp_purchase_orders.id"), nullable=True)
+    settled_at = Column(DateTime(timezone=True), nullable=True)       # 結帳時間（不為空=已結帳但不計支出）
+    settlement_ref_id = Column(Integer, ForeignKey("erp_petty_cash_records.id"), nullable=True)  # 指向合併付款紀錄
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

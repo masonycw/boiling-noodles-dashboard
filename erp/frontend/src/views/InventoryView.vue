@@ -207,6 +207,10 @@ const showEditOrderModal = ref(false)
 const editOrderTarget = ref(null)
 const editOrderForm = ref({ expected_delivery_date: '', note: '' })
 const editOrderSubmitting = ref(false)
+const editOrderItems = ref([])
+const editOrderItemsLoading = ref(false)
+const editOrderNewItem = ref({ name: '', unit: '', qty: 1 })
+const copyMsgSheet = ref({ show: false, text: '' })
 const showReceiveModal = ref(false)
 const receiveTarget = ref(null)
 const receiveOrderItems = ref([])
@@ -443,20 +447,44 @@ async function submitPendingReceive() {
   submitting.value = true
   try {
     if (modeOrder.value && allItems.length > 0) {
-      const orderDetails = [
-        ...orderItems.map(i => ({ item_id: i.id, qty: i.qty })),
-        ...adHocItems.value.map(i => ({ adhoc_name: i.name, qty: i.qty, adhoc_unit: i.unit }))
-      ]
-      const res = await fetch(`${API_BASE}/inventory/orders`, {
-        method: 'POST', headers: authHeaders(),
-        body: JSON.stringify({
-          vendor_id: selectedVendor.value.id,
-          status: 'confirmed',
-          expected_delivery_date: expectedDeliveryDate.value ? new Date(expectedDeliveryDate.value).toISOString() : null,
-          items: orderDetails
+      if (selectedVendor.value._isGroup) {
+        // 盤點群組模式：按品項的實際 vendor_id 分組，各廠商獨立建立訂單
+        const byVendor = {}
+        for (const i of orderItems) {
+          const vid = i.vendor_id
+          if (!vid) continue
+          if (!byVendor[vid]) byVendor[vid] = []
+          byVendor[vid].push({ item_id: i.id, qty: i.qty })
+        }
+        for (const [vid, vendorItems] of Object.entries(byVendor)) {
+          const res = await fetch(`${API_BASE}/inventory/orders`, {
+            method: 'POST', headers: authHeaders(),
+            body: JSON.stringify({
+              vendor_id: parseInt(vid),
+              status: 'confirmed',
+              expected_delivery_date: expectedDeliveryDate.value ? new Date(expectedDeliveryDate.value).toISOString() : null,
+              items: vendorItems
+            })
+          })
+          if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '送出失敗') }
+        }
+      } else {
+        // 單一廠商模式
+        const orderDetails = [
+          ...orderItems.map(i => ({ item_id: i.id, qty: i.qty })),
+          ...adHocItems.value.map(i => ({ adhoc_name: i.name, qty: i.qty, adhoc_unit: i.unit }))
+        ]
+        const res = await fetch(`${API_BASE}/inventory/orders`, {
+          method: 'POST', headers: authHeaders(),
+          body: JSON.stringify({
+            vendor_id: selectedVendor.value.id,
+            status: 'confirmed',
+            expected_delivery_date: expectedDeliveryDate.value ? new Date(expectedDeliveryDate.value).toISOString() : null,
+            items: orderDetails
+          })
         })
-      })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '送出失敗') }
+        if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '送出失敗') }
+      }
     }
 
     if (modeStocktake.value) {
@@ -540,7 +568,11 @@ function buildLineMessage(vendorName, orderItems, adHocList, date) {
   orderItems.forEach(i => { text += `${i.name} × ${i.qty} ${i.unit || ''}\n` })
   adHocList.forEach(i => { text += `${i.name} × ${i.qty} ${i.unit || ''}\n` })
   text += `──────────`
-  if (date) text += `\n預計到貨：${date}`
+  if (date) {
+    const d = new Date(date)
+    const fmted = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`
+    text += `\n預計到貨：${fmted}`
+  }
   return text
 }
 
@@ -551,38 +583,36 @@ async function copyAndClose() { showPreviewSheet.value = false }
 // ── 待收貨 ──────────────────────────────────
 async function copyOrderLineMsg(order) {
   try {
-    // Fetch order items
     const res = await fetch(`${API_BASE}/inventory/orders/${order.id}`, { headers: authHeaders() })
     let orderItems = []
     if (res.ok) {
       const data = await res.json()
       orderItems = Array.isArray(data) ? data : (data.items || [])
     }
-    const lineMsg = buildLineMessage(
-      order.vendor_name || '',
-      orderItems,
-      [],
-      order.expected_delivery_date
-    )
-    try {
-      await navigator.clipboard.writeText(lineMsg)
-    } catch {
-      // HTTP fallback (navigator.clipboard requires HTTPS)
-      const el = document.createElement('textarea')
-      el.value = lineMsg
-      el.style.position = 'fixed'
-      el.style.opacity = '0'
-      document.body.appendChild(el)
-      el.select()
-      document.execCommand('copy')
-      document.body.removeChild(el)
-    }
-    submitToast.value = '已複製 LINE 訊息 ✓'
-    setTimeout(() => { submitToast.value = '' }, 2000)
+    const lineMsg = buildLineMessage(order.vendor_name || '', orderItems, [], order.expected_delivery_date)
+    // 顯示 sheet 供使用者點按複製（navigator.clipboard 需 HTTPS，execCommand 需 user gesture）
+    copyMsgSheet.value = { show: true, text: lineMsg }
   } catch {
-    submitToast.value = '複製失敗'
+    submitToast.value = '載入失敗'
     setTimeout(() => { submitToast.value = '' }, 2000)
   }
+}
+
+async function doCopyMsgText() {
+  try {
+    await navigator.clipboard.writeText(copyMsgSheet.value.text)
+  } catch {
+    const el = document.createElement('textarea')
+    el.value = copyMsgSheet.value.text
+    el.style.position = 'fixed'; el.style.opacity = '0'
+    document.body.appendChild(el)
+    el.select()
+    document.execCommand('copy')
+    document.body.removeChild(el)
+  }
+  copyMsgSheet.value.show = false
+  submitToast.value = '已複製 LINE 訊息 ✓'
+  setTimeout(() => { submitToast.value = '' }, 2000)
 }
 
 async function loadPending() {
@@ -606,7 +636,7 @@ function orderDateBadge(order) {
 
 async function openReceive(order) {
   receiveTarget.value = order
-  receiveForm.value = { total_amount: order.total_amount || '', amount_paid: '', payment_mode: 'cash', note: '' }
+  receiveForm.value = { total_amount: order.total_amount || '', amount_paid: '', payment_mode: order.is_prepaid ? 'pre_paid' : 'cash', note: '' }
   receiveError.value = ''; receiveOrderItems.value = []; receivePhoto.value = null; receivePhotoPreview.value = ''; showReceiveModal.value = true
   const res = await fetch(`${API_BASE}/inventory/orders/${order.id}`, { headers: authHeaders() })
   if (res.ok) {
@@ -669,7 +699,7 @@ async function cancelOrder(order) {
   await loadPending()
 }
 
-function openEditOrder(order) {
+async function openEditOrder(order) {
   editOrderTarget.value = order
   editOrderForm.value = {
     expected_delivery_date: order.expected_delivery_date
@@ -679,7 +709,48 @@ function openEditOrder(order) {
     note: order.note || '',
     is_prepaid: order.is_prepaid || false
   }
+  editOrderItems.value = []
+  editOrderItemsLoading.value = true
   showEditOrderModal.value = true
+  try {
+    const [orderRes, vendorRes] = await Promise.all([
+      fetch(`${API_BASE}/inventory/orders/${order.id}`, { headers: authHeaders() }),
+      fetch(`${API_BASE}/inventory/items?vendor_id=${order.vendor_id}`, { headers: authHeaders() })
+    ])
+    const currentItems = orderRes.ok ? await orderRes.json() : []
+    const vendorItems = vendorRes.ok ? await vendorRes.json() : []
+    const currentQtyMap = {}
+    currentItems.forEach(i => { if (i.item_id) currentQtyMap[i.item_id] = Number(i.qty) })
+    const merged = vendorItems.map(vi => ({
+      item_id: vi.id,
+      name: vi.name,
+      unit: vi.unit || '',
+      qty: currentQtyMap[vi.id] || 0,
+      isAdhoc: false
+    }))
+    // 加入 ad-hoc 品項（非系統品項）
+    currentItems.forEach(i => {
+      if (!i.item_id && i.adhoc_name) {
+        merged.push({ item_id: null, name: i.adhoc_name, unit: i.adhoc_unit || '', qty: Number(i.qty), isAdhoc: true })
+      }
+    })
+    editOrderItems.value = merged
+  } finally {
+    editOrderItemsLoading.value = false
+  }
+}
+
+function addNewEditItem() {
+  const name = editOrderNewItem.value.name.trim()
+  if (!name) return
+  editOrderItems.value.push({
+    item_id: null,
+    name,
+    unit: editOrderNewItem.value.unit.trim(),
+    qty: Math.max(1, editOrderNewItem.value.qty || 1),
+    isAdhoc: true
+  })
+  editOrderNewItem.value = { name: '', unit: '', qty: 1 }
 }
 
 async function submitEditOrder() {
@@ -694,6 +765,16 @@ async function submitEditOrder() {
     if (editOrderForm.value.note !== undefined)
       body.note = editOrderForm.value.note
     body.is_prepaid = editOrderForm.value.is_prepaid
+    // 品項更新：只送出 qty > 0 的
+    const itemsToSave = editOrderItems.value.filter(i => i.qty > 0)
+    if (itemsToSave.length > 0) {
+      body.items = itemsToSave.map(i => ({
+        item_id: i.isAdhoc ? null : i.item_id,
+        adhoc_name: i.isAdhoc ? i.name : null,
+        adhoc_unit: i.isAdhoc ? i.unit : null,
+        qty: i.qty
+      }))
+    }
     const res = await fetch(`${API_BASE}/inventory/orders/${editOrderTarget.value.id}`, {
       method: 'PATCH', headers: authHeaders(),
       body: JSON.stringify(body)
@@ -1225,17 +1306,42 @@ const payBadge = (o) => {
         </template>
       </div>
 
+      <!-- Copy LINE Message Sheet -->
+      <div v-if="copyMsgSheet.show" class="fixed inset-0 bg-black/50 z-[60] flex items-end" @click.self="copyMsgSheet.show=false">
+        <div class="bg-white w-full rounded-t-3xl max-h-[70vh] flex flex-col">
+          <div class="flex-shrink-0 px-5 pt-4 pb-3 border-b border-slate-100">
+            <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+            <div class="flex justify-between items-center">
+              <h3 class="text-base font-extrabold text-slate-800">📋 LINE 叫貨訊息</h3>
+              <button @click="copyMsgSheet.show=false" class="text-slate-400 text-xl font-bold">✕</button>
+            </div>
+          </div>
+          <div class="flex-1 overflow-y-auto px-5 py-4">
+            <textarea readonly :value="copyMsgSheet.text" @click="$event.target.select()"
+              class="w-full min-h-[180px] bg-slate-50 rounded-xl p-4 text-sm font-mono text-slate-700 border border-slate-200 resize-none focus:outline-none"></textarea>
+            <p class="text-xs text-slate-400 mt-2 text-center">點擊文字區可全選，再按下方按鈕複製</p>
+          </div>
+          <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
+            <button @click="doCopyMsgText"
+              class="w-full text-white font-bold py-4 rounded-2xl active:scale-95"
+              style="background:#e85d04">
+              📋 複製訊息
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Edit Order Modal -->
       <div v-if="showEditOrderModal" class="fixed inset-0 bg-black/50 z-[60] flex items-end" @click.self="showEditOrderModal=false">
-        <div class="bg-white w-full rounded-t-3xl max-h-[70vh] flex flex-col">
-          <div class="flex-shrink-0 px-5 pt-4 pb-3">
+        <div class="bg-white w-full rounded-t-3xl max-h-[92vh] flex flex-col">
+          <div class="flex-shrink-0 px-5 pt-4 pb-3 border-b border-slate-100">
             <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
             <div class="flex justify-between items-center">
               <h3 class="text-base font-extrabold text-slate-800">修改訂單 — {{ editOrderTarget?.vendor_name }}</h3>
               <button @click="showEditOrderModal=false" class="text-slate-400 text-xl font-bold">✕</button>
             </div>
           </div>
-          <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
+          <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4 pt-3">
             <div>
               <label class="block text-xs font-bold text-slate-500 uppercase mb-1">預計到貨日</label>
               <input v-model="editOrderForm.expected_delivery_date" type="date"
@@ -1258,6 +1364,48 @@ const payBadge = (o) => {
                 <p class="text-xs text-slate-400">勾選後簽收時自動設為「已收款」，不計入零用金待付</p>
               </div>
             </label>
+
+            <!-- 品項編輯 -->
+            <div>
+              <p class="text-xs font-bold text-slate-500 uppercase mb-2">品項數量</p>
+              <div v-if="editOrderItemsLoading" class="text-center text-slate-400 text-sm py-4">載入中…</div>
+              <div v-else class="space-y-2">
+                <div v-for="(item, idx) in editOrderItems" :key="item.item_id ?? ('adhoc-' + idx)"
+                  class="flex items-center gap-3 bg-slate-50 rounded-xl px-3 py-2.5"
+                  :class="item.qty > 0 ? 'bg-orange-50 border border-orange-100' : ''">
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-bold text-slate-700 truncate">{{ item.name }}</p>
+                    <p class="text-xs text-slate-400">{{ item.unit }}</p>
+                  </div>
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <button @click="item.qty = Math.max(0, item.qty - 1)"
+                      class="w-8 h-8 rounded-full bg-slate-200 text-slate-600 text-lg font-bold flex items-center justify-center active:bg-slate-300">−</button>
+                    <input v-model.number="item.qty" type="number" inputmode="numeric" min="0"
+                      class="w-14 text-center text-sm font-extrabold border border-slate-200 rounded-lg py-1 focus:outline-none focus:ring-2 focus:ring-orange-400" />
+                    <button @click="item.qty++"
+                      class="w-8 h-8 rounded-full flex items-center justify-center active:opacity-80 text-white text-lg font-bold"
+                      style="background:#e85d04">＋</button>
+                  </div>
+                </div>
+                <p v-if="editOrderItems.length === 0" class="text-center text-slate-400 text-sm py-2">無品項資料</p>
+
+                <!-- 新增臨時品項 -->
+                <div class="mt-3 pt-3 border-t border-slate-100">
+                  <p class="text-xs font-bold text-slate-400 mb-2">＋ 新增其他品項</p>
+                  <div class="flex gap-2">
+                    <input v-model="editOrderNewItem.name" type="text" placeholder="品項名稱"
+                      class="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+                    <input v-model="editOrderNewItem.unit" type="text" placeholder="單位"
+                      class="w-16 border border-slate-200 rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-orange-400" />
+                    <input v-model.number="editOrderNewItem.qty" type="number" inputmode="numeric" min="1" placeholder="數量"
+                      class="w-16 border border-slate-200 rounded-xl px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-orange-400" />
+                    <button @click="addNewEditItem"
+                      class="px-3 py-2 rounded-xl text-white text-sm font-bold active:opacity-80 flex-shrink-0"
+                      style="background:#e85d04">加入</button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
             <button @click="submitEditOrder" :disabled="editOrderSubmitting"
@@ -1310,23 +1458,26 @@ const payBadge = (o) => {
 
             <!-- Payment status (3-way) -->
             <div>
-              <p class="text-xs font-bold text-slate-500 mb-2">付款方式</p>
+              <div class="flex items-center gap-2 mb-2">
+                <p class="text-xs font-bold text-slate-500">付款方式</p>
+                <span v-if="receiveTarget?.is_prepaid" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-600">🔒 已在訂單標記已收款</span>
+              </div>
               <div class="grid grid-cols-3 gap-2">
-                <button @click="receiveForm.payment_mode = 'cash'"
+                <button @click="!receiveTarget?.is_prepaid && (receiveForm.payment_mode = 'cash')"
                   class="py-3 rounded-xl text-sm font-bold border transition-all text-center px-1"
-                  :class="receiveForm.payment_mode === 'cash' ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-400'">
+                  :class="[receiveForm.payment_mode === 'cash' ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-400', receiveTarget?.is_prepaid ? 'opacity-40 cursor-not-allowed' : '']">
                   <p class="font-extrabold text-sm">💵 現場現金</p>
                   <p class="text-[10px] mt-0.5 opacity-70">當場付清</p>
                 </button>
-                <button @click="receiveForm.payment_mode = 'pre_paid'"
+                <button @click="!receiveTarget?.is_prepaid && (receiveForm.payment_mode = 'pre_paid')"
                   class="py-3 rounded-xl text-sm font-bold border transition-all text-center px-1"
-                  :class="receiveForm.payment_mode === 'pre_paid' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-400'">
+                  :class="[receiveForm.payment_mode === 'pre_paid' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-400', receiveTarget?.is_prepaid ? 'ring-2 ring-blue-300' : '']">
                   <p class="font-extrabold text-sm">🏦 已收款</p>
                   <p class="text-[10px] mt-0.5 opacity-70">匯款/先付</p>
                 </button>
-                <button @click="receiveForm.payment_mode = 'unpaid'"
+                <button @click="!receiveTarget?.is_prepaid && (receiveForm.payment_mode = 'unpaid')"
                   class="py-3 rounded-xl text-sm font-bold border transition-all text-center px-1"
-                  :class="receiveForm.payment_mode === 'unpaid' ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-400'">
+                  :class="[receiveForm.payment_mode === 'unpaid' ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-400', receiveTarget?.is_prepaid ? 'opacity-40 cursor-not-allowed' : '']">
                   <p class="font-extrabold text-sm">📋 未付款</p>
                   <p class="text-[10px] mt-0.5 opacity-70">月結/週結</p>
                 </button>

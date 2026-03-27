@@ -105,9 +105,9 @@ async function loadAll() {
       fetch(`${API_BASE}/finance/petty-cash?date=${today}&limit=100`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/petty-cash?date=${yesterday}&limit=100`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/inventory/vendors`, { headers: { Authorization: `Bearer ${auth.token}` } }),
-      fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: { Authorization: `Bearer ${auth.token}` } }).catch(() => null),
       fetch(`${API_BASE}/finance/daily-settlement/today`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/daily-settlement/can-settle`, { headers: { Authorization: `Bearer ${auth.token}` } }).catch(() => null),
+      fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: { Authorization: `Bearer ${auth.token}` } }).catch(() => null),
     ])
 
     if (balRes.ok) pettyBalance.value = (await balRes.json()).balance
@@ -125,6 +125,7 @@ async function loadAll() {
     }
     if (vendRes.ok) vendors.value = await vendRes.json()
     if (catRes?.ok) cashflowCategories.value = await catRes.json()
+    // settleRes = daily-settlement/today
     if (settleRes.ok) {
       const sd = await settleRes.json()
       // A3: support multiple settlements
@@ -136,7 +137,7 @@ async function loadAll() {
         settlementCount.value = sd.settled ? 1 : 0
       }
     }
-    // A3: check if can settle again
+    // canSettleRes = daily-settlement/can-settle
     if (canSettleRes?.ok) {
       const cs = await canSettleRes.json()
       canSettle.value = cs.can_settle !== false
@@ -325,24 +326,44 @@ const todayTimeline = computed(() => {
 const activeTab = ref('ledger')  // 'ledger' | 'pending'
 
 const pendingPayments = ref([])
+const settledPayments = ref([])
 const pendingLoading = ref(false)
 const selectedPendingIds = ref(new Set())
 const payingIds = ref(new Set())
 const pendingPayPhotoInput = ref(null)
 const pendingPayPhotoFile = ref(null)
 const pendingPayPhotoPreview = ref('')
+const batchSettling = ref(false)
+const showPayConfirmSheet = ref(false)  // 付款確認 modal
 
 async function loadPendingPayments() {
   pendingLoading.value = true
   try {
-    const res = await fetch(`${API_BASE}/finance/petty-cash?type=expense&is_paid=false&limit=200`, {
-      headers: { Authorization: `Bearer ${auth.token}` }
-    })
-    if (res.ok) pendingPayments.value = await res.json()
+    const [pendRes, settledRes] = await Promise.all([
+      fetch(`${API_BASE}/finance/petty-cash?type=expense&is_paid=false&vendor_payment_method=現金&limit=200`, {
+        headers: { Authorization: `Bearer ${auth.token}` }
+      }),
+      fetch(`${API_BASE}/finance/petty-cash?type=expense&is_paid=false&include_settled=true&vendor_payment_method=現金&limit=200`, {
+        headers: { Authorization: `Bearer ${auth.token}` }
+      }),
+    ])
+    if (pendRes.ok) pendingPayments.value = await pendRes.json()
+    if (settledRes.ok) settledPayments.value = await settledRes.json()
   } finally {
     pendingLoading.value = false
   }
 }
+
+// 按廠商分組
+const pendingByVendor = computed(() => {
+  const groups = {}
+  for (const p of pendingPayments.value) {
+    const key = p.vendor_id || 0
+    if (!groups[key]) groups[key] = { vendor_id: p.vendor_id, vendor_name: p.vendor_name || '未知廠商', items: [] }
+    groups[key].items.push(p)
+  }
+  return Object.values(groups)
+})
 
 function togglePendingSelect(id) {
   const s = new Set(selectedPendingIds.value)
@@ -350,12 +371,36 @@ function togglePendingSelect(id) {
   selectedPendingIds.value = s
 }
 
-function toggleSelectAllPending() {
-  if (selectedPendingIds.value.size === pendingPayments.value.length) {
-    selectedPendingIds.value = new Set()
+function toggleSelectVendorGroup(group) {
+  const allSelected = group.items.every(p => selectedPendingIds.value.has(p.id))
+  const s = new Set(selectedPendingIds.value)
+  if (allSelected) {
+    group.items.forEach(p => s.delete(p.id))
   } else {
-    selectedPendingIds.value = new Set(pendingPayments.value.map(p => p.id))
+    // 先清除其他廠商的選取（一次只付一個廠商）
+    selectedPendingIds.value.forEach(id => {
+      const inThisGroup = group.items.some(p => p.id === id)
+      if (!inThisGroup) s.delete(id)
+    })
+    group.items.forEach(p => s.add(p.id))
   }
+  selectedPendingIds.value = s
+}
+
+// 選取時確保同廠商
+function selectPendingCard(id, vendorId) {
+  const s = new Set(selectedPendingIds.value)
+  if (s.has(id)) {
+    s.delete(id)
+  } else {
+    // 清除不同廠商的選取
+    for (const existId of s) {
+      const existing = pendingPayments.value.find(p => p.id === existId)
+      if (existing && existing.vendor_id !== vendorId) s.delete(existId)
+    }
+    s.add(id)
+  }
+  selectedPendingIds.value = s
 }
 
 const selectedPendingTotal = computed(() =>
@@ -364,19 +409,77 @@ const selectedPendingTotal = computed(() =>
     .reduce((s, p) => s + parseFloat(p.amount || 0), 0)
 )
 
-async function paySelected() {
+function fmtSettledDate(dt) {
+  if (!dt) return ''
+  const d = new Date(dt)
+  return `${d.getMonth() + 1}/${String(d.getDate()).padStart(2, '0')}`
+}
+
+async function handlePendingPhoto(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  try {
+    const compressed = await compressImage(file)
+    pendingPayPhotoFile.value = compressed
+    pendingPayPhotoPreview.value = URL.createObjectURL(compressed)
+  } catch { console.warn('compress failed') }
+  e.target.value = ''
+}
+
+function removePendingPhoto() {
+  if (pendingPayPhotoPreview.value) URL.revokeObjectURL(pendingPayPhotoPreview.value)
+  pendingPayPhotoFile.value = null
+  pendingPayPhotoPreview.value = ''
+}
+
+// 按「確認付款」→ 開啟確認 modal
+function paySelected() {
+  if (!selectedPendingIds.value.size) return
+  showPayConfirmSheet.value = true
+}
+
+// 確認 modal 裡真正執行付款
+async function confirmAndPay() {
   const ids = [...selectedPendingIds.value]
   if (!ids.length) return
-  for (const id of ids) {
-    const s = new Set(payingIds.value); s.add(id); payingIds.value = s
-    await fetch(`${API_BASE}/finance/petty-cash/${id}/toggle-payment`, {
-      method: 'PATCH', headers: { Authorization: `Bearer ${auth.token}` }
+  batchSettling.value = true
+  try {
+    // 上傳照片（若有）
+    let photoUrl = null
+    if (pendingPayPhotoFile.value) {
+      const fd = new FormData()
+      fd.append('file', pendingPayPhotoFile.value)
+      const upRes = await fetch(`${API_BASE.replace('/api/v1', '')}/api/v1/uploads/image`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${auth.token}` },
+        body: fd
+      })
+      if (upRes.ok) {
+        const upData = await upRes.json()
+        const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '')
+        photoUrl = base + upData.url
+      }
+    }
+
+    const res = await fetch(`${API_BASE}/finance/petty-cash/batch-settle`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ record_ids: ids, photo_url: photoUrl })
     })
-    const s2 = new Set(payingIds.value); s2.delete(id); payingIds.value = s2
+    if (!res.ok) {
+      const d = await res.json()
+      alert(d.detail || '付款失敗')
+      return
+    }
+
+    showPayConfirmSheet.value = false
+    selectedPendingIds.value = new Set()
+    removePendingPhoto()
+    await loadPendingPayments()
+    await loadAll()
+  } finally {
+    batchSettling.value = false
   }
-  selectedPendingIds.value = new Set()
-  await loadPendingPayments()
-  await loadAll()  // refresh balance
 }
 </script>
 
@@ -503,8 +606,8 @@ async function paySelected() {
                   </p>
                   <span v-if="entry.type === 'expense'"
                     class="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                    :style="entry.is_paid === false ? 'background:#fef9c3;color:#92400e' : 'background:#f0fdf4;color:#16a34a'">
-                    {{ entry.is_paid === false ? '未付款' : '已付款' }}
+                    :style="entry.settled_at ? 'background:#f0fdf4;color:#16a34a' : entry.is_paid === false ? 'background:#fef9c3;color:#92400e' : 'background:#f0fdf4;color:#16a34a'">
+                    {{ entry.settled_at ? fmtSettledDate(entry.settled_at) + '已付款' : entry.is_paid === false ? '未付款' : '已付款' }}
                   </span>
                 </div>
               </div>
@@ -564,8 +667,8 @@ async function paySelected() {
                 </p>
                 <span v-if="r.type === 'expense'"
                   class="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                  :style="r.is_paid === false ? 'background:#fef9c3;color:#92400e' : 'background:#f0fdf4;color:#16a34a'">
-                  {{ r.is_paid === false ? '未付款' : '已付款' }}
+                  :style="r.settled_at ? 'background:#f0fdf4;color:#16a34a' : r.is_paid === false ? 'background:#fef9c3;color:#92400e' : 'background:#f0fdf4;color:#16a34a'">
+                  {{ r.settled_at ? fmtSettledDate(r.settled_at) + '已付款' : r.is_paid === false ? '未付款' : '已付款' }}
                 </span>
               </div>
             </div>
@@ -594,34 +697,60 @@ async function paySelected() {
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
         </svg>
       </div>
-      <div v-else-if="!pendingPayments.length" class="text-center py-16">
+      <div v-else-if="!pendingPayments.length && !settledPayments.length" class="text-center py-16">
         <p class="text-5xl mb-3">✅</p>
         <p class="text-slate-400 font-bold text-sm">目前無待付款紀錄</p>
       </div>
-      <div v-else class="px-4 mt-4 space-y-2">
-        <!-- Select all row -->
-        <div class="flex items-center justify-between py-2">
-          <label class="flex items-center gap-2 text-sm font-bold text-slate-600">
-            <input type="checkbox" :checked="selectedPendingIds.size === pendingPayments.length" @change="toggleSelectAllPending" class="w-4 h-4 accent-orange-500" />
-            全選 ({{ pendingPayments.length }} 筆)
-          </label>
-          <span v-if="selectedPendingIds.size > 0" class="text-xs font-bold text-orange-600">
-            已選 ${{ fmtMoney(selectedPendingTotal) }}
-          </span>
-        </div>
-        <!-- Payment cards -->
-        <div v-for="p in pendingPayments" :key="p.id"
-          class="bg-white rounded-xl shadow-sm p-4 flex items-center gap-3"
-          :class="selectedPendingIds.has(p.id) ? 'ring-2 ring-orange-400' : ''"
-          @click="togglePendingSelect(p.id)">
-          <input type="checkbox" :checked="selectedPendingIds.has(p.id)" @click.stop @change="togglePendingSelect(p.id)"
-            class="w-5 h-5 accent-orange-500 shrink-0" />
-          <span class="text-2xl">📦</span>
-          <div class="flex-1 min-w-0">
-            <p class="font-bold text-slate-800 text-sm truncate">{{ p.vendor_name || p.note || '未知廠商' }}</p>
-            <p class="text-xs text-slate-400 mt-0.5">{{ fmtDate(p.created_at) }}</p>
+      <div v-else class="px-4 mt-4 space-y-4">
+        <!-- 按廠商分組顯示待付款 -->
+        <div v-for="group in pendingByVendor" :key="group.vendor_id" class="space-y-2">
+          <!-- 廠商標題 + 全選 -->
+          <div class="flex items-center justify-between py-1">
+            <label class="flex items-center gap-2 text-sm font-bold text-slate-700">
+              <input type="checkbox"
+                :checked="group.items.every(p => selectedPendingIds.has(p.id))"
+                @change="toggleSelectVendorGroup(group)"
+                class="w-4 h-4 accent-orange-500" />
+              📦 {{ group.vendor_name }} ({{ group.items.length }} 筆)
+            </label>
+            <span class="text-xs font-bold text-slate-400">
+              ${{ fmtMoney(group.items.reduce((s, p) => s + parseFloat(p.amount || 0), 0)) }}
+            </span>
           </div>
-          <p class="font-black text-red-500 shrink-0">−${{ fmtMoney(p.amount) }}</p>
+          <!-- 待付款卡片 -->
+          <div v-for="p in group.items" :key="p.id"
+            class="bg-white rounded-xl shadow-sm p-4 flex items-center gap-3"
+            :class="selectedPendingIds.has(p.id) ? 'ring-2 ring-orange-400' : ''"
+            @click="selectPendingCard(p.id, p.vendor_id)">
+            <input type="checkbox" :checked="selectedPendingIds.has(p.id)" @click.stop
+              @change="selectPendingCard(p.id, p.vendor_id)"
+              class="w-5 h-5 accent-orange-500 shrink-0" />
+            <div class="flex-1 min-w-0">
+              <p class="font-bold text-slate-800 text-sm truncate">{{ p.note || p.vendor_name || '未知' }}</p>
+              <p class="text-xs text-slate-400 mt-0.5">{{ fmtDate(p.created_at) }}</p>
+            </div>
+            <p class="font-black text-red-500 shrink-0">−${{ fmtMoney(p.amount) }}</p>
+          </div>
+        </div>
+
+        <!-- 已結帳紀錄（灰底，不可選） -->
+        <div v-if="settledPayments.length" class="mt-4">
+          <p class="text-xs text-slate-400 font-bold mb-2">近期已付款</p>
+          <div v-for="p in settledPayments" :key="'s-'+p.id"
+            class="rounded-xl shadow-sm p-4 flex items-center gap-3"
+            style="background:#f8fafc">
+            <div class="flex-1 min-w-0">
+              <p class="font-bold text-slate-400 text-sm truncate">{{ p.vendor_name || p.note || '未知' }}</p>
+              <p class="text-xs text-slate-300 mt-0.5">{{ fmtDate(p.created_at) }}</p>
+            </div>
+            <div class="flex flex-col items-end shrink-0">
+              <p class="font-bold text-slate-400 text-sm">${{ fmtMoney(p.amount) }}</p>
+              <span class="text-[9px] font-bold px-1.5 py-0.5 rounded-full mt-0.5"
+                style="background:#f0fdf4;color:#16a34a">
+                {{ fmtSettledDate(p.settled_at) }}已付款
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -650,6 +779,58 @@ async function paySelected() {
       style="bottom:90px;width:52px;height:52px;border-radius:16px;background:#e85d04;font-size:26px;line-height:1">
       ＋
     </button>
+
+    <!-- 付款確認 Bottom Sheet -->
+    <div v-if="showPayConfirmSheet" class="fixed inset-0 bg-black/50 z-[60] flex items-end" @click.self="showPayConfirmSheet = false">
+      <div class="bg-white w-full rounded-t-3xl flex flex-col" style="max-height:80vh">
+        <div class="flex-shrink-0 px-5 pt-4 pb-3 border-b border-slate-100">
+          <div class="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3"></div>
+          <div class="flex justify-between items-center">
+            <h3 class="text-base font-extrabold text-slate-800">確認付款</h3>
+            <button @click="showPayConfirmSheet = false" class="text-slate-400 text-xl font-bold">✕</button>
+          </div>
+        </div>
+        <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <!-- 付款摘要 -->
+          <div class="bg-slate-50 rounded-xl p-4 space-y-2">
+            <div v-for="p in pendingPayments.filter(p => selectedPendingIds.has(p.id))" :key="p.id"
+              class="flex justify-between text-sm">
+              <span class="text-slate-600 truncate max-w-[60%]">{{ p.note || p.vendor_name }}</span>
+              <span class="font-bold text-red-500">−${{ fmtMoney(p.amount) }}</span>
+            </div>
+            <div class="border-t border-slate-200 pt-2 flex justify-between font-black text-slate-800">
+              <span>合計</span>
+              <span class="text-red-500">−${{ fmtMoney(selectedPendingTotal) }}</span>
+            </div>
+          </div>
+
+          <!-- 拍照收據 -->
+          <div>
+            <p class="text-xs font-bold text-slate-500 uppercase mb-2">收據照片（選填）</p>
+            <div v-if="pendingPayPhotoPreview" class="relative w-full mb-2">
+              <img :src="pendingPayPhotoPreview" class="w-full h-40 object-cover rounded-xl border border-slate-200" />
+              <button @click="removePendingPhoto"
+                class="absolute top-2 right-2 w-7 h-7 bg-black/50 text-white rounded-full text-sm flex items-center justify-center">✕</button>
+            </div>
+            <button v-if="!pendingPayPhotoPreview"
+              @click="pendingPayPhotoInput?.click()"
+              class="w-full py-3 rounded-xl border-2 border-dashed border-slate-300 text-slate-400 text-sm font-bold flex items-center justify-center gap-2 active:bg-slate-50">
+              <span class="text-xl">📷</span> 拍照 / 選擇照片
+            </button>
+            <input ref="pendingPayPhotoInput" type="file" accept="image/*" capture="environment"
+              class="hidden" @change="handlePendingPhoto" />
+          </div>
+        </div>
+
+        <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100">
+          <button @click="confirmAndPay" :disabled="batchSettling"
+            class="w-full text-white font-black py-4 rounded-2xl shadow-lg active:scale-95 disabled:opacity-50 text-base"
+            style="background:#e85d04">
+            {{ batchSettling ? '處理中...' : `💵 確認付款 $${fmtMoney(selectedPendingTotal)}` }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Finance Sheet Modal -->
     <div v-if="showSheet" class="fixed inset-0 bg-black/50 z-[60] flex items-end">

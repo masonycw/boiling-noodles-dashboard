@@ -26,6 +26,11 @@ class PettyCashCreate(BaseModel):
     is_paid: bool = True                   # False = 待付帳款，不計入零用金餘額
 
 
+class BatchSettleBody(BaseModel):
+    record_ids: list[int]
+    photo_url: Optional[str] = None
+
+
 class CashFlowCreate(BaseModel):
     type: str                              # income / expense
     amount: float
@@ -77,12 +82,17 @@ def list_petty_cash(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     is_paid: Optional[bool] = None,
+    vendor_payment_method: Optional[str] = None,
+    include_settled: Optional[bool] = None,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
     return finance_service.get_petty_cash_records(
         db, days_limit=days_limit, type_filter=type, date_filter=date,
-        date_from=date_from, date_to=date_to, is_paid=is_paid, limit=limit
+        date_from=date_from, date_to=date_to, is_paid=is_paid,
+        vendor_payment_method=vendor_payment_method,
+        include_settled=include_settled,
+        limit=limit
     )
 
 
@@ -137,6 +147,18 @@ def toggle_petty_cash_payment(record_id: int, db: Session = Depends(get_db)):
         return finance_service.toggle_petty_cash_payment(db, record_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/petty-cash/batch-settle")
+def batch_settle_payments(data: BatchSettleBody, db: Session = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
+    """批次結帳代收款：合併付款 + 同步應付帳款"""
+    try:
+        return finance_service.batch_settle_payments(
+            db, current_user.id, data.record_ids, data.photo_url
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.delete("/petty-cash/{record_id}")
