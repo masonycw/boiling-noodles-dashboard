@@ -20,6 +20,7 @@ class UserCreate(BaseModel):
     full_name: Optional[str] = None
     role: str = "staff"
     petty_cash_permission: bool = False
+    petty_cash_access: bool = False
 
 
 class UserUpdate(BaseModel):
@@ -28,6 +29,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     is_active: Optional[bool] = None
     petty_cash_permission: Optional[bool] = None
+    petty_cash_access: Optional[bool] = None
     password: Optional[str] = None
 
 
@@ -39,6 +41,21 @@ class PasswordChange(BaseModel):
 # ─────────────────────────────────────────────
 # Endpoints
 # ─────────────────────────────────────────────
+
+@router.get("/import-template")
+def users_import_template():
+    """動態產生帳號匯入 Excel 範本（含角色/零用金下拉）"""
+    from erp.backend.utils.excel_template import build_accounts_template
+    from fastapi.responses import StreamingResponse
+    import io
+
+    data = build_accounts_template()
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''%E5%B8%B3%E8%99%9F%E5%8C%AF%E5%85%A5%E7%AF%84%E6%9C%AC.xlsx"}
+    )
+
 
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user)):
@@ -69,7 +86,8 @@ def create_user(data: UserCreate, db: Session = Depends(get_db)):
         hashed_password=get_password_hash(data.password),
         full_name=data.full_name,
         role=data.role,
-        petty_cash_permission=data.petty_cash_permission
+        petty_cash_permission=data.petty_cash_permission,
+        petty_cash_access=data.petty_cash_access,
     )
     db.add(user)
     db.commit()
@@ -153,6 +171,7 @@ def _format_user(user: User) -> dict:
         "role": user.role,
         "is_active": user.is_active,
         "petty_cash_permission": user.petty_cash_permission,
+        "petty_cash_access": getattr(user, 'petty_cash_access', False) or False,
         "created_at": user.created_at,
         "last_login": user.last_login
     }

@@ -137,6 +137,7 @@ def create_petty_cash_record(db: Session, user_id: int, data: dict) -> dict:
         if not user or not user.petty_cash_permission:
             raise PermissionError("此帳號無提領授權")
 
+    record_time = datetime.utcnow()
     record = PettyCashRecord(
         user_id=user_id,
         type=data["type"],
@@ -145,7 +146,8 @@ def create_petty_cash_record(db: Session, user_id: int, data: dict) -> dict:
         photo_url=data.get("photo_url"),
         is_paid=data.get("is_paid", True),
         vendor_id=data.get("vendor_id"),
-        order_id=data.get("order_id")
+        order_id=data.get("order_id"),
+        created_at=record_time,  # 明確設定，確保與金流紀錄日期一致
     )
     db.add(record)
 
@@ -167,7 +169,7 @@ def create_petty_cash_record(db: Session, user_id: int, data: dict) -> dict:
             description=data.get("note"),
             vendor_id=data.get("vendor_id"),
             is_categorized=category_id is not None,
-            transaction_date=datetime.utcnow()
+            transaction_date=record_time,  # 與零用金紀錄同步
         )
         db.add(cf)
 
@@ -177,11 +179,37 @@ def create_petty_cash_record(db: Session, user_id: int, data: dict) -> dict:
 
 
 def toggle_petty_cash_payment(db: Session, record_id: int) -> dict:
-    """切換零用金紀錄的付款狀態（已付 ↔ 待付）"""
+    """切換零用金紀錄的付款狀態（已付 ↔ 待付），切換為已付時自動建立金流紀錄"""
     record = db.query(PettyCashRecord).filter(PettyCashRecord.id == record_id).first()
     if not record:
         raise ValueError("紀錄不存在")
+    was_unpaid = not record.is_paid
     record.is_paid = not record.is_paid
+    # 從待付 → 已付：建立金流紀錄
+    if was_unpaid and record.is_paid and record.type == PettyCashTypeEnum.expense:
+        from erp.backend.db.models import Vendor as VendorModel
+        category_id = getattr(record, 'category_id', None)
+        if not category_id and record.vendor_id:
+            vdr = db.query(VendorModel).filter(VendorModel.id == record.vendor_id).first()
+            if vdr and vdr.default_category_id:
+                category_id = vdr.default_category_id
+        # 使用零用金紀錄本身的日期，確保金流顯示日期與零用金一致
+        rec_time = record.created_at
+        if hasattr(rec_time, 'tzinfo') and rec_time.tzinfo:
+            from datetime import timezone
+            rec_time = rec_time.astimezone(timezone.utc).replace(tzinfo=None)
+        cf = CashFlowRecord(
+            user_id=record.user_id,
+            category_id=category_id,
+            amount=record.amount,
+            type="expense",
+            source="petty_cash",
+            description=record.note,
+            vendor_id=record.vendor_id,
+            is_categorized=category_id is not None,
+            transaction_date=rec_time or datetime.utcnow(),
+        )
+        db.add(cf)
     db.commit()
     db.refresh(record)
     return _format_petty_cash(record, db)
@@ -403,7 +431,10 @@ def get_accounts_payable(
     return [_format_payable(r, db) for r in records]
 
 
-def mark_payable_paid(db: Session, payable_id: int, user_id: int, payment_method: str = None) -> dict:
+def mark_payable_paid(db: Session, payable_id: int, user_id: int,
+                       payment_method: str = None, payment_date: str = None,
+                       amount: float = None, category_id: int = None,
+                       note: str = None) -> dict:
     record = db.query(AccountsPayable).filter(AccountsPayable.id == payable_id).first()
     if not record:
         raise ValueError(f"AccountsPayable {payable_id} not found")
@@ -413,6 +444,17 @@ def mark_payable_paid(db: Session, payable_id: int, user_id: int, payment_method
     record.paid_by_user_id = user_id
     if payment_method is not None:
         record.payment_method = payment_method
+    if amount is not None:
+        record.amount = amount
+    cf_date = now  # 預設使用操作當下時間
+    if payment_date:
+        try:
+            record.payment_date = datetime.fromisoformat(payment_date)
+            cf_date = record.payment_date  # 金流日期使用付款日
+        except Exception:
+            pass
+    if note is not None:
+        record.note = note
 
     # 取廠商資訊
     from erp.backend.db.models import Vendor as VendorModel
@@ -424,22 +466,25 @@ def mark_payable_paid(db: Session, payable_id: int, user_id: int, payment_method
             vendor_name = vdr.name
             vendor_cat_id = vdr.default_category_id
 
-    # 建立金流紀錄
+    # category_id 優先用傳入的，fallback 到廠商預設
+    final_cat_id = category_id if category_id else vendor_cat_id
+
+    # 建立金流紀錄（transaction_date 使用付款日，與應付帳款付款日同步）
     desc_parts = [f"應付帳款 - {vendor_name}" if vendor_name else "應付帳款"]
     if record.note:
         desc_parts.append(record.note)
     cf = CashFlowRecord(
         user_id=user_id,
-        category_id=vendor_cat_id,
+        category_id=final_cat_id,
         amount=record.amount,
         type="expense",
         source="accounts_payable",
         description=" / ".join(desc_parts),
         vendor_id=record.vendor_id,
-        is_categorized=vendor_cat_id is not None,
+        is_categorized=final_cat_id is not None,
         payment_method=payment_method,
         ref_payable_ids=[payable_id],
-        transaction_date=now,
+        transaction_date=cf_date,
     )
     db.add(cf)
 
@@ -459,7 +504,8 @@ def mark_payable_paid(db: Session, payable_id: int, user_id: int, payment_method
     return _format_payable(record, db)
 
 
-def batch_pay_payables(db: Session, payable_ids: list, user_id: int, payment_method: str = None) -> dict:
+def batch_pay_payables(db: Session, payable_ids: list, user_id: int, payment_method: str = None,
+                       payment_date: str = None, category_id: int = None, note: str = None) -> dict:
     """批次付清多筆應付帳款，產生單一金流紀錄"""
     from erp.backend.db.models import Vendor as VendorModel
     if not payable_ids:
@@ -472,6 +518,15 @@ def batch_pay_payables(db: Session, payable_ids: list, user_id: int, payment_met
     now = datetime.utcnow()
     total_amount = sum(float(r.amount) for r in records)
 
+    # 付款日
+    if payment_date:
+        try:
+            cf_date = datetime.strptime(payment_date, "%Y-%m-%d")
+        except ValueError:
+            cf_date = now
+    else:
+        cf_date = now
+
     # 取廠商資訊（可能多個廠商）
     vendor_ids = list({r.vendor_id for r in records if r.vendor_id})
     vendor_names = []
@@ -482,6 +537,10 @@ def batch_pay_payables(db: Session, payable_ids: list, user_id: int, payment_met
             vendor_names.append(vdr.name)
             if not vendor_cat_id and vdr.default_category_id:
                 vendor_cat_id = vdr.default_category_id
+
+    # 若有傳入 category_id，覆蓋廠商預設
+    if category_id:
+        vendor_cat_id = category_id
 
     # 標記每筆帳款已付
     for r in records:
@@ -509,18 +568,19 @@ def batch_pay_payables(db: Session, payable_ids: list, user_id: int, payment_met
         desc = f"應付帳款批次付款（{len(records)} 筆）"
 
     main_vendor_id = vendor_ids[0] if len(vendor_ids) == 1 else None
+    final_desc = note.strip() if note and note.strip() else desc
     cf = CashFlowRecord(
         user_id=user_id,
         category_id=vendor_cat_id,
         amount=total_amount,
         type="expense",
         source="accounts_payable",
-        description=desc,
+        description=final_desc,
         vendor_id=main_vendor_id,
         is_categorized=vendor_cat_id is not None,
         payment_method=payment_method,
         ref_payable_ids=payable_ids,
-        transaction_date=now,
+        transaction_date=cf_date,
     )
     db.add(cf)
     db.commit()
@@ -542,14 +602,20 @@ def _format_petty_cash(record: PettyCashRecord, db: Session) -> dict:
     vendor_name = None
     category_id = None
     category_name = None
+    vdr = None
     if record.vendor_id:
-        v = db.query(Vendor).filter(Vendor.id == record.vendor_id).first()
-        if v:
-            vendor_name = v.name
-            if v.default_category_id:
-                category_id = v.default_category_id
-                cat = db.query(CashFlowCategory).filter(CashFlowCategory.id == v.default_category_id).first()
-                category_name = cat.name if cat else None
+        vdr = db.query(Vendor).filter(Vendor.id == record.vendor_id).first()
+        if vdr:
+            vendor_name = vdr.name
+    # 優先用紀錄本身的 category_id，若無則 fallback 到廠商預設科目
+    own_cat_id = getattr(record, 'category_id', None)
+    if own_cat_id:
+        category_id = own_cat_id
+    elif vdr and vdr.default_category_id:
+        category_id = vdr.default_category_id
+    if category_id:
+        cat = db.query(CashFlowCategory).filter(CashFlowCategory.id == category_id).first()
+        category_name = cat.name if cat else None
 
     recorded_by_name = None
     if record.user_id:
@@ -583,6 +649,13 @@ def _format_cash_flow(record: CashFlowRecord, db: Session) -> dict:
         cat = db.query(CashFlowCategory).filter(CashFlowCategory.id == record.category_id).first()
         category_name = cat.name if cat else None
 
+    vendor_name = None
+    if record.vendor_id:
+        from erp.backend.db.models import Vendor as VendorModel
+        v = db.query(VendorModel).filter(VendorModel.id == record.vendor_id).first()
+        if v:
+            vendor_name = v.name
+
     return {
         "id": record.id,
         "user_id": record.user_id,
@@ -593,6 +666,7 @@ def _format_cash_flow(record: CashFlowRecord, db: Session) -> dict:
         "source": record.source,
         "description": record.description,
         "vendor_id": record.vendor_id,
+        "vendor_name": vendor_name,
         "is_categorized": record.is_categorized,
         "payment_method": getattr(record, 'payment_method', None),
         "ref_payable_ids": getattr(record, 'ref_payable_ids', None),
@@ -605,11 +679,21 @@ def _format_payable(record: AccountsPayable, db: Session) -> dict:
     from erp.backend.db.models import Vendor
     vendor_name = None
     payment_terms = None
+    bank_account = None
+    bank_name = None
+    default_category_id = None
+    default_category_name = None
     if record.vendor_id:
         v = db.query(Vendor).filter(Vendor.id == record.vendor_id).first()
         if v:
             vendor_name = v.name
             payment_terms = v.payment_terms
+            bank_account = v.bank_account
+            bank_name = v.bank_name
+            if v.default_category_id:
+                default_category_id = v.default_category_id
+                cat = db.query(CashFlowCategory).filter(CashFlowCategory.id == v.default_category_id).first()
+                default_category_name = cat.name if cat else None
 
     return {
         "id": record.id,
@@ -624,6 +708,10 @@ def _format_payable(record: AccountsPayable, db: Session) -> dict:
         "payment_method": record.payment_method,
         "note": record.note,
         "payment_terms": payment_terms,
+        "bank_account": bank_account,
+        "bank_name": bank_name,
+        "default_category_id": default_category_id,
+        "default_category_name": default_category_name,
         "created_at": record.created_at
     }
 

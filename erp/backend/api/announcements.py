@@ -17,6 +17,12 @@ class AnnouncementCreate(BaseModel):
     expires_at: Optional[datetime] = None
 
 
+class AnnouncementUpdate(BaseModel):
+    content: Optional[str] = None
+    is_active: Optional[bool] = None
+    expires_at: Optional[datetime] = None
+
+
 def _fmt(a: Announcement):
     return {
         "id": a.id,
@@ -28,13 +34,16 @@ def _fmt(a: Announcement):
 
 
 @router.get("")
-def list_announcements(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    """回傳所有有效（未過期）的公告"""
+def list_announcements(all: bool = False, db: Session = Depends(get_db)):
+    """回傳公告列表；all=true 時回傳全部（含停用），供後台使用"""
     now = datetime.utcnow()
-    rows = db.query(Announcement).filter(
-        Announcement.is_active == True,
-        (Announcement.expires_at == None) | (Announcement.expires_at > now)
-    ).order_by(Announcement.created_at.desc()).all()
+    q = db.query(Announcement)
+    if not all:
+        q = q.filter(
+            Announcement.is_active == True,
+            (Announcement.expires_at == None) | (Announcement.expires_at > now)
+        )
+    rows = q.order_by(Announcement.created_at.desc()).all()
     return [_fmt(r) for r in rows]
 
 
@@ -50,6 +59,23 @@ def create_announcement(body: AnnouncementCreate, db: Session = Depends(get_db),
     db.add(a)
     db.commit()
     db.refresh(a)
+    return _fmt(a)
+
+
+@router.patch("/{ann_id}")
+def update_announcement(ann_id: int, body: AnnouncementUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    if current_user.role not in ("admin", "manager"):
+        raise HTTPException(403, "需要管理員權限")
+    a = db.query(Announcement).filter(Announcement.id == ann_id).first()
+    if not a:
+        raise HTTPException(404, "公告不存在")
+    if body.content is not None:
+        a.content = body.content
+    if body.is_active is not None:
+        a.is_active = body.is_active
+    if body.expires_at is not None:
+        a.expires_at = body.expires_at
+    db.commit()
     return _fmt(a)
 
 

@@ -28,14 +28,15 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
             if event_type == "join" and source.get("type") == "group":
                 group_id = source.get("groupId")
                 if group_id:
-                    # Save to pending groups for admin to match
                     existing = db.query(LinePendingGroup).filter(
                         LinePendingGroup.group_id == group_id
                     ).first()
-                    if not existing:
-                        pending = LinePendingGroup(group_id=group_id)
-                        db.add(pending)
-                        db.commit()
+                    if existing:
+                        # Bot 重新加入：重置為未配對，讓後台重新出現
+                        existing.matched = False
+                    else:
+                        db.add(LinePendingGroup(group_id=group_id))
+                    db.commit()
     except Exception as e:
         print(f"Webhook error: {e}")
     

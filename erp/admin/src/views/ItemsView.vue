@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import * as XLSX from 'xlsx'
 
 const auth = useAuthStore()
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
@@ -10,7 +11,6 @@ const vendors = ref([])
 const groups = ref([])
 const loading = ref(true)
 const search = ref('')
-const filterCategory = ref('')
 const filterVendor = ref('')
 const showModal = ref(false)
 const editTarget = ref(null)
@@ -18,10 +18,20 @@ const saving = ref(false)
 const saveError = ref('')
 const toast = ref('')
 
-const categoryOptions = ['蔬菜', '肉品', '海鮮', '調味料', '主食', '其他']
+// 批次刪除
+const selectedIds = ref(new Set())
+const deleting = ref(false)
+
+// CSV 匯入
+const importFileInput = ref(null)
+const importModal = ref(false)
+const importRows = ref([])
+const importError = ref('')
+const importing = ref(false)
+const importResult = ref(null)
 
 const emptyForm = () => ({
-  name: '', unit: '', category: '', vendor_id: null,
+  name: '', unit: '', vendor_id: null,
   stocktake_group_id: null, min_stock: 10, current_stock: 0,
   price: null, display_order: 999, is_active: true
 })
@@ -47,6 +57,7 @@ async function load() {
   if (itemsRes.ok) items.value = await itemsRes.json()
   if (vendorsRes.ok) vendors.value = await vendorsRes.json()
   if (groupsRes.ok) groups.value = await groupsRes.json()
+  selectedIds.value = new Set()
   loading.value = false
 }
 
@@ -58,18 +69,18 @@ const filtered = computed(() => {
     const q = search.value.toLowerCase()
     list = list.filter(i =>
       i.name.toLowerCase().includes(q) ||
-      (i.category || '').toLowerCase().includes(q) ||
       (vendorName(i.vendor_id)).toLowerCase().includes(q)
     )
-  }
-  if (filterCategory.value) {
-    list = list.filter(i => i.category === filterCategory.value)
   }
   if (filterVendor.value) {
     list = list.filter(i => String(i.vendor_id) === filterVendor.value)
   }
   return list
 })
+
+const allSelected = computed(() =>
+  filtered.value.length > 0 && filtered.value.every(i => selectedIds.value.has(i.id))
+)
 
 const vendorName = (id) => vendors.value.find(v => v.id === id)?.name || '—'
 const groupName = (id) => groups.value.find(g => g.id === id)?.name || null
@@ -95,7 +106,6 @@ function openEdit(item) {
   form.value = {
     name: item.name || '',
     unit: item.unit || '',
-    category: item.category || '',
     vendor_id: item.vendor_id,
     stocktake_group_id: item.stocktake_group_id,
     min_stock: item.min_stock ?? 10,
@@ -130,8 +140,43 @@ async function save() {
   }
 }
 
+// 批次刪除
+function toggleSelect(id) {
+  const s = new Set(selectedIds.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  selectedIds.value = s
+}
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selectedIds.value = new Set()
+  } else {
+    selectedIds.value = new Set(filtered.value.map(i => i.id))
+  }
+}
+
+async function deleteSelected() {
+  if (selectedIds.value.size === 0) return
+  if (!confirm(`確定要刪除選取的 ${selectedIds.value.size} 個品項？此操作無法復原。`)) return
+  deleting.value = true
+  try {
+    const res = await fetch(`${API_BASE}/inventory/items/bulk-delete`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ ids: [...selectedIds.value] })
+    })
+    if (res.ok) {
+      const d = await res.json()
+      showToast(`✓ 已刪除 ${d.deleted} 個品項`)
+      await load()
+    }
+  } finally {
+    deleting.value = false
+  }
+}
+
 // B1: Drag & Drop 排序
-const isDragging = computed(() => !!search.value.trim() || !!filterCategory.value || !!filterVendor.value)
+const isDragging = computed(() => !!search.value.trim() || !!filterVendor.value)
 const dragFromIdx = ref(null)
 const dragOverIdx = ref(null)
 
@@ -163,6 +208,78 @@ async function saveReorder() {
     method: 'PATCH', headers: authHeaders(), body: JSON.stringify(payload)
   }).catch(() => {})
 }
+
+// CSV 匯入
+function openImport() {
+  importRows.value = []
+  importError.value = ''
+  importResult.value = null
+  importModal.value = true
+}
+
+async function downloadTemplate() {
+  const res = await fetch(`${API_BASE}/inventory/items/import-template`, { headers: authHeaders() })
+  if (!res.ok) { showToast('⚠ 無法下載範本'); return }
+  const blob = await res.blob()
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = '品項匯入範本.xlsx'
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+function onImportFile(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  importError.value = ''
+  const reader = new FileReader()
+  reader.onload = (ev) => {
+    try {
+      const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+      if (data.length < 2) { importError.value = '需至少有標題列和一筆資料'; return }
+      const rows = data.slice(1)
+        .filter(row => String(row[0] ?? '').trim())
+        .map(row => {
+          const vendorId = vendors.value.find(v => v.name === String(row[2] ?? '').trim())?.id || null
+          const groupId  = groups.value.find(g => g.name === String(row[3] ?? '').trim())?.id || null
+          return {
+            name: String(row[0] ?? '').trim(),
+            unit: String(row[1] ?? '').trim(),
+            vendor_id: vendorId,
+            stocktake_group_id: groupId,
+            min_stock: parseFloat(row[4]) || 0,
+            price: row[5] !== '' ? parseFloat(row[5]) : null,
+            current_stock: 0, display_order: 999, is_active: true,
+          }
+        })
+        .filter(r => r.name && r.unit)
+      if (rows.length === 0) { importError.value = '找不到有效資料（名稱和單位不可空白）'; return }
+      importRows.value = rows
+    } catch {
+      importError.value = '解析檔案失敗，請確認格式'
+    }
+  }
+  reader.readAsArrayBuffer(file)
+  e.target.value = ''
+}
+
+async function confirmImport() {
+  importing.value = true
+  importResult.value = null
+  let success = 0, failed = 0, errors = []
+  for (const row of importRows.value) {
+    const res = await fetch(`${API_BASE}/inventory/items`, {
+      method: 'POST', headers: authHeaders(), body: JSON.stringify(row)
+    })
+    if (res.ok) { success++ }
+    else { failed++; const d = await res.json(); errors.push(`${row.name}: ${d.detail || '失敗'}`) }
+  }
+  importResult.value = { success, failed, errors }
+  importing.value = false
+  if (success > 0) await load()
+}
 </script>
 
 <template>
@@ -175,22 +292,27 @@ async function saveReorder() {
 
     <!-- Toolbar -->
     <div class="flex items-center gap-3 mb-5 flex-wrap">
-      <input v-model="search" type="text" placeholder="搜尋品項、分類、供應商…"
+      <input v-model="search" type="text" placeholder="搜尋品項、供應商…"
         class="bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-4 py-2 text-sm w-56 focus:outline-none focus:border-[#63b3ed]" />
-      <select v-model="filterCategory"
-        class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
-        <option value="">全部分類</option>
-        <option v-for="c in categoryOptions" :key="c" :value="c">{{ c }}</option>
-      </select>
       <select v-model="filterVendor"
         class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
         <option value="">全部供應商</option>
         <option v-for="v in vendors" :key="v.id" :value="String(v.id)">{{ v.name }}</option>
       </select>
-      <button @click="openCreate"
-        class="ml-auto bg-[#63b3ed] hover:bg-blue-400 text-black font-bold px-4 py-2 rounded-lg text-sm transition-colors">
-        + 新增品項
-      </button>
+      <div class="ml-auto flex gap-2">
+        <button v-if="selectedIds.size > 0" @click="deleteSelected" :disabled="deleting"
+          class="bg-red-600 hover:bg-red-500 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50">
+          {{ deleting ? '刪除中…' : `🗑 刪除 ${selectedIds.size} 項` }}
+        </button>
+        <button @click="openImport"
+          class="bg-[#2d3748] hover:bg-[#374151] text-gray-300 font-bold px-4 py-2 rounded-lg text-sm transition-colors">
+          ↑ 批次匯入
+        </button>
+        <button @click="openCreate"
+          class="bg-[#63b3ed] hover:bg-blue-400 text-black font-bold px-4 py-2 rounded-lg text-sm transition-colors">
+          + 新增品項
+        </button>
+      </div>
     </div>
 
     <!-- Table -->
@@ -199,9 +321,12 @@ async function saveReorder() {
       <table v-else class="w-full text-sm">
         <thead>
           <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase tracking-wider">
+            <th class="px-3 py-3 text-center" style="width:36px">
+              <input type="checkbox" :checked="allSelected" @change="toggleSelectAll"
+                class="w-4 h-4 accent-blue-500 cursor-pointer" />
+            </th>
             <th class="px-2 py-3 text-center" style="width:30px"></th>
             <th class="px-4 py-3 text-left" style="width:150px">品項名稱</th>
-            <th class="px-4 py-3 text-left" style="width:80px">分類</th>
             <th class="px-4 py-3 text-left" style="width:100px">主要供應商</th>
             <th class="px-4 py-3 text-left" style="width:100px">盤點群組</th>
             <th class="px-4 py-3 text-center" style="width:50px">單位</th>
@@ -215,17 +340,20 @@ async function saveReorder() {
         <tbody class="divide-y divide-[#2d3748]">
           <tr v-for="(item, idx) in filtered" :key="item.id"
             class="hover:bg-[#1f2937] transition-colors"
-            :class="dragOverIdx === idx ? 'bg-[#1e3a5f]' : ''"
+            :class="[dragOverIdx === idx ? 'bg-[#1e3a5f]' : '', selectedIds.has(item.id) ? 'bg-blue-900/20' : '']"
             :draggable="!isDragging"
             @dragstart="onDragStart(idx)"
             @dragover.prevent="onDragOver(idx)"
             @dragend="onDragEnd">
+            <td class="px-3 py-3 text-center" @click.stop>
+              <input type="checkbox" :checked="selectedIds.has(item.id)" @change="toggleSelect(item.id)"
+                class="w-4 h-4 accent-blue-500 cursor-pointer" />
+            </td>
             <td class="px-2 py-3 text-center">
               <span :class="isDragging ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 cursor-grab'"
                 title="拖曳排序（搜尋/篩選狀態下不可拖曳）">⠿</span>
             </td>
             <td class="px-4 py-3 font-semibold text-gray-200">{{ item.name }}</td>
-            <td class="px-4 py-3 text-gray-400">{{ item.category || '—' }}</td>
             <td class="px-4 py-3 text-gray-400">{{ vendorName(item.vendor_id) }}</td>
             <td class="px-4 py-3">
               <span v-if="groupName(item.stocktake_group_id)"
@@ -260,7 +388,62 @@ async function saveReorder() {
       </table>
     </div>
 
-    <!-- Modal -->
+    <!-- CSV 匯入 Modal -->
+    <div v-if="importModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" @click.self="importModal=false">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl w-full max-w-lg p-6">
+        <div class="flex justify-between items-center mb-4">
+          <div>
+            <h3 class="font-bold text-gray-200">批次匯入品項</h3>
+            <p class="text-xs text-gray-500 mt-0.5">下載 Excel 範本，填好後上傳（供應商/群組為下拉選單）</p>
+          </div>
+          <button @click="importModal=false" class="text-gray-500 hover:text-gray-300">✕</button>
+        </div>
+        <div v-if="!importResult">
+          <div class="flex gap-2 mb-4">
+            <input ref="importFileInput" type="file" accept=".xlsx,.csv" class="hidden" @change="onImportFile" />
+            <button @click="importFileInput.click()"
+              class="flex-1 border-2 border-dashed border-[#2d3748] hover:border-[#63b3ed] text-gray-400 hover:text-gray-200 rounded-lg py-3 text-sm font-bold transition-colors">
+              📁 選擇 Excel 檔案
+            </button>
+            <button @click="downloadTemplate"
+              class="px-4 py-3 bg-[#0f1117] border border-[#2d3748] hover:border-[#63b3ed] text-gray-400 hover:text-gray-200 rounded-lg text-xs font-bold transition-colors whitespace-nowrap">
+              ↓ 下載範本
+            </button>
+          </div>
+          <p v-if="importError" class="text-red-400 text-xs mb-3">{{ importError }}</p>
+          <div v-if="importRows.length > 0" class="mb-4">
+            <p class="text-xs text-gray-400 mb-2">預覽（共 {{ importRows.length }} 筆）：</p>
+            <div class="bg-[#0f1117] rounded-lg p-3 max-h-40 overflow-y-auto space-y-1">
+              <div v-for="(r, i) in importRows" :key="i" class="text-xs text-gray-300 flex gap-2">
+                <span class="text-gray-600 w-5">{{ i+1 }}.</span>
+                <span class="font-semibold">{{ r.name }}</span>
+                <span class="text-gray-500">{{ r.unit }}</span>
+                <span class="text-gray-500">安全:{{ r.min_stock }}</span>
+              </div>
+            </div>
+            <button @click="confirmImport" :disabled="importing"
+              class="mt-3 w-full bg-[#63b3ed] hover:bg-blue-400 text-black font-bold py-2.5 rounded-lg text-sm disabled:opacity-50">
+              {{ importing ? `匯入中…` : `確認匯入 ${importRows.length} 筆` }}
+            </button>
+          </div>
+          <div class="bg-[#0f1117] rounded-lg p-3">
+            <p class="text-xs text-gray-500 font-semibold mb-1">Excel 欄位說明</p>
+            <p class="text-xs text-gray-600">名稱* / 單位* / 供應商（下拉）/ 盤點群組（下拉）/ 安全庫存 / 參考價格</p>
+            <p class="text-xs text-gray-600 mt-1">※ 下載範本後，下拉選單自動帶入目前系統的供應商與群組</p>
+          </div>
+        </div>
+        <div v-else class="text-center py-4">
+          <p class="text-emerald-400 font-bold mb-2">✓ 匯入完成</p>
+          <p class="text-gray-300 text-sm">成功 {{ importResult.success }} 筆 / 失敗 {{ importResult.failed }} 筆</p>
+          <div v-if="importResult.errors.length > 0" class="mt-2 text-xs text-red-400 text-left bg-[#0f1117] rounded p-2 max-h-24 overflow-y-auto">
+            <div v-for="e in importResult.errors" :key="e">{{ e }}</div>
+          </div>
+          <button @click="importModal=false" class="mt-4 px-6 py-2 bg-[#2d3748] text-gray-300 rounded-lg text-sm font-bold">關閉</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增/編輯 Modal -->
     <div v-if="showModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
       <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
         <div class="flex justify-between items-center mb-5">
@@ -276,16 +459,6 @@ async function saveReorder() {
               </label>
               <input v-model="form.name" type="text" maxlength="50"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
-            </div>
-            <div>
-              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                分類 <span class="text-red-400">*</span>
-              </label>
-              <select v-model="form.category"
-                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
-                <option value="">— 請選擇 —</option>
-                <option v-for="c in categoryOptions" :key="c" :value="c">{{ c }}</option>
-              </select>
             </div>
             <div>
               <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">

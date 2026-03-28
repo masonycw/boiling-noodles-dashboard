@@ -77,7 +77,10 @@ router.beforeEach((to) => {
 
   // O7: 角色守衛（精確 allowedRoles 陣列）
   if (to.meta.allowedRoles && auth.user) {
-    if (!to.meta.allowedRoles.includes(auth.user.role)) {
+    const roleOk = to.meta.allowedRoles.includes(auth.user.role)
+    // petty_cash_access 開啟時允許進入金流頁面
+    const accessOk = to.name === 'finance' && !!auth.user.petty_cash_access
+    if (!roleOk && !accessOk) {
       return { name: 'home' }
     }
   }

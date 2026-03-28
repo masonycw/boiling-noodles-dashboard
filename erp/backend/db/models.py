@@ -44,6 +44,7 @@ class User(Base):
     last_login = Column(DateTime(timezone=True))
     # Phase 3 新增
     petty_cash_permission = Column(Boolean, default=False)  # 零用金提領授權
+    petty_cash_access = Column(Boolean, default=False)      # 可使用零用金分頁（不含提領）
     # E5: Soft delete
     deleted_at = Column(DateTime(timezone=True), nullable=True, default=None)
 
@@ -290,6 +291,7 @@ class PettyCashRecord(Base):
     is_paid = Column(Boolean, default=True)                  # 已付款=True計入餘額；False只記錄待付
     vendor_id = Column(Integer, ForeignKey("erp_vendors.id"), nullable=True)  # 支出時關聯廠商
     order_id = Column(Integer, ForeignKey("erp_purchase_orders.id"), nullable=True)
+    category_id = Column(Integer, ForeignKey("erp_cash_flow_categories.id"), nullable=True)  # 支出科目（可單筆修改）
     settled_at = Column(DateTime(timezone=True), nullable=True)       # 結帳時間（不為空=已結帳但不計支出）
     settlement_ref_id = Column(Integer, ForeignKey("erp_petty_cash_records.id"), nullable=True)  # 指向合併付款紀錄
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -494,3 +496,11 @@ class Announcement(Base):
     created_by = Column(Integer, ForeignKey("erp_users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class PaymentMethod(Base):
+    __tablename__ = "erp_payment_methods"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(50), nullable=False, unique=True)
+    is_active = Column(Boolean, default=True)
+    display_order = Column(Integer, default=999)

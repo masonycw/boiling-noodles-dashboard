@@ -201,6 +201,18 @@ def patch_stocktake(stocktake_id: int, data: StocktakePatch, db: Session = Depen
             ).first()
             if si:
                 si.counted_qty = item_patch.counted_qty
+            else:
+                # 新增未被盤點的品項（補盤）
+                from erp.backend.db.models import Item as ItemModel
+                item = db.query(ItemModel).filter(ItemModel.id == item_patch.item_id).first()
+                expected_qty = float(item.current_stock) if item and item.current_stock else 0
+                new_si = StocktakeItem(
+                    stocktake_id=stocktake_id,
+                    item_id=item_patch.item_id,
+                    counted_qty=item_patch.counted_qty,
+                    expected_qty=expected_qty,
+                )
+                db.add(new_si)
     db.commit()
     return {"success": True}
 

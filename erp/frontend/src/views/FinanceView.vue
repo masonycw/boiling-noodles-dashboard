@@ -848,7 +848,9 @@ async function confirmAndPay() {
         <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
           <!-- 類型選擇 -->
           <div class="flex gap-2">
-            <button v-for="t in [{key:'expense',label:'📤 支出'},{key:'income',label:'📥 收入'},{key:'withdrawal',label:'🏧 提領'}]"
+            <button v-for="t in auth.user?.petty_cash_permission
+              ? [{key:'expense',label:'📤 支出'},{key:'income',label:'📥 收入'},{key:'withdrawal',label:'🏧 提領'}]
+              : [{key:'expense',label:'📤 支出'},{key:'income',label:'📥 收入'}]"
               :key="t.key"
               @click="sheetType = t.key"
               class="flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all"

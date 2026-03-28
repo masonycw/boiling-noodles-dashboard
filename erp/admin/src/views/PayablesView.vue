@@ -6,7 +6,7 @@ const auth = useAuthStore()
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
 
 const payables = ref([])
-const vendors = ref([])
+const cashFlowCategories = ref([])
 const loading = ref(true)
 const payVendor = ref('')
 const payStatus = ref('unpaid')  // 預設只顯示未付款
@@ -27,15 +27,19 @@ const monthOptions = computed(() => {
   return opts
 })
 
-// B-11: 付款 modal
+// 付款 modal（單筆）
 const payModal = ref(null)  // { p } or null
 const payMethodInput = ref('轉帳')
-const payMethods = ['轉帳', '現金', '支票', '其他']
+const payDateInput = ref('')
+const payAmountInput = ref('')
+const payCategoryId = ref('')
+const payNoteInput = ref('')
+const payMethods = ref(['轉帳', '現金', '支票', '其他'])
 
-// inline edit: 金額 & 付款日
-const editingId = ref(null)   // payable id 正在編輯
-const editAmount = ref('')
-const editPaymentDate = ref('')
+function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
@@ -63,22 +67,39 @@ function payableStatusInfo(p) {
 
 async function load() {
   loading.value = true
-  const [payRes, vendorRes] = await Promise.all([
+  const [payRes, catRes, pmRes] = await Promise.all([
     fetch(`${API_BASE}/finance/accounts-payable?limit=500`, { headers: authHeaders() }),
-    fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/finance/payment-methods`, { headers: authHeaders() }),
   ])
   if (payRes.ok) payables.value = await payRes.json()
-  if (vendorRes.ok) vendors.value = await vendorRes.json()
+  if (catRes.ok) cashFlowCategories.value = (await catRes.json()).filter(c => c.type === 'expense' && c.is_active)
+  if (pmRes.ok) {
+    const methods = await pmRes.json()
+    if (methods.length > 0) payMethods.value = methods.map(m => m.name)
+  }
   loading.value = false
 }
 onMounted(load)
+
+// 只顯示目前有應付帳款的廠商
+const vendorsWithPayables = computed(() => {
+  const allInList = payables.value
+  const seen = new Map()
+  for (const p of allInList) {
+    if (p.vendor_id && !seen.has(p.vendor_id)) {
+      seen.set(p.vendor_id, { id: p.vendor_id, name: p.vendor_name || `廠商 #${p.vendor_id}` })
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+})
 
 const filtered = computed(() => {
   let list = payables.value
   // B-10: 月份篩選（以 due_date 月份為基準，未設定到期日的也顯示）
   if (filterMonth.value) {
     list = list.filter(p => {
-      if (!p.due_date) return true  // 未設到期日也顯示
+      if (!p.due_date) return true
       const d = new Date(p.due_date)
       const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
       return m === filterMonth.value
@@ -93,54 +114,40 @@ const filtered = computed(() => {
 const pendingTotal = computed(() =>
   filtered.value.filter(p => !p.is_paid).reduce((s, p) => s + parseFloat(p.amount || 0), 0)
 )
-const unpaidVendors = computed(() => {
-  const ids = [...new Set(payables.value.filter(p => !p.is_paid && p.vendor_id).map(p => p.vendor_id))]
-  return vendors.value.filter(v => ids.includes(v.id))
-})
 
-// B-11: 開啟付款 modal
+// B-11: 開啟付款 modal（單筆）
 function openPayModal(p) {
   payMethodInput.value = '轉帳'
+  payDateInput.value = todayStr()
+  payAmountInput.value = String(p.amount || '')
+  payCategoryId.value = p.default_category_id ? String(p.default_category_id) : ''
+  payNoteInput.value = p.note || ''
   payModal.value = { p }
 }
 
 async function confirmPay() {
   const p = payModal.value.p
+  const body = { payment_method: payMethodInput.value }
+  body.payment_date = payDateInput.value || todayStr()
+  const amt = parseFloat(payAmountInput.value)
+  if (!isNaN(amt)) body.amount = amt
+  if (payCategoryId.value) body.category_id = parseInt(payCategoryId.value)
+  if (payNoteInput.value.trim()) body.note = payNoteInput.value.trim()
   const res = await fetch(`${API_BASE}/finance/accounts-payable/${p.id}/pay`, {
     method: 'PUT',
     headers: authHeaders(),
-    body: JSON.stringify({ payment_method: payMethodInput.value })
+    body: JSON.stringify(body)
   })
   if (res.ok) { showToast('✓ 已付款，已進入金流紀錄'); payModal.value = null; await load() }
 }
 
-// B-09: 返回未付款
+// 返回未付款
 async function markUnpaid(p) {
   if (!confirm(`將「${p.vendor_name}」還原為未付款？`)) return
   const res = await fetch(`${API_BASE}/finance/accounts-payable/${p.id}/unpay`, {
     method: 'PUT', headers: authHeaders()
   })
   if (res.ok) { showToast('已還原為未付款'); await load() }
-}
-
-// inline edit：開啟
-function startEdit(p) {
-  editingId.value = p.id
-  editAmount.value = String(p.amount || '')
-  editPaymentDate.value = p.payment_date
-    ? new Date(p.payment_date).toISOString().split('T')[0]
-    : (p.paid_at ? new Date(p.paid_at).toISOString().split('T')[0] : '')
-}
-
-async function saveEdit(p) {
-  const body = {}
-  const amt = parseFloat(editAmount.value)
-  if (!isNaN(amt) && amt !== p.amount) body.amount = amt
-  body.payment_date = editPaymentDate.value || null
-  const res = await fetch(`${API_BASE}/finance/accounts-payable/${p.id}`, {
-    method: 'PATCH', headers: authHeaders(), body: JSON.stringify(body)
-  })
-  if (res.ok) { editingId.value = null; showToast('已更新'); await load() }
 }
 
 async function deletePayable(p) {
@@ -177,13 +184,39 @@ const allUnpaidSelected = computed(() => {
   return unpaid.length > 0 && unpaid.every(p => selectedIds.value.has(p.id))
 })
 
-// B-10+B-11: 批次付款 modal
+// 備註 inline edit
+const editingNoteId = ref(null)
+const editingNoteVal = ref('')
+
+function startEditNote(p) {
+  editingNoteId.value = p.id
+  editingNoteVal.value = p.note || ''
+}
+
+async function saveNote(p) {
+  if (editingNoteId.value !== p.id) return
+  editingNoteId.value = null
+  if (editingNoteVal.value === (p.note || '')) return
+  await fetch(`${API_BASE}/finance/accounts-payable/${p.id}`, {
+    method: 'PATCH', headers: authHeaders(),
+    body: JSON.stringify({ note: editingNoteVal.value || null })
+  })
+  p.note = editingNoteVal.value || null
+}
+
+// 批次付款 modal
 const batchPayModal = ref(false)
 const batchPayMethod = ref('轉帳')
+const batchPayDate = ref('')
+const batchPayCategoryId = ref('')
+const batchPayNote = ref('')
 
 function openBatchPayModal() {
   if (!selectedIds.value.size) return
-  batchPayMethod.value = '轉帳'
+  batchPayMethod.value = payMethods.value[0] || '轉帳'
+  batchPayDate.value = todayStr()
+  batchPayCategoryId.value = ''
+  batchPayNote.value = ''
   batchPayModal.value = true
 }
 
@@ -192,11 +225,12 @@ async function confirmBatchPay() {
   batchPaying.value = true
   batchPayModal.value = false
   try {
-    // 用批次端點：產生單一金流總結紀錄
+    const body = { ids, payment_method: batchPayMethod.value }
+    if (batchPayDate.value) body.payment_date = batchPayDate.value
+    if (batchPayCategoryId.value) body.category_id = parseInt(batchPayCategoryId.value)
+    if (batchPayNote.value.trim()) body.note = batchPayNote.value.trim()
     const res = await fetch(`${API_BASE}/finance/accounts-payable/batch-pay`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ ids, payment_method: batchPayMethod.value })
+      method: 'POST', headers: authHeaders(), body: JSON.stringify(body)
     })
     if (!res.ok) throw new Error('批次付款失敗')
     selectedIds.value = new Set()
@@ -214,15 +248,16 @@ async function confirmBatchPay() {
   <div class="space-y-5">
     <!-- 篩選列 -->
     <div class="flex flex-wrap items-center gap-3">
-      <!-- B-10: 月份篩選 -->
+      <!-- 月份篩選 -->
       <select v-model="filterMonth"
         class="bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400">
         <option v-for="m in monthOptions" :key="m.val" :value="m.val">{{ m.label }}</option>
       </select>
+      <!-- 廠商篩選（只顯示有應付帳款的廠商） -->
       <select v-model="payVendor"
         class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400">
         <option value="">全部廠商</option>
-        <option v-for="v in vendors" :key="v.id" :value="String(v.id)">{{ v.name }}</option>
+        <option v-for="v in vendorsWithPayables" :key="v.id" :value="String(v.id)">{{ v.name }}</option>
       </select>
       <select v-model="payStatus"
         class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400">
@@ -262,7 +297,8 @@ async function confirmBatchPay() {
             <th class="px-5 py-3 text-left">付款條件</th>
             <th class="px-5 py-3 text-right">應付金額</th>
             <th class="px-5 py-3 text-left">到期日</th>
-            <th class="px-5 py-3 text-left">付款日</th>
+            <th class="px-5 py-3 text-left">科目</th>
+            <th class="px-5 py-3 text-left">備註</th>
             <th class="px-5 py-3 text-center">狀態</th>
             <th class="px-5 py-3 text-center">操作</th>
           </tr>
@@ -277,29 +313,35 @@ async function confirmBatchPay() {
             <td class="px-5 py-3 font-semibold text-gray-200">{{ p.vendor_name || '—' }}</td>
             <td class="px-5 py-3 text-gray-400 text-xs">{{ fmtDate(p.created_at) }}</td>
             <td class="px-5 py-3 text-gray-400 text-xs">{{ p.payment_terms || '—' }}</td>
-            <!-- 金額（可 inline edit） -->
-            <td class="px-5 py-3 text-right font-mono">
-              <template v-if="editingId === p.id">
-                <input v-model="editAmount" type="number" min="0"
-                  class="w-24 bg-[#0f1117] border border-amber-400 text-amber-300 rounded px-1 py-0.5 text-xs text-right focus:outline-none" />
-              </template>
-              <span v-else :class="p.is_paid ? 'text-gray-500' : 'text-amber-400'">
-                NT$ {{ fmtMoney(p.amount) }}
-              </span>
+            <td class="px-5 py-3 text-right font-mono" :class="p.is_paid ? 'text-gray-500' : 'text-amber-400'">
+              NT$ {{ fmtMoney(p.amount) }}
             </td>
-            <!-- 到期日（唯讀，自動計算）-->
+            <!-- 到期日 -->
             <td class="px-5 py-3 text-xs text-gray-400">
               {{ p.due_date ? new Date(p.due_date).toLocaleDateString('zh-TW') : '—' }}
-              <span v-if="p.payment_terms" class="block text-[10px] text-gray-600">{{ p.payment_terms }}</span>
             </td>
-            <!-- 付款日（可編輯）-->
+            <!-- 科目（顯示廠商預設科目） -->
             <td class="px-5 py-3 text-xs">
-              <template v-if="editingId === p.id">
-                <input v-model="editPaymentDate" type="date"
-                  class="bg-[#0f1117] border border-blue-400 text-gray-200 rounded px-1 py-0.5 text-xs focus:outline-none" />
-              </template>
-              <span v-else class="text-gray-400">
-                {{ p.payment_date ? new Date(p.payment_date).toLocaleDateString('zh-TW') : (p.paid_at ? new Date(p.paid_at).toLocaleDateString('zh-TW') : '—') }}
+              <span v-if="p.default_category_name"
+                class="px-2 py-0.5 rounded bg-[#2d3748] text-[#9ca3af]">
+                {{ p.default_category_name }}
+              </span>
+              <span v-else class="text-gray-600">—</span>
+            </td>
+            <!-- 備註 inline edit -->
+            <td class="px-5 py-3 text-xs" @click.stop>
+              <input v-if="editingNoteId === p.id"
+                v-model="editingNoteVal"
+                @blur="saveNote(p)"
+                @keyup.enter="saveNote(p)"
+                @keyup.esc="editingNoteId = null"
+                autofocus
+                class="w-28 bg-[#0f1117] border border-blue-500 text-gray-200 rounded px-2 py-1 text-xs focus:outline-none" />
+              <span v-else @click="startEditNote(p)"
+                class="cursor-pointer group flex items-center gap-1"
+                :class="p.note ? 'text-gray-300' : 'text-gray-600 hover:text-gray-400'">
+                {{ p.note || '點擊新增' }}
+                <span class="opacity-0 group-hover:opacity-100 text-gray-600 text-[10px]">✎</span>
               </span>
             </td>
             <td class="px-5 py-3 text-center">
@@ -308,77 +350,82 @@ async function confirmBatchPay() {
               </span>
             </td>
             <td class="px-5 py-3 text-center">
-              <!-- 編輯中：儲存/取消 -->
-              <template v-if="editingId === p.id">
-                <div class="flex gap-1 justify-center">
-                  <button @click="saveEdit(p)" class="text-blue-400 hover:text-blue-300 font-bold text-xs">儲存</button>
-                  <button @click="editingId = null" class="text-gray-500 hover:text-gray-300 text-xs">取消</button>
+              <div class="flex flex-col items-center gap-1">
+                <div v-if="!p.is_paid" class="flex gap-1">
+                  <button @click="openPayModal(p)"
+                    class="bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold px-2 py-1 rounded-lg transition-colors">
+                    付款
+                  </button>
+                  <button @click="deletePayable(p)"
+                    class="text-red-500 hover:text-red-400 text-xs font-bold px-2 py-1 rounded-lg border border-red-800 hover:border-red-600 transition-colors">
+                    刪
+                  </button>
                 </div>
-              </template>
-              <template v-else>
-                <div class="flex flex-col items-center gap-1">
-                  <div v-if="!p.is_paid" class="flex gap-1">
-                    <button @click="openPayModal(p)"
-                      class="bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold px-2 py-1 rounded-lg transition-colors">
-                      付款
-                    </button>
-                    <button @click="startEdit(p)"
-                      class="bg-[#2d3748] hover:bg-[#374151] text-gray-300 text-xs font-bold px-2 py-1 rounded-lg transition-colors">
-                      編輯
-                    </button>
-                    <button @click="deletePayable(p)"
-                      class="text-red-500 hover:text-red-400 text-xs font-bold px-2 py-1 rounded-lg border border-red-800 hover:border-red-600 transition-colors">
-                      刪
-                    </button>
-                  </div>
-                  <div v-else class="flex flex-col items-center gap-1">
-                    <div class="flex gap-1">
-                      <button @click="startEdit(p)"
-                        class="bg-[#2d3748] hover:bg-[#374151] text-gray-300 text-xs px-2 py-0.5 rounded transition-colors">
-                        編輯日期
-                      </button>
-                      <button @click="deletePayable(p)"
-                        class="text-red-500 hover:text-red-400 text-xs px-1 py-0.5 rounded transition-colors">
-                        刪
-                      </button>
-                    </div>
-                    <button @click="markUnpaid(p)"
-                      class="text-red-500 hover:text-red-400 text-[10px] underline">
-                      返回未付款
-                    </button>
-                  </div>
+                <div v-else class="flex flex-col items-center gap-1">
+                  <button @click="deletePayable(p)"
+                    class="text-red-500 hover:text-red-400 text-xs px-1 py-0.5 rounded transition-colors">
+                    刪
+                  </button>
+                  <button @click="markUnpaid(p)"
+                    class="text-red-500 hover:text-red-400 text-[10px] underline">
+                    返回未付款
+                  </button>
                 </div>
-              </template>
+              </div>
             </td>
           </tr>
           <tr v-if="filtered.length === 0">
-            <td colspan="9" class="px-5 py-10 text-center text-gray-600">無應付帳款</td>
+            <td colspan="10" class="px-5 py-10 text-center text-gray-600">無應付帳款</td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <!-- 廠商匯款資訊 -->
-    <div v-if="unpaidVendors.length > 0">
-      <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">廠商匯款資訊</p>
-      <div class="grid grid-cols-2 gap-3">
-        <div v-for="v in unpaidVendors" :key="v.id" class="bg-[#111827] rounded-lg p-4 text-sm">
-          <p class="font-bold text-gray-200 mb-1">{{ v.name }}</p>
-          <p class="text-gray-500 text-xs">{{ v.bank_name || '未設定銀行' }}</p>
-          <p class="text-gray-300 text-xs font-mono">{{ v.bank_account || '—' }}</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- B-11: 付款 Modal -->
+    <!-- 付款 Modal（單筆）-->
     <div v-if="payModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" @click.self="payModal = null">
       <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl p-6 w-full max-w-sm mx-4 space-y-4">
         <h3 class="text-lg font-bold text-gray-100">確認付款</h3>
-        <div class="bg-[#0f1117] rounded-lg p-4 text-sm space-y-1">
-          <p class="text-gray-400">廠商：<span class="text-gray-200 font-semibold">{{ payModal.p.vendor_name }}</span></p>
-          <p class="text-gray-400">金額：<span class="text-amber-400 font-bold font-mono">NT$ {{ fmtMoney(payModal.p.amount) }}</span></p>
-          <p class="text-gray-400">到期日：<span class="text-gray-200">{{ payModal.p.due_date ? new Date(payModal.p.due_date).toLocaleDateString('zh-TW') : '未設定' }}</span></p>
+
+        <!-- 廠商匯款資訊 -->
+        <div v-if="payModal.p.bank_account" class="bg-[#0f2010] border border-emerald-900/50 rounded-lg px-4 py-3 text-xs space-y-0.5">
+          <p class="text-emerald-400 font-bold text-[11px] uppercase tracking-wider mb-1">匯款帳號</p>
+          <p class="text-gray-300 font-semibold">{{ payModal.p.vendor_name }}</p>
+          <p class="text-gray-400">{{ payModal.p.bank_name || '' }}</p>
+          <p class="text-emerald-300 font-mono text-sm">{{ payModal.p.bank_account }}</p>
         </div>
+
+        <!-- 金額 -->
+        <div>
+          <label class="block text-gray-400 text-xs font-semibold mb-1.5">金額</label>
+          <input v-model="payAmountInput" type="number" min="0"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-amber-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-amber-400" />
+        </div>
+
+        <!-- 付款日 -->
+        <div>
+          <label class="block text-gray-400 text-xs font-semibold mb-1.5">付款日</label>
+          <input v-model="payDateInput" type="date"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+        </div>
+
+        <!-- 科目 -->
+        <div>
+          <label class="block text-gray-400 text-xs font-semibold mb-1.5">金流科目</label>
+          <select v-model="payCategoryId"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+            <option value="">— 使用廠商預設科目 —</option>
+            <option v-for="cat in cashFlowCategories" :key="cat.id" :value="String(cat.id)">{{ cat.name }}</option>
+          </select>
+        </div>
+
+        <!-- 備註 -->
+        <div>
+          <label class="block text-gray-400 text-xs font-semibold mb-1.5">備註</label>
+          <input v-model="payNoteInput" type="text" placeholder="付款說明（可選）…"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+        </div>
+
+        <!-- 付款方式 -->
         <div>
           <label class="block text-gray-400 text-xs font-semibold mb-2">付款方式</label>
           <div class="flex gap-2 flex-wrap">
@@ -391,6 +438,7 @@ async function confirmBatchPay() {
             </button>
           </div>
         </div>
+
         <div class="flex gap-3 pt-2">
           <button @click="payModal = null"
             class="flex-1 bg-[#0f1117] border border-[#2d3748] text-gray-400 font-bold py-2 rounded-xl text-sm hover:bg-[#1f2937]">
@@ -404,11 +452,45 @@ async function confirmBatchPay() {
       </div>
     </div>
 
-    <!-- B-10+B-11: 批次付款 Modal -->
+    <!-- 批次付款 Modal -->
     <div v-if="batchPayModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" @click.self="batchPayModal = false">
       <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl p-6 w-full max-w-sm mx-4 space-y-4">
         <h3 class="text-lg font-bold text-gray-100">批次結清</h3>
         <p class="text-gray-400 text-sm">共 <span class="text-white font-bold">{{ selectedIds.size }}</span> 筆，合計 <span class="text-amber-400 font-bold font-mono">NT$ {{ fmtMoney(selectedTotal) }}</span></p>
+
+        <!-- 金額（唯讀） -->
+        <div>
+          <label class="block text-gray-400 text-xs font-semibold mb-1.5">合計金額</label>
+          <div class="w-full bg-[#0f1117] border border-[#2d3748] text-amber-300 rounded-lg px-3 py-2 text-sm font-mono">
+            NT$ {{ fmtMoney(selectedTotal) }}
+          </div>
+        </div>
+
+        <!-- 付款日 -->
+        <div>
+          <label class="block text-gray-400 text-xs font-semibold mb-1.5">付款日</label>
+          <input v-model="batchPayDate" type="date"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+        </div>
+
+        <!-- 金流科目 -->
+        <div>
+          <label class="block text-gray-400 text-xs font-semibold mb-1.5">金流科目</label>
+          <select v-model="batchPayCategoryId"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+            <option value="">— 使用廠商預設科目 —</option>
+            <option v-for="cat in cashFlowCategories" :key="cat.id" :value="String(cat.id)">{{ cat.name }}</option>
+          </select>
+        </div>
+
+        <!-- 備註 -->
+        <div>
+          <label class="block text-gray-400 text-xs font-semibold mb-1.5">備註</label>
+          <input v-model="batchPayNote" type="text" placeholder="付款說明（可選）…"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+        </div>
+
+        <!-- 付款方式 -->
         <div>
           <label class="block text-gray-400 text-xs font-semibold mb-2">付款方式</label>
           <div class="flex gap-2 flex-wrap">
@@ -421,6 +503,7 @@ async function confirmBatchPay() {
             </button>
           </div>
         </div>
+
         <div class="flex gap-3 pt-2">
           <button @click="batchPayModal = false"
             class="flex-1 bg-[#0f1117] border border-[#2d3748] text-gray-400 font-bold py-2 rounded-xl text-sm hover:bg-[#1f2937]">

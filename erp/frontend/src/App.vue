@@ -45,10 +45,15 @@ const navItems = computed(() => {
   const all = [
     { name: 'home',    label: '首頁', allowedRoles: null },
     { name: 'order',   label: '訂單', allowedRoles: OPERATIONAL_ROLES, showBadge: true },
-    { name: 'finance', label: '金流', allowedRoles: FINANCE_ROLES },
+    { name: 'finance', label: '金流', allowedRoles: FINANCE_ROLES, accessKey: 'petty_cash_access' },
     { name: 'more',    label: '更多', allowedRoles: null },
   ]
-  return all.filter(item => !item.allowedRoles || item.allowedRoles.includes(role))
+  return all.filter(item => {
+    if (!item.allowedRoles && !item.accessKey) return true
+    const roleOk = item.allowedRoles?.includes(role)
+    const accessOk = item.accessKey && !!auth.user?.[item.accessKey]
+    return roleOk || accessOk
+  })
 })
 </script>
 

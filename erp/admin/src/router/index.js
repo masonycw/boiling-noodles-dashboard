@@ -15,6 +15,11 @@ const routes = [
     name: 'dashboard',
     component: () => import('@/views/DashboardView.vue')
   },
+  {
+    path: '/announcements',
+    name: 'announcements',
+    component: () => import('@/views/AnnouncementsView.vue')
+  },
 
   // ── 庫存管理 ──
   {

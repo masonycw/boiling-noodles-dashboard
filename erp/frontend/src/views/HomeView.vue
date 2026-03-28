@@ -10,6 +10,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api
 
 const loading = ref(true)
 const lowStockItems = ref([])
+const announcements = ref([])
 
 const pendingStocktakeGroups = ref([])
 const fixedOrderVendors = ref([])
@@ -34,10 +35,11 @@ const greeting = computed(() => {
 
 async function loadData() {
   try {
-    const [itemsRes, stocktakeRes, vendorRes] = await Promise.all([
+    const [itemsRes, stocktakeRes, vendorRes, annRes] = await Promise.all([
       fetch(`${API_BASE}/inventory/items?limit=500`, { headers: authHeaders() }),
       fetch(`${API_BASE}/stocktake/pending-groups`, { headers: authHeaders() }),
       fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() }),
+      fetch(`${API_BASE}/announcements`, { headers: authHeaders() }),
     ])
     if (itemsRes.ok) {
       const allItems = await itemsRes.json()
@@ -48,6 +50,7 @@ async function loadData() {
     if (stocktakeRes.ok) {
       pendingStocktakeGroups.value = await stocktakeRes.json()
     }
+    if (annRes.ok) announcements.value = await annRes.json()
     if (vendorRes.ok) {
       const allVendors = await vendorRes.json()
       const dow = new Date().getDay() || 7 // JS: 0=Sunday→7
@@ -110,6 +113,16 @@ function goToStocktake(groupId) {
         <button class="mt-1 relative">
           <span style="font-size:22px">🔔</span>
         </button>
+      </div>
+    </div>
+
+    <!-- 公告欄 -->
+    <div v-if="!loading && announcements.length > 0" class="px-4 mt-4 space-y-2">
+      <div v-for="ann in announcements" :key="ann.id"
+        class="rounded-xl px-4 py-3 flex items-start gap-2.5"
+        style="background:#fffbeb;border:1.5px solid #fcd34d">
+        <span class="text-lg mt-0.5 shrink-0">📢</span>
+        <p class="text-sm font-medium leading-snug" style="color:#78350f">{{ ann.content }}</p>
       </div>
     </div>
 

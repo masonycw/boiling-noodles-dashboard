@@ -4,7 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 from erp.backend.db.session import get_db
 from erp.backend.services import finance_service
-from erp.backend.db.models import DailySettlement, PettyCashRecord, User
+from erp.backend.db.models import DailySettlement, PettyCashRecord, User, PettyCashTypeEnum
 from erp.backend.api.auth import get_current_user
 from sqlalchemy import extract, desc
 from datetime import date, datetime
@@ -127,7 +127,8 @@ def patch_petty_cash(record_id: int, data: dict, db: Session = Depends(get_db)):
     record = db.query(PettyCashRecord).filter(PettyCashRecord.id == record_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Record not found")
-    for key in ['type', 'amount', 'note', 'vendor_id', 'is_paid']:
+    was_paid = record.is_paid
+    for key in ['type', 'amount', 'note', 'vendor_id', 'is_paid', 'category_id']:
         if key in data:
             setattr(record, key, data[key])
     if 'recorded_at' in data:
@@ -136,6 +137,31 @@ def patch_petty_cash(record_id: int, data: dict, db: Session = Depends(get_db)):
             record.created_at = dt.fromisoformat(data['recorded_at'])
         except Exception:
             pass
+    # 若從待付 → 已付，補建金流紀錄
+    if 'is_paid' in data and data['is_paid'] is True and not was_paid and record.type == PettyCashTypeEnum.expense:
+        from erp.backend.db.models import Vendor as VendorModel
+        from erp.backend.db.models import CashFlowRecord
+        category_id = getattr(record, 'category_id', None)
+        if not category_id and record.vendor_id:
+            vdr = db.query(VendorModel).filter(VendorModel.id == record.vendor_id).first()
+            if vdr and vdr.default_category_id:
+                category_id = vdr.default_category_id
+        rec_time = record.created_at
+        if hasattr(rec_time, 'tzinfo') and rec_time and rec_time.tzinfo:
+            from datetime import timezone
+            rec_time = rec_time.astimezone(timezone.utc).replace(tzinfo=None)
+        cf = CashFlowRecord(
+            user_id=record.user_id,
+            category_id=category_id,
+            amount=record.amount,
+            type="expense",
+            source="petty_cash",
+            description=record.note,
+            vendor_id=record.vendor_id,
+            is_categorized=category_id is not None,
+            transaction_date=rec_time,
+        )
+        db.add(cf)
     db.commit()
     return {"success": True}
 
@@ -327,11 +353,18 @@ def list_accounts_payable(
 
 class PayablePayBody(BaseModel):
     payment_method: Optional[str] = None
+    payment_date: Optional[str] = None    # YYYY-MM-DD 付款日，預設今日
+    amount: Optional[float] = None         # 可覆蓋金額
+    category_id: Optional[int] = None     # 可指定金流科目，覆蓋廠商預設
+    note: Optional[str] = None             # 付款備註
 
 
 class BatchPayBody(BaseModel):
     ids: list[int]
     payment_method: Optional[str] = None
+    payment_date: Optional[str] = None    # YYYY-MM-DD，預設今日
+    category_id: Optional[int] = None     # 金流科目，覆蓋廠商預設
+    note: Optional[str] = None            # 付款備註
 
 
 @router.post("/accounts-payable/batch-pay")
@@ -340,17 +373,27 @@ def batch_pay(body: BatchPayBody, db: Session = Depends(get_db),
     """批次付清多筆應付帳款，產生單一金流總結紀錄"""
     try:
         return finance_service.batch_pay_payables(
-            db, body.ids, current_user.id, body.payment_method
+            db, body.ids, current_user.id, body.payment_method,
+            payment_date=body.payment_date,
+            category_id=body.category_id,
+            note=body.note,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.put("/accounts-payable/{payable_id}/pay")
-def mark_paid(payable_id: int, body: PayablePayBody = PayablePayBody(), db: Session = Depends(get_db)):
-    user_id = 1
+def mark_paid(payable_id: int, body: PayablePayBody = PayablePayBody(),
+              db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
-        return finance_service.mark_payable_paid(db, payable_id, user_id, body.payment_method)
+        return finance_service.mark_payable_paid(
+            db, payable_id, current_user.id,
+            payment_method=body.payment_method,
+            payment_date=body.payment_date,
+            amount=body.amount,
+            category_id=body.category_id,
+            note=body.note,
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -601,12 +644,16 @@ class RecurringCreate(BaseModel):
     day_of_month: Optional[int] = None
     vendor_id: Optional[int] = None
     note: Optional[str] = None
+    is_active: bool = True
 
 
 @router.get("/recurring")
-def list_recurring(db: Session = Depends(get_db)):
+def list_recurring(include_inactive: bool = True, db: Session = Depends(get_db)):
     from erp.backend.db.models import CashFlowRecurring, Vendor
-    items = db.query(CashFlowRecurring).order_by(CashFlowRecurring.id).all()
+    q = db.query(CashFlowRecurring)
+    if not include_inactive:
+        q = q.filter(CashFlowRecurring.is_active == True)
+    items = q.order_by(CashFlowRecurring.id).all()
     result = []
     for r in items:
         vendor = db.query(Vendor).filter(Vendor.id == r.vendor_id).first() if r.vendor_id else None
@@ -654,7 +701,7 @@ def delete_recurring(rec_id: int, db: Session = Depends(get_db)):
     rec = db.query(CashFlowRecurring).filter(CashFlowRecurring.id == rec_id).first()
     if not rec:
         raise HTTPException(status_code=404, detail="重複預約不存在")
-    rec.is_active = False
+    db.delete(rec)  # 硬刪除
     db.commit()
     return {"ok": True}
 
@@ -748,5 +795,68 @@ def delete_proportional_fee(rule_id: int, db: Session = Depends(get_db)):
     if not rule:
         raise HTTPException(status_code=404, detail="費率規則不存在")
     rule.is_active = False
+    db.commit()
+    return {"ok": True}
+
+
+# ─────────────────────────────────────────────
+# 付款方式管理
+# ─────────────────────────────────────────────
+
+@router.get("/payment-methods")
+def list_payment_methods(include_inactive: bool = False, db: Session = Depends(get_db)):
+    from erp.backend.db.models import PaymentMethod
+    q = db.query(PaymentMethod)
+    if not include_inactive:
+        q = q.filter(PaymentMethod.is_active == True)
+    return [{"id": pm.id, "name": pm.name, "is_active": pm.is_active, "display_order": pm.display_order}
+            for pm in q.order_by(PaymentMethod.display_order, PaymentMethod.id).all()]
+
+
+@router.post("/payment-methods")
+def create_payment_method(data: dict, db: Session = Depends(get_db)):
+    from erp.backend.db.models import PaymentMethod
+    name = (data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "請填入付款方式名稱")
+    if db.query(PaymentMethod).filter(PaymentMethod.name == name).first():
+        raise HTTPException(400, "付款方式名稱重複")
+    pm = PaymentMethod(name=name, is_active=data.get("is_active", True),
+                       display_order=data.get("display_order", 999))
+    db.add(pm)
+    db.commit()
+    db.refresh(pm)
+    return {"id": pm.id, "name": pm.name, "is_active": pm.is_active, "display_order": pm.display_order}
+
+
+@router.put("/payment-methods/{pm_id}")
+def update_payment_method(pm_id: int, data: dict, db: Session = Depends(get_db)):
+    from erp.backend.db.models import PaymentMethod
+    pm = db.query(PaymentMethod).filter(PaymentMethod.id == pm_id).first()
+    if not pm:
+        raise HTTPException(404, "付款方式不存在")
+    if "name" in data:
+        name = (data["name"] or "").strip()
+        if not name:
+            raise HTTPException(400, "請填入付款方式名稱")
+        existing = db.query(PaymentMethod).filter(PaymentMethod.name == name, PaymentMethod.id != pm_id).first()
+        if existing:
+            raise HTTPException(400, "付款方式名稱重複")
+        pm.name = name
+    if "is_active" in data:
+        pm.is_active = data["is_active"]
+    if "display_order" in data:
+        pm.display_order = data["display_order"]
+    db.commit()
+    return {"id": pm.id, "name": pm.name, "is_active": pm.is_active, "display_order": pm.display_order}
+
+
+@router.delete("/payment-methods/{pm_id}")
+def delete_payment_method(pm_id: int, db: Session = Depends(get_db)):
+    from erp.backend.db.models import PaymentMethod
+    pm = db.query(PaymentMethod).filter(PaymentMethod.id == pm_id).first()
+    if not pm:
+        raise HTTPException(404, "付款方式不存在")
+    db.delete(pm)
     db.commit()
     return {"ok": True}

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -14,7 +14,7 @@ const formError = ref('')
 const categories = ref([])
 const payees = ref([])
 
-const form = ref({ name: '', category: '', amount: '', day_of_month: '', vendor_id: null, note: '' })
+const form = ref({ name: '', category: '', amount: '', day_of_month: '', vendor_id: null, note: '', is_active: true })
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
@@ -23,7 +23,7 @@ function authHeaders() {
 async function load() {
   loading.value = true
   const [recRes, catRes, payeeRes] = await Promise.all([
-    fetch(`${API_BASE}/finance/recurring`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/finance/recurring?include_inactive=true`, { headers: authHeaders() }),
     fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: authHeaders() }),
     fetch(`${API_BASE}/inventory/vendors?vendor_type=payee`, { headers: authHeaders() }),
   ])
@@ -40,17 +40,34 @@ onMounted(load)
 
 function openAdd() {
   editTarget.value = null
-  form.value = { name: '', category: categories.value[0] || '', amount: '', day_of_month: '', vendor_id: null, note: '' }
+  form.value = { name: '', category: categories.value[0] || '', amount: '', day_of_month: '', vendor_id: null, note: '', is_active: true }
   formError.value = ''
   showModal.value = true
 }
 
 function openEdit(r) {
   editTarget.value = r
-  form.value = { name: r.name, category: r.category || categories.value[0] || '', amount: String(r.amount), day_of_month: String(r.day_of_month || ''), vendor_id: r.vendor_id || null, note: r.note || '' }
+  form.value = {
+    name: r.name,
+    category: r.category || categories.value[0] || '',
+    amount: String(r.amount),
+    day_of_month: String(r.day_of_month || ''),
+    vendor_id: r.vendor_id || null,
+    note: r.note || '',
+    is_active: r.is_active,
+  }
   formError.value = ''
   showModal.value = true
 }
+
+// 選擇費用對象時，若名稱尚未手動填寫，自動帶入費用對象名稱
+watch(() => form.value.vendor_id, (newId) => {
+  if (!newId) return
+  const payee = payees.value.find(p => p.id === newId)
+  if (payee && (!form.value.name || form.value.name === editTarget.value?.name)) {
+    form.value.name = payee.name
+  }
+})
 
 async function save() {
   if (!form.value.name.trim()) { formError.value = '請輸入名稱'; return }
@@ -66,6 +83,7 @@ async function save() {
       day_of_month: form.value.day_of_month ? parseInt(form.value.day_of_month) : null,
       vendor_id: form.value.vendor_id || null,
       note: form.value.note || null,
+      is_active: form.value.is_active,
     }
     let res
     if (editTarget.value) {
@@ -87,8 +105,8 @@ async function save() {
   }
 }
 
-async function deactivate(r) {
-  if (!confirm(`停用「${r.name}」？`)) return
+async function deleteRecord(r) {
+  if (!confirm(`確定要刪除「${r.name}」？此操作無法還原。`)) return
   const res = await fetch(`${API_BASE}/finance/recurring/${r.id}`, { method: 'DELETE', headers: authHeaders() })
   if (res.ok) await load()
 }
@@ -145,7 +163,7 @@ async function confirmGenerate() {
       <table v-else class="w-full text-sm">
         <thead>
           <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase tracking-wider">
-            <th class="px-4 py-3 text-left">名稱</th>
+            <th class="px-4 py-3 text-left">費用對象 ／ 名稱</th>
             <th class="px-4 py-3 text-left">分類</th>
             <th class="px-4 py-3 text-right">金額</th>
             <th class="px-4 py-3 text-center">執行日</th>
@@ -166,12 +184,11 @@ async function confirmGenerate() {
               </span>
             </td>
             <td class="px-4 py-3 text-center">
-              <div v-if="r.is_active" class="flex items-center justify-center gap-2 flex-wrap">
-                <button @click="openGenerateModal(r)" class="text-xs px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30" title="產生應付帳款">帳款</button>
+              <div class="flex items-center justify-center gap-2 flex-wrap">
+                <button v-if="r.is_active" @click="openGenerateModal(r)" class="text-xs px-2 py-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30" title="產生應付帳款">帳款</button>
                 <button @click="openEdit(r)" class="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">編輯</button>
-                <button @click="deactivate(r)" class="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">停用</button>
+                <button @click="deleteRecord(r)" class="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30">刪除</button>
               </div>
-              <span v-else class="text-gray-600 text-xs">—</span>
             </td>
           </tr>
           <tr v-if="records.length === 0">
@@ -204,17 +221,26 @@ async function confirmGenerate() {
       </div>
     </div>
 
-    <!-- Modal -->
+    <!-- 新增/編輯 Modal -->
     <div v-if="showModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl p-6 w-full max-w-md">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div class="flex justify-between items-center mb-4">
           <h3 class="font-bold text-gray-200">{{ editTarget ? '編輯重複預約' : '新增重複預約' }}</h3>
           <button @click="showModal = false" class="text-gray-500 hover:text-gray-300">✕</button>
         </div>
         <div class="space-y-3">
+          <!-- 費用對象（選後自動帶入名稱） -->
+          <div v-if="payees.length > 0">
+            <label class="text-xs text-gray-500 mb-1 block">費用對象</label>
+            <select v-model="form.vendor_id" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
+              <option :value="null">不選擇</option>
+              <option v-for="p in payees" :key="p.id" :value="p.id">{{ p.name }}</option>
+            </select>
+          </div>
+          <!-- 名稱（自動帶入費用對象，可手動覆寫） -->
           <div>
             <label class="text-xs text-gray-500 mb-1 block">名稱</label>
-            <input v-model="form.name" type="text" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]" />
+            <input v-model="form.name" type="text" placeholder="選費用對象後自動帶入，或手動輸入" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]" />
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -232,16 +258,17 @@ async function confirmGenerate() {
             <label class="text-xs text-gray-500 mb-1 block">執行日（每月幾號，留空表示不固定）</label>
             <input v-model="form.day_of_month" type="number" min="1" max="31" placeholder="1-31" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]" />
           </div>
-          <div v-if="payees.length > 0">
-            <label class="text-xs text-gray-500 mb-1 block">費用對象（選填）</label>
-            <select v-model="form.vendor_id" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
-              <option :value="null">不選擇</option>
-              <option v-for="p in payees" :key="p.id" :value="p.id">{{ p.name }}</option>
-            </select>
-          </div>
           <div>
             <label class="text-xs text-gray-500 mb-1 block">備注</label>
             <input v-model="form.note" type="text" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]" />
+          </div>
+          <!-- 停用勾選（僅編輯時顯示） -->
+          <div v-if="editTarget" class="flex items-center gap-2 pt-1">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" v-model="form.is_active" class="sr-only peer" />
+              <div class="w-9 h-5 rounded-full peer bg-gray-700 peer-checked:bg-orange-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:w-4 after:h-4 after:transition-transform peer-checked:after:translate-x-4"></div>
+            </label>
+            <span class="text-sm" :class="form.is_active ? 'text-gray-300' : 'text-gray-500'">{{ form.is_active ? '有效（啟用中）' : '已停用' }}</span>
           </div>
           <p v-if="formError" class="text-red-400 text-xs">{{ formError }}</p>
           <div class="flex gap-2 pt-2">
@@ -254,6 +281,7 @@ async function confirmGenerate() {
         </div>
       </div>
     </div>
+
     <!-- Toast -->
     <div v-if="toast" class="fixed bottom-6 right-6 bg-green-600 text-white px-4 py-2 rounded-lg text-sm shadow-xl z-50">{{ toast }}</div>
   </div>

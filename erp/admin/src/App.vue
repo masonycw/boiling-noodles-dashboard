@@ -17,7 +17,8 @@ const navGroups = [
   {
     label: '總覽',
     items: [
-      { name: 'dashboard', label: '儀表板', icon: '📊' },
+      { name: 'dashboard',     label: '儀表板', icon: '📊' },
+      { name: 'announcements', label: '公告管理', icon: '📢' },
     ]
   },
   {

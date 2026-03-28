@@ -11,13 +11,36 @@ const loading = ref(true)
 const toast = ref('')
 
 const now = new Date()
-const currentYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-const cfDateFrom = ref(`${currentYM}-01`)
+const twoWeeksAgo = new Date(now); twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14)
+const cfDateFrom = ref(twoWeeksAgo.toISOString().slice(0, 10))
 const cfDateTo = ref(now.toISOString().slice(0, 10))
+
+// 月份快選
+function getMonthOptions() {
+  const opts = []
+  const d = new Date()
+  for (let i = 0; i < 6; i++) {
+    const y = d.getFullYear()
+    const m = d.getMonth() + 1
+    opts.push({
+      label: `${y}/${String(m).padStart(2, '0')}`,
+      from: `${y}-${String(m).padStart(2, '0')}-01`,
+      to: new Date(y, m, 0).toISOString().slice(0, 10),
+    })
+    d.setMonth(d.getMonth() - 1)
+  }
+  return opts
+}
+const monthOptions = getMonthOptions()
+function selectMonth(opt) {
+  cfDateFrom.value = opt.from
+  cfDateTo.value = opt.to
+  load()
+}
 const cfType = ref('')
 const cfCategory = ref('')
-const cfPayee = ref('')  // 費用對象篩選
-const payees = ref([])  // vendor_type=payee
+const cfSearch = ref('')  // 廠商/說明文字搜尋
+const payees = ref([])   // 全部供應商（下拉篩選用）
 
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
@@ -129,14 +152,14 @@ async function load() {
   const params = new URLSearchParams({ limit: 500 })
   if (cfDateFrom.value) params.set('date_from', cfDateFrom.value)
   if (cfDateTo.value) params.set('date_to', cfDateTo.value)
-  const [cfRes, catRes, payeeRes] = await Promise.all([
+  const [cfRes, catRes, vendorRes] = await Promise.all([
     fetch(`${API_BASE}/finance/cash-flow?${params}`, { headers: authHeaders() }),
     fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: authHeaders() }),
-    fetch(`${API_BASE}/inventory/vendors?vendor_type=payee`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() }),
   ])
   if (cfRes.ok) records.value = await cfRes.json()
   if (catRes.ok) categories.value = await catRes.json()
-  if (payeeRes.ok) payees.value = await payeeRes.json()
+  if (vendorRes.ok) payees.value = await vendorRes.json()
   loading.value = false
 }
 onMounted(load)
@@ -147,9 +170,39 @@ const filtered = computed(() => {
   if (cfDateTo.value) list = list.filter(r => r.created_at <= cfDateTo.value + 'T23:59:59')
   if (cfType.value) list = list.filter(r => r.type === cfType.value)
   if (cfCategory.value) list = list.filter(r => (r.category_name || '') === cfCategory.value)
-  if (cfPayee.value) list = list.filter(r => String(r.vendor_id) === cfPayee.value)
+  if (cfSearch.value) {
+    const q = cfSearch.value.toLowerCase()
+    list = list.filter(r =>
+      (r.vendor_name || '').toLowerCase().includes(q) ||
+      (r.description || '').toLowerCase().includes(q)
+    )
+  }
   return list
 })
+
+// CSV 下載
+function downloadCSV() {
+  const rows = [['日期', '類型', '科目', '廠商', '說明', '金額', '付款方式', '來源']]
+  filtered.value.forEach(r => {
+    rows.push([
+      r.transaction_date ? r.transaction_date.slice(0, 10) : (r.created_at || '').slice(0, 10),
+      r.type === 'income' ? '收入' : r.type === 'expense' ? '支出' : '提領',
+      r.category_name || '',
+      r.vendor_name || '',
+      r.description || '',
+      r.amount,
+      r.payment_method || '',
+      r.source || '',
+    ])
+  })
+  const csv = rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')
+  const bom = '\uFEFF'
+  const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `金流紀錄_${cfDateFrom.value}_${cfDateTo.value}.csv`
+  a.click()
+}
 
 const totalIncome = computed(() => filtered.value.filter(r => r.type === 'income').reduce((s, r) => s + parseFloat(r.amount || 0), 0))
 const totalExpense = computed(() => filtered.value.filter(r => r.type === 'expense').reduce((s, r) => s + parseFloat(r.amount || 0), 0))
@@ -167,7 +220,19 @@ async function updateCategory(record, catId) {
 <template>
   <div class="space-y-4">
     <!-- 篩選列 -->
-    <div class="flex flex-wrap items-center gap-3">
+    <div class="space-y-2">
+      <!-- 月份快選 -->
+      <div class="flex flex-wrap gap-1.5">
+        <button v-for="opt in monthOptions" :key="opt.from"
+          @click="selectMonth(opt)"
+          :class="cfDateFrom === opt.from && cfDateTo === opt.to
+            ? 'bg-blue-600 text-white border-blue-500'
+            : 'bg-[#1a202c] text-gray-400 border-[#2d3748] hover:border-blue-400 hover:text-gray-200'"
+          class="border text-xs font-medium px-3 py-1 rounded-lg transition-colors">
+          {{ opt.label }}
+        </button>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
       <div class="flex items-center gap-2 text-sm text-gray-400">
         <span>從</span>
         <input v-model="cfDateFrom" type="date"
@@ -187,11 +252,9 @@ async function updateCategory(record, catId) {
         <option value="">全部科目</option>
         <option v-for="c in categories" :key="c.id" :value="c.name">{{ c.name }}</option>
       </select>
-      <select v-if="payees.length > 0" v-model="cfPayee"
-        class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400">
-        <option value="">全部費用對象</option>
-        <option v-for="p in payees" :key="p.id" :value="String(p.id)">{{ p.name }}</option>
-      </select>
+      <input v-model="cfSearch" type="text" placeholder="搜尋廠商 / 說明…"
+        class="bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400 w-48" />
+      </div>
     </div>
 
     <!-- 小計 -->
@@ -210,6 +273,10 @@ async function updateCategory(record, catId) {
           NT$ {{ fmtMoney(totalIncome - totalExpense) }}
         </p>
       </div>
+      <button @click="downloadCSV"
+        class="px-4 py-2 bg-[#2d3748] hover:bg-[#374151] text-gray-300 text-sm font-bold rounded-xl transition-colors whitespace-nowrap">
+        ↓ CSV
+      </button>
       <button @click="showAddModal = true"
         class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-xl transition-colors whitespace-nowrap">
         + 新增紀錄
@@ -234,6 +301,7 @@ async function updateCategory(record, catId) {
             <th class="px-5 py-3 text-left">日期</th>
             <th class="px-5 py-3 text-center">類型</th>
             <th class="px-5 py-3 text-left">科目</th>
+            <th class="px-5 py-3 text-left">廠商</th>
             <th class="px-5 py-3 text-left">說明</th>
             <th class="px-5 py-3 text-right">金額</th>
             <th class="px-5 py-3 text-center">付款方式</th>
@@ -246,7 +314,7 @@ async function updateCategory(record, catId) {
             <tr class="hover:bg-[#1f2937]"
               :class="(r.source === 'accounts_payable' || r.source === 'petty_cash') ? 'cursor-pointer' : ''"
               @click="toggleCfExpand(r)">
-              <td class="px-5 py-2.5 text-gray-500 text-xs">{{ fmtDate(r.created_at) }}</td>
+              <td class="px-5 py-2.5 text-gray-500 text-xs">{{ fmtDate(r.transaction_date || r.created_at) }}</td>
               <td class="px-5 py-2.5 text-center">
                 <span class="text-xs font-bold" :class="r.type === 'income' ? 'text-emerald-400' : 'text-blue-400'">
                   {{ r.type === 'income' ? '收入' : '支出' }}
@@ -263,6 +331,10 @@ async function updateCategory(record, catId) {
                   </option>
                 </select>
                 <span v-else class="text-gray-300">{{ r.category_name || '—' }}</span>
+              </td>
+              <td class="px-5 py-2.5 text-xs">
+                <span v-if="r.vendor_name" class="text-gray-300">{{ r.vendor_name }}</span>
+                <span v-else class="text-gray-600">—</span>
               </td>
               <td class="px-5 py-2.5 text-gray-400 text-xs">
                 {{ r.description || '—' }}
@@ -291,7 +363,7 @@ async function updateCategory(record, catId) {
             </tr>
             <!-- 展開：應付帳款明細 -->
             <tr v-if="expandedCfId === r.id && r.source === 'accounts_payable'" class="bg-[#0a1a0f]">
-              <td colspan="8" class="px-8 py-3">
+              <td colspan="9" class="px-8 py-3">
                 <p class="text-xs font-bold text-emerald-400 mb-2">📋 應付帳款明細</p>
                 <div class="text-xs text-gray-300 space-y-1">
                   <p>{{ r.description }}</p>
@@ -305,7 +377,7 @@ async function updateCategory(record, catId) {
             </tr>
             <!-- 展開：零用金結帳明細 -->
             <tr v-if="expandedCfId === r.id && r.source === 'petty_cash'" class="bg-[#0a0a1f]">
-              <td colspan="8" class="px-8 py-3">
+              <td colspan="9" class="px-8 py-3">
                 <p class="text-xs font-bold text-violet-400 mb-2">💰 零用金支出明細</p>
                 <div class="text-xs text-gray-300 space-y-1">
                   <p>{{ r.description }}</p>
@@ -315,7 +387,7 @@ async function updateCategory(record, catId) {
             </tr>
           </template>
           <tr v-if="filtered.length === 0">
-            <td colspan="8" class="px-5 py-10 text-center text-gray-600">無金流紀錄</td>
+            <td colspan="9" class="px-5 py-10 text-center text-gray-600">無金流紀錄</td>
           </tr>
         </tbody>
       </table>

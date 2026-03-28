@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import * as XLSX from 'xlsx'
 
 const auth = useAuthStore()
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
@@ -28,7 +29,7 @@ const deleteUserSubmitting = ref(false)
 
 const form = ref({
   username: '', password: '', full_name: '',
-  role: 'staff', petty_cash_permission: false, is_active: true,
+  role: 'staff', petty_cash_permission: false, petty_cash_access: false, is_active: true,
   new_password: '', confirm_password: ''
 })
 
@@ -171,6 +172,14 @@ async function saveMatrix() {
   }
 }
 
+// CSV 匯入
+const importFileInput = ref(null)
+const importModal = ref(false)
+const importRows = ref([])
+const importError = ref('')
+const importing = ref(false)
+const importResult = ref(null)
+
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
 }
@@ -198,9 +207,93 @@ function onTabChange(tab) {
   activeTab.value = tab
 }
 
+// CSV 匯入功能
+function openImport() {
+  importRows.value = []
+  importError.value = ''
+  importResult.value = null
+  importModal.value = true
+}
+
+function parseBool(val) {
+  return ['y', '是', '1', 'true', 'yes'].includes(String(val ?? '').toLowerCase().trim())
+}
+
+function onImportFile(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  importError.value = ''
+  const reader = new FileReader()
+  reader.onload = (ev) => {
+    try {
+      const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+      if (data.length < 2) { importError.value = '需至少有標題列和一筆資料'; return }
+      const validRoles = ['admin', 'manager', 'staff', 'cashier']
+      // 欄位：0:帳號 1:姓名 2:角色 3:密碼 4:零用金存取
+      const rows = data.slice(1)
+        .filter(row => String(row[0] ?? '').trim() && String(row[3] ?? '').trim())
+        .map(row => {
+          const role = String(row[2] ?? '').trim()
+          const pcp = parseBool(row[4])
+          return {
+            username: String(row[0] ?? '').trim(),
+            full_name: String(row[1] ?? '').trim(),
+            role: validRoles.includes(role) ? role : 'staff',
+            password: String(row[3] ?? '').trim(),
+            petty_cash_permission: pcp,
+            petty_cash_access: pcp,
+          }
+        })
+      if (rows.length === 0) { importError.value = '找不到有效資料（帳號和密碼不可空白）'; return }
+      importRows.value = rows
+    } catch {
+      importError.value = '解析檔案失敗，請確認格式'
+    }
+  }
+  reader.readAsArrayBuffer(file)
+  e.target.value = ''
+}
+
+async function downloadTemplate() {
+  const res = await fetch(`${API_BASE}/users/import-template`, { headers: authHeaders() })
+  if (!res.ok) { showToast('⚠ 無法下載範本'); return }
+  const blob = await res.blob()
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = '帳號匯入範本.xlsx'
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+async function confirmImport() {
+  importing.value = true
+  importResult.value = null
+  let success = 0, failed = 0, errors = []
+  for (const row of importRows.value) {
+    const res = await fetch(`${API_BASE}/users/`, {
+      method: 'POST', headers: authHeaders(),
+      body: JSON.stringify({
+        username: row.username,
+        full_name: row.full_name,
+        role: row.role,
+        password: row.password,
+        petty_cash_permission: row.petty_cash_permission ?? false,
+        petty_cash_access: row.petty_cash_access ?? false,
+      })
+    })
+    if (res.ok) { success++ }
+    else { failed++; const d = await res.json(); errors.push(`${row.username}: ${d.detail || '失敗'}`) }
+  }
+  importResult.value = { success, failed, errors }
+  importing.value = false
+  if (success > 0) await load()
+}
+
 function openCreate() {
   editTarget.value = null
-  form.value = { username: '', password: '', full_name: '', role: 'staff', petty_cash_permission: false, is_active: true, new_password: '', confirm_password: '' }
+  form.value = { username: '', password: '', full_name: '', role: 'staff', petty_cash_permission: false, petty_cash_access: false, is_active: true, new_password: '', confirm_password: '' }
   saveError.value = ''
   showModal.value = true
 }
@@ -223,6 +316,7 @@ async function save() {
         role: form.value.role,
         is_active: form.value.is_active,
         petty_cash_permission: form.value.petty_cash_permission,
+        petty_cash_access: form.value.petty_cash_access,
       }
       if (form.value.new_password) {
         if (form.value.new_password !== form.value.confirm_password) {
@@ -247,6 +341,7 @@ async function save() {
           full_name: form.value.full_name,
           role: form.value.role,
           petty_cash_permission: form.value.petty_cash_permission,
+          petty_cash_access: form.value.petty_cash_access,
         })
       })
       if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '建立失敗') }
@@ -318,11 +413,70 @@ async function savePw() {
 
     <!-- ── 帳號列表 Tab ── -->
     <template v-if="activeTab === 'accounts'">
-      <div class="flex items-center justify-end">
+      <div class="flex items-center justify-end gap-2">
+        <button @click="openImport"
+          class="bg-[#2d3748] hover:bg-[#374151] text-gray-300 font-bold px-4 py-2 rounded-lg text-sm transition-colors">
+          ↑ 批次匯入
+        </button>
         <button @click="openCreate"
           class="bg-blue-500 hover:bg-blue-400 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors">
           + 新增帳號
         </button>
+      </div>
+
+      <!-- CSV 匯入 Modal -->
+      <div v-if="importModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" @click.self="importModal=false">
+        <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl w-full max-w-lg p-6">
+          <div class="flex justify-between items-center mb-4">
+            <div>
+              <h3 class="font-bold text-gray-200">批次匯入帳號</h3>
+              <p class="text-xs text-gray-500 mt-0.5">下載 Excel 範本，角色/零用金存取為下拉選單</p>
+            </div>
+            <button @click="importModal=false" class="text-gray-500 hover:text-gray-300">✕</button>
+          </div>
+          <div v-if="!importResult">
+            <div class="flex gap-2 mb-4">
+              <input ref="importFileInput" type="file" accept=".xlsx,.csv" class="hidden" @change="onImportFile" />
+              <button @click="importFileInput.click()"
+                class="flex-1 border-2 border-dashed border-[#2d3748] hover:border-blue-400 text-gray-400 hover:text-gray-200 rounded-lg py-3 text-sm font-bold transition-colors">
+                📁 選擇 Excel 檔案
+              </button>
+              <button @click="downloadTemplate"
+                class="px-4 py-3 bg-[#0f1117] border border-[#2d3748] hover:border-blue-400 text-gray-400 hover:text-gray-200 rounded-lg text-xs font-bold transition-colors whitespace-nowrap">
+                ↓ 下載範本
+              </button>
+            </div>
+            <p v-if="importError" class="text-red-400 text-xs mb-3">{{ importError }}</p>
+            <div v-if="importRows.length > 0" class="mb-4">
+              <p class="text-xs text-gray-400 mb-2">預覽（共 {{ importRows.length }} 筆）：</p>
+              <div class="bg-[#0f1117] rounded-lg p-3 max-h-40 overflow-y-auto space-y-1">
+                <div v-for="(r, i) in importRows" :key="i" class="text-xs text-gray-300 flex gap-2">
+                  <span class="text-gray-600 w-5">{{ i+1 }}.</span>
+                  <span class="font-mono font-semibold">{{ r.username }}</span>
+                  <span>{{ r.full_name }}</span>
+                  <span class="text-blue-400">{{ { admin:'管理員', manager:'店長', staff:'員工', cashier:'櫃檯' }[r.role] }}</span>
+                </div>
+              </div>
+              <button @click="confirmImport" :disabled="importing"
+                class="mt-3 w-full bg-blue-500 hover:bg-blue-400 text-white font-bold py-2.5 rounded-lg text-sm disabled:opacity-50">
+                {{ importing ? `匯入中…` : `確認匯入 ${importRows.length} 筆` }}
+              </button>
+            </div>
+            <div class="bg-[#0f1117] rounded-lg p-3">
+              <p class="text-xs text-gray-500 font-semibold mb-1">Excel 欄位說明</p>
+              <p class="text-xs text-gray-600">帳號* / 姓名* / 角色*（下拉：admin/manager/staff/cashier）/ 密碼* / 零用金存取（是/否）</p>
+              <p class="text-xs text-gray-600 mt-1">※ 下載範本後直接填入，角色和零用金存取皆有下拉選單</p>
+            </div>
+          </div>
+          <div v-else class="text-center py-4">
+            <p class="text-emerald-400 font-bold mb-2">✓ 匯入完成</p>
+            <p class="text-gray-300 text-sm">成功 {{ importResult.success }} 筆 / 失敗 {{ importResult.failed }} 筆</p>
+            <div v-if="importResult.errors.length > 0" class="mt-2 text-xs text-red-400 text-left bg-[#0f1117] rounded p-2 max-h-24 overflow-y-auto">
+              <div v-for="e in importResult.errors" :key="e">{{ e }}</div>
+            </div>
+            <button @click="importModal=false" class="mt-4 px-6 py-2 bg-[#2d3748] text-gray-300 rounded-lg text-sm font-bold">關閉</button>
+          </div>
+        </div>
       </div>
 
       <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
@@ -333,7 +487,8 @@ async function savePw() {
               <th class="px-5 py-3 text-left">姓名</th>
               <th class="px-5 py-3 text-left">帳號</th>
               <th class="px-5 py-3 text-center">角色</th>
-              <th class="px-5 py-3 text-center">零用金授權</th>
+              <th class="px-5 py-3 text-center">零用金存取</th>
+              <th class="px-5 py-3 text-center">提領授權</th>
               <th class="px-5 py-3 text-center">狀態</th>
               <th class="px-5 py-3 text-left">最後登入</th>
               <th class="px-5 py-3 text-center">操作</th>
@@ -346,9 +501,16 @@ async function savePw() {
               <td class="px-5 py-3 text-center">
                 <span class="text-xs font-bold px-2 py-1 rounded-full" :class="roleClass(u.role)">{{ roleName(u.role) }}</span>
               </td>
+              <!-- 零用金存取（petty_cash_access 或 petty_cash_permission 任一開啟） -->
+              <td class="px-5 py-3 text-center">
+                <span class="text-xs font-bold" :class="(u.petty_cash_access || u.petty_cash_permission) ? 'text-teal-400' : 'text-gray-600'">
+                  {{ (u.petty_cash_access || u.petty_cash_permission) ? '✓' : '—' }}
+                </span>
+              </td>
+              <!-- 提領授權（petty_cash_permission） -->
               <td class="px-5 py-3 text-center">
                 <span class="text-xs font-bold" :class="u.petty_cash_permission ? 'text-emerald-400' : 'text-gray-600'">
-                  {{ u.petty_cash_permission ? '✓ 授權' : '—' }}
+                  {{ u.petty_cash_permission ? '✓ 提領' : '—' }}
                 </span>
               </td>
               <td class="px-5 py-3 text-center">
@@ -368,7 +530,7 @@ async function savePw() {
               </td>
             </tr>
             <tr v-if="users.length === 0">
-              <td colspan="7" class="px-5 py-10 text-center text-gray-600">無人員資料</td>
+              <td colspan="8" class="px-5 py-10 text-center text-gray-600">無人員資料</td>
             </tr>
           </tbody>
         </table>
@@ -486,9 +648,23 @@ async function savePw() {
               <option value="admin">管理員</option>
             </select>
           </div>
-          <div class="flex items-center gap-3">
-            <input v-model="form.petty_cash_permission" type="checkbox" id="pcp" class="w-4 h-4 accent-blue-500" />
-            <label for="pcp" class="text-gray-300">授予零用金提領權限</label>
+          <!-- 零用金權限區塊 -->
+          <div class="border border-[#2d3748] rounded-xl p-3 space-y-2.5 bg-[#0f1117]">
+            <p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider">零用金權限</p>
+            <div class="flex items-start gap-3">
+              <input v-model="form.petty_cash_access" type="checkbox" id="pca" class="w-4 h-4 accent-teal-500 mt-0.5" />
+              <div>
+                <label for="pca" class="text-gray-300 cursor-pointer">零用金存取</label>
+                <p class="text-[10px] text-gray-500 mt-0.5">可查看並使用零用金分頁（新增支出、查看紀錄）</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <input v-model="form.petty_cash_permission" type="checkbox" id="pcp" class="w-4 h-4 accent-emerald-500 mt-0.5" />
+              <div>
+                <label for="pcp" class="text-gray-300 cursor-pointer">提領授權</label>
+                <p class="text-[10px] text-gray-500 mt-0.5">可從零用金提領現金（含自動開啟存取權限）</p>
+              </div>
+            </div>
           </div>
           <div class="flex items-center gap-3">
             <input v-model="form.is_active" type="checkbox" id="active" class="w-4 h-4 accent-blue-500" />

@@ -10,6 +10,7 @@ const testingId = ref(null)
 // LINE Messaging API（O9：叫貨自動推播）
 const lineMessaging = ref({ channel_secret: '', access_token: '' })
 const lineMessagingSaving = ref(false)
+const showLineHelpModal = ref(false)
 
 async function loadLineMessaging() {
   try {
@@ -164,11 +165,16 @@ function copyWebhookUrl() {
     <!-- LINE Messaging API（O9：叫貨自動推播） -->
     <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
       <div class="px-5 py-4 border-b border-[#2d3748] flex items-center justify-between">
-        <div>
+        <div class="flex items-center gap-2">
           <h3 class="font-bold text-gray-100 text-sm">LINE Messaging API</h3>
-          <p class="text-xs text-gray-500 mt-0.5">叫貨送出時自動推播至廠商 LINE 群組</p>
+          <button @click="showLineHelpModal = true"
+            class="w-5 h-5 rounded-full bg-[#2d3748] hover:bg-[#374151] text-gray-400 hover:text-gray-200 text-xs font-bold flex items-center justify-center transition-colors border border-[#4a5568] shrink-0"
+            title="設定說明">?</button>
         </div>
-        <span class="text-xs px-2 py-1 rounded-full bg-emerald-900/40 text-emerald-400 font-bold">啟用中</span>
+        <div class="flex items-center gap-2">
+          <p class="text-xs text-gray-500">叫貨送出時自動推播至廠商 LINE 群組</p>
+          <span class="text-xs px-2 py-1 rounded-full bg-emerald-900/40 text-emerald-400 font-bold shrink-0">啟用中</span>
+        </div>
       </div>
       <div class="px-5 py-4 space-y-4">
         <div>
@@ -370,6 +376,93 @@ function copyWebhookUrl() {
           </tr>
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- LINE Messaging API 說明 Modal -->
+  <div v-if="showLineHelpModal"
+    class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+    @click.self="showLineHelpModal = false">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
+      <div class="px-6 py-4 border-b border-[#2d3748] flex items-center justify-between sticky top-0 bg-[#1a202c] z-10">
+        <h3 class="font-bold text-gray-100">LINE Messaging API 設定說明</h3>
+        <button @click="showLineHelpModal = false" class="text-gray-500 hover:text-gray-300 text-xl leading-none">✕</button>
+      </div>
+      <div class="px-6 py-5 space-y-6 text-sm">
+
+        <!-- 第一節：Channel Secret -->
+        <div>
+          <h4 class="text-[#63b3ed] font-bold mb-2 flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-[#63b3ed]/20 text-[#63b3ed] text-xs flex items-center justify-center font-bold shrink-0">1</span>
+            取得 Channel Secret
+          </h4>
+          <ol class="space-y-1.5 text-gray-400 pl-7 list-decimal list-inside">
+            <li>前往 <span class="text-gray-200 font-mono text-xs bg-[#0f1117] px-1.5 py-0.5 rounded">developers.line.biz</span> 並登入</li>
+            <li>選擇你的 Messaging API Channel</li>
+            <li>點選「Basic settings」分頁</li>
+            <li>找到「Channel secret」欄位並複製</li>
+          </ol>
+        </div>
+
+        <!-- 第二節：Access Token -->
+        <div>
+          <h4 class="text-[#63b3ed] font-bold mb-2 flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-[#63b3ed]/20 text-[#63b3ed] text-xs flex items-center justify-center font-bold shrink-0">2</span>
+            取得 Channel Access Token（長期）
+          </h4>
+          <ol class="space-y-1.5 text-gray-400 pl-7 list-decimal list-inside">
+            <li>在同一個 Channel 頁面，點選「Messaging API」分頁</li>
+            <li>找到「Channel access token (long-lived)」區塊</li>
+            <li>點「Issue」產生後複製（長期 Token 不需每次重新產生）</li>
+          </ol>
+        </div>
+
+        <!-- 第三節：Webhook URL -->
+        <div>
+          <h4 class="text-[#63b3ed] font-bold mb-2 flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-[#63b3ed]/20 text-[#63b3ed] text-xs flex items-center justify-center font-bold shrink-0">3</span>
+            設定 Webhook URL
+          </h4>
+          <ol class="space-y-1.5 text-gray-400 pl-7 list-decimal list-inside">
+            <li>在「Messaging API」分頁找到「Webhook settings」</li>
+            <li>點「Edit」填入以下網址：</li>
+          </ol>
+          <div class="mt-2 ml-7 bg-[#0f1117] border border-[#2d3748] rounded-lg px-3 py-2 font-mono text-xs text-gray-300 break-all select-all">
+            https://preoffensive-chasteningly-taunya.ngrok-free.dev/api/v1/webhook/line
+          </div>
+          <p class="mt-2 ml-7 text-gray-600 text-xs">記得勾選「Use webhook」並點「Verify」確認回應正常</p>
+        </div>
+
+        <!-- 第四節：廠商群組配對 -->
+        <div>
+          <h4 class="text-[#63b3ed] font-bold mb-2 flex items-center gap-2">
+            <span class="w-5 h-5 rounded-full bg-[#63b3ed]/20 text-[#63b3ed] text-xs flex items-center justify-center font-bold shrink-0">4</span>
+            廠商 LINE 群組自動配對流程
+          </h4>
+          <div class="space-y-2 text-gray-400 pl-7">
+            <div class="flex items-start gap-2">
+              <span class="text-emerald-400 shrink-0">①</span>
+              <span>請廠商建立 LINE 群組，並將本系統的 LINE Bot 加入群組</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="text-emerald-400 shrink-0">②</span>
+              <span>Bot 加入後系統自動偵測並記錄群組 ID（<span class="text-gray-300">C 開頭的字串</span>）</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="text-emerald-400 shrink-0">③</span>
+              <span>前往「<span class="text-gray-200">庫存管理 → 供應商管理</span>」頁面</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="text-emerald-400 shrink-0">④</span>
+              <span>選擇對應廠商，在「LINE 群組」欄位從下拉選取偵測到的群組，儲存完成配對</span>
+            </div>
+          </div>
+          <div class="mt-3 ml-7 bg-amber-900/20 border border-amber-800/40 rounded-lg px-3 py-2">
+            <p class="text-amber-400 text-xs">若群組清單為空，請確認 Bot 已成功加入群組，且 Webhook 設定正確並通過 Verify。</p>
+          </div>
+        </div>
+
+      </div>
     </div>
   </div>
 </template>

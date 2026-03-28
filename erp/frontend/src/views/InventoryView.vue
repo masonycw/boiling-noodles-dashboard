@@ -508,16 +508,47 @@ function isToday(d) {
     dt.getDate() === now.getDate()
 }
 
-function startEditSession(s) {
+async function startEditSession(s) {
   editingSessionId.value = s.id
-  editingItems.value = (s.items || []).map(it => ({
-    ...it,
-    edit_qty: parseFloat(it.counted_qty ?? it.actual_qty ?? 0)
-  }))
   // 展開該 session
   const set = new Set(expandedSessions.value)
   set.add(s.id)
   expandedSessions.value = set
+
+  // 取得已盤點品項（以 item_id 建立 map）
+  const existingMap = {}
+  for (const it of (s.items || [])) {
+    existingMap[it.item_id] = it
+  }
+
+  // 若有群組，載入群組所有品項（含未盤點的）
+  let allItems = []
+  if (s.stocktake_group_id) {
+    const res = await fetch(`${API_BASE}/inventory/items?stocktake_group_id=${s.stocktake_group_id}`, { headers: authHeaders() })
+    if (res.ok) allItems = await res.json()
+  }
+
+  // 合併：已盤點的保留 counted_qty，未盤點的預設 edit_qty=0
+  const mergedMap = {}
+  // 先放已盤點的
+  for (const it of (s.items || [])) {
+    mergedMap[it.item_id] = { ...it, edit_qty: parseFloat(it.counted_qty ?? 0) }
+  }
+  // 再補未盤點的群組品項
+  for (const item of allItems) {
+    if (!mergedMap[item.id]) {
+      mergedMap[item.id] = {
+        item_id: item.id,
+        item_name: item.name,
+        unit: item.unit,
+        counted_qty: null,
+        expected_qty: item.current_stock ?? 0,
+        edit_qty: 0,
+      }
+    }
+  }
+
+  editingItems.value = Object.values(mergedMap)
 }
 
 function cancelEditSession() {
@@ -529,10 +560,13 @@ async function saveEditSession() {
   editingSubmitting.value = true
   try {
     const patch = {
-      items: editingItems.value.map(it => ({
-        item_id: it.item_id,
-        counted_qty: parseFloat(it.edit_qty) || 0
-      }))
+      // 原本已有計數的品項：全部更新；新加入品項：只有輸入 > 0 才送出
+      items: editingItems.value
+        .filter(it => it.counted_qty !== null || (parseFloat(it.edit_qty) || 0) > 0)
+        .map(it => ({
+          item_id: it.item_id,
+          counted_qty: parseFloat(it.edit_qty) || 0
+        }))
     }
     await fetch(`${API_BASE}/stocktake/${editingSessionId.value}`, {
       method: 'PATCH', headers: authHeaders(),
@@ -632,19 +666,26 @@ async function submitPendingReceive() {
       }
     }
 
-    // Auto-copy LINE message and switch to pending tab
+    // 送出後提示
     if (modeOrder.value && allItems.length > 0) {
-      try {
-        const lineMsg = buildLineMessage(
-          selectedVendor.value?.name || '',
-          items.value.filter(i => i.qty > 0),
-          adHocItems.value,
-          expectedDeliveryDate.value
-        )
-        await navigator.clipboard.writeText(lineMsg)
-        submitToast.value = '已複製 LINE 訊息 ✓'
-      } catch {
-        submitToast.value = '✓ 已送出！訂單進入待收貨清單'
+      const hasLineGroup = !selectedVendor.value?._isGroup && !!selectedVendor.value?.line_id
+      if (hasLineGroup) {
+        // 廠商已配對 LINE 群組 → 後端自動推播，不需複製
+        submitToast.value = '✓ 已送出！LINE 訊息已自動推播'
+      } else {
+        // 未配對 LINE 群組（群組模式或未設定）→ 複製訊息至剪貼簿備用
+        try {
+          const lineMsg = buildLineMessage(
+            selectedVendor.value?.name || '',
+            items.value.filter(i => i.qty > 0),
+            adHocItems.value,
+            expectedDeliveryDate.value
+          )
+          await navigator.clipboard.writeText(lineMsg)
+          submitToast.value = '✓ 已送出！已複製 LINE 訊息（廠商未配對群組）'
+        } catch {
+          submitToast.value = '✓ 已送出！訂單進入待收貨清單'
+        }
       }
     } else {
       submitToast.value = '✓ 已送出！'
@@ -771,8 +812,11 @@ function handlePhotoSelect(e) {
 
 async function submitReceive() {
   receiveError.value = ''
-  const amount = parseFloat(receiveForm.value.total_amount)
-  if (!amount) { receiveError.value = '請輸入訂單金額'; return }
+  const amount = parseFloat(receiveForm.value.total_amount) || 0
+  if (!amount && !receiveForm.value.note?.trim()) {
+    receiveError.value = '未填金額時，請在備註欄填寫說明（例：金額待確認）'
+    return
+  }
   receiveSubmitting.value = true
   try {
     // 先上傳照片，取得 URL 後一起帶入簽收請求（才能同步到零用金紀錄）
@@ -890,6 +934,7 @@ async function submitEditOrder() {
         qty: i.qty
       }))
     }
+    const itemsChanged = !!body.items
     const res = await fetch(`${API_BASE}/inventory/orders/${editOrderTarget.value.id}`, {
       method: 'PATCH', headers: authHeaders(),
       body: JSON.stringify(body)
@@ -897,6 +942,10 @@ async function submitEditOrder() {
     if (res.ok) {
       showEditOrderModal.value = false
       await loadPending()
+      if (itemsChanged) {
+        submitToast.value = '⚠ 品項已修改，記得聯繫廠商確認更改'
+        setTimeout(() => { submitToast.value = '' }, 4000)
+      }
     }
   } catch (e) { console.error(e) }
   finally { editOrderSubmitting.value = false }
@@ -1606,12 +1655,12 @@ const payBadge = (o) => {
             <!-- Amount -->
             <div>
               <div class="flex items-center justify-between mb-1">
-                <p class="text-xs font-bold text-slate-500">本次訂單金額</p>
+                <p class="text-xs font-bold text-slate-500">本次訂單金額<span class="ml-1 font-normal text-slate-400">（非必填，無金額請填備註）</span></p>
                 <span v-if="receiveTarget?.reference_amount > 0" class="text-xs font-bold px-2 py-0.5 rounded-lg" style="background:#fff7ed;color:#ea580c">
                   參考 ${{ fmtMoney(receiveTarget.reference_amount) }}
                 </span>
               </div>
-              <p class="text-[10px] text-slate-400 mb-1">菜商等現場議價廠商請直接輸入今日金額</p>
+              <p class="text-[10px] text-slate-400 mb-1">現場議價直接輸入；不知金額可留空並在備註說明</p>
               <input v-model="receiveForm.total_amount" type="number" inputmode="decimal" placeholder="0"
                 class="w-full border border-slate-200 rounded-xl px-4 py-3 text-2xl font-extrabold text-center focus:outline-none focus:ring-2 focus:ring-orange-400" />
             </div>
@@ -1646,9 +1695,17 @@ const payBadge = (o) => {
 
             <!-- Note -->
             <div>
-              <label class="block text-xs font-bold text-slate-500 mb-1">備註（選填）</label>
-              <input v-model="receiveForm.note" type="text" placeholder="如有差異請說明…"
-                class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+              <label class="block text-xs font-bold text-slate-500 mb-1">
+                備註
+                <span v-if="!parseFloat(receiveForm.total_amount)" class="text-red-500 font-bold">（未填金額時必填）</span>
+                <span v-else class="text-slate-400 font-normal">（選填）</span>
+              </label>
+              <input v-model="receiveForm.note" type="text"
+                :placeholder="!parseFloat(receiveForm.total_amount) ? '未填金額時請說明原因…' : '如有差異請說明…'"
+                :class="[
+                  'w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400',
+                  !parseFloat(receiveForm.total_amount) ? 'border-amber-300 bg-amber-50' : 'border-slate-200'
+                ]" />
             </div>
 
             <!-- 拍照上傳 -->
@@ -1811,7 +1868,10 @@ const payBadge = (o) => {
             <div v-if="editingSessionId === s.id" class="border-t border-blue-100 px-4 py-3 bg-blue-50/30 space-y-2">
               <p class="text-xs font-bold text-blue-600 mb-2">✎ 修改盤點數量</p>
               <div v-for="it in editingItems" :key="it.item_id" class="flex items-center justify-between text-sm gap-2">
-                <span class="text-slate-700 flex-1 text-xs">{{ it.item_name }}</span>
+                <div class="flex-1 min-w-0">
+                  <span class="text-slate-700 text-xs block truncate">{{ it.item_name }}</span>
+                  <span v-if="it.counted_qty === null" class="text-[10px] text-amber-500 font-bold">未盤點</span>
+                </div>
                 <div class="flex items-center gap-1 shrink-0">
                   <button @click="it.edit_qty = Math.max(0, parseFloat(it.edit_qty||0) - 1)"
                     class="w-7 h-7 bg-slate-200 rounded-lg text-sm font-bold flex items-center justify-center">−</button>

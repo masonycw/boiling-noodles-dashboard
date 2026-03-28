@@ -20,6 +20,7 @@ const editOrderVendorName = ref('')
 const editOrderForm = ref({ status: '', ordered_at: '', note: '', items: [] })
 const editOrderSubmitting = ref(false)
 const editOrderError = ref('')
+const editToast = ref('')
 
 // ── Delete Order ──
 const showDeleteModal = ref(false)
@@ -159,7 +160,17 @@ function onEditItemSelect(idx, itemId) {
 async function saveEditOrder() {
   editOrderSubmitting.value = true
   editOrderError.value = ''
+  // 記錄修改前的品項（用於比對是否有改動）
+  const originalItemSnapshot = JSON.stringify(
+    editOrderForm.value.items.map(i => ({ id: i.item_id, qty: parseFloat(i.qty) || 0 })).sort((a,b) => a.id - b.id)
+  )
   try {
+    const newItems = editOrderForm.value.items.map(i => ({
+      item_id: i.item_id,
+      adhoc_name: i.adhoc_name,
+      adhoc_unit: null,
+      qty: parseFloat(i.qty) || 0
+    }))
     const res = await fetch(`${API_BASE}/inventory/orders/${editOrderId.value}`, {
       method: 'PATCH',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
@@ -167,18 +178,21 @@ async function saveEditOrder() {
         status: editOrderForm.value.status,
         note: editOrderForm.value.note,
         ordered_at: editOrderForm.value.ordered_at,
-        items: editOrderForm.value.items.map(i => ({
-          item_id: i.item_id,
-          adhoc_name: i.adhoc_name,
-          adhoc_unit: null,
-          qty: parseFloat(i.qty) || 0
-        }))
+        items: newItems
       })
     })
     if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '儲存失敗') }
     showEditModal.value = false
     delete orderDetails.value[editOrderId.value]
     await load()
+    // 品項有異動 → 提醒聯繫廠商
+    const newSnapshot = JSON.stringify(
+      newItems.map(i => ({ id: i.item_id, qty: i.qty })).sort((a,b) => a.id - b.id)
+    )
+    if (newSnapshot !== originalItemSnapshot) {
+      editToast.value = '⚠ 品項已修改，記得聯繫廠商確認更改'
+      setTimeout(() => { editToast.value = '' }, 5000)
+    }
   } catch (e) {
     editOrderError.value = e.message
   } finally {
@@ -388,6 +402,10 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
         </div>
       </template>
     </div>
+  <!-- Toast 提醒 -->
+  <div v-if="editToast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] bg-amber-600 text-white text-sm font-semibold px-5 py-3 rounded-xl shadow-lg">
+    {{ editToast }}
+  </div>
   <!-- Edit Order Modal -->
   <div v-if="showEditModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center px-4">
     <div class="bg-[#1a202c] border border-[#2d3748] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">

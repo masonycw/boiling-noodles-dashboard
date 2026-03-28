@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List
 from erp.backend.db.session import get_db
 from erp.backend.services import inventory_service
+from erp.backend.services.line_service import send_line_message, get_setting
+from erp.backend.db.models import Vendor, Item
 
 router = APIRouter()
 
@@ -69,6 +71,60 @@ def update_item(item_id: int, item: dict, db: Session = Depends(get_db)):
 def delete_item(item_id: int, db: Session = Depends(get_db)):
     return inventory_service.delete_item(db, item_id)
 
+@router.post("/items/bulk-delete")
+def bulk_delete_items(data: dict, db: Session = Depends(get_db)):
+    from erp.backend.db.models import Item as ItemModel
+    ids = data.get("ids", [])
+    deleted = 0
+    for item_id in ids:
+        item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
+        if item:
+            db.delete(item)
+            deleted += 1
+    db.commit()
+    return {"deleted": deleted}
+
+# ─── Excel 匯入範本端點 ──────────────────────────────────────────────────────
+
+@router.get("/items/import-template")
+def items_import_template(db: Session = Depends(get_db)):
+    """動態產生品項匯入 Excel 範本（含供應商/盤點群組下拉）"""
+    from erp.backend.db.models import Vendor as VendorModel, StocktakeGroup
+    from erp.backend.utils.excel_template import build_items_template
+    from fastapi.responses import StreamingResponse
+    import io
+
+    vendors = [{"name": v.name} for v in db.query(VendorModel).order_by(VendorModel.name).all()]
+    groups  = [{"name": g.name} for g in db.query(StocktakeGroup).all()]
+    data = build_items_template(vendors, groups)
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''%E5%93%81%E9%A0%85%E5%8C%AF%E5%85%A5%E7%AF%84%E6%9C%AC.xlsx"}
+    )
+
+
+@router.get("/vendors/import-template")
+def vendors_import_template(db: Session = Depends(get_db)):
+    """動態產生供應商匯入 Excel 範本（含付款方式/金流科目下拉）"""
+    from erp.backend.db.models import PaymentMethod, CashFlowCategory
+    from erp.backend.utils.excel_template import build_vendors_template
+    from fastapi.responses import StreamingResponse
+    import io
+
+    methods = [{"name": m.name} for m in
+               db.query(PaymentMethod).filter(PaymentMethod.is_active == True)
+               .order_by(PaymentMethod.display_order).all()]
+    cats = [{"name": c.name} for c in
+            db.query(CashFlowCategory).filter(CashFlowCategory.type == "expense").all()]
+    data = build_vendors_template(methods, cats)
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''%E4%BE%9B%E6%87%89%E5%95%86%E5%8C%AF%E5%85%A5%E7%AF%84%E6%9C%AC.xlsx"}
+    )
+
+
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
@@ -86,14 +142,39 @@ class OrderCreate(BaseModel):
     status: Optional[str] = "confirmed"
 
 @router.post("/orders")
-def create_order(order_data: OrderCreate, db: Session = Depends(get_db)):
+async def create_order(order_data: OrderCreate, db: Session = Depends(get_db)):
     user_id = 1 # Temporary placeholder
-    # Convert pydantic models to dicts for service layer
     items_dicts = [item.dict() for item in order_data.items]
-    return inventory_service.create_purchase_order(
+    order = inventory_service.create_purchase_order(
         db, user_id, order_data.vendor_id, items_dicts, order_data.expected_delivery_date,
         status=order_data.status or "confirmed"
     )
+
+    # 送出後推播 LINE 訊息至廠商群組
+    try:
+        vendor = db.query(Vendor).filter(Vendor.id == order_data.vendor_id).first()
+        if vendor and vendor.line_id:
+            access_token = get_setting(db, "line_access_token")
+            if access_token:
+                from datetime import datetime as dt
+                today = dt.now().strftime('%Y/%m/%d')
+                msg = f"【叫貨單】{vendor.name}\n日期：{today}\n──────────\n"
+                for item_data in items_dicts:
+                    if item_data.get('item_id'):
+                        item = db.query(Item).filter(Item.id == item_data['item_id']).first()
+                        if item:
+                            msg += f"{item.name} × {item_data['qty']} {item.unit or ''}\n"
+                    elif item_data.get('adhoc_name'):
+                        msg += f"{item_data['adhoc_name']} × {item_data['qty']} {item_data.get('adhoc_unit', '')}\n"
+                msg += "──────────"
+                if order_data.expected_delivery_date:
+                    d = order_data.expected_delivery_date
+                    msg += f"\n預計到貨：{d.year}/{d.month}/{d.day}"
+                await send_line_message(vendor.line_id, msg, access_token)
+    except Exception as e:
+        print(f"LINE send error: {e}")
+
+    return order
 
 @router.put("/orders/{order_id}")
 def update_order(order_id: int, order_data: OrderCreate, db: Session = Depends(get_db)):

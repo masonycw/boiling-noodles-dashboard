@@ -27,9 +27,10 @@ const dateTo = ref(todayStr)
 // ── Edit Petty Cash ──
 const showEditModal = ref(false)
 const editRecord = ref(null)
-const editForm = ref({ type: '', amount: '', note: '', recorded_at: '' })
+const editForm = ref({ type: '', amount: '', note: '', recorded_at: '', category_id: '' })
 const editSubmitting = ref(false)
 const editError = ref('')
+const editCategories = ref([])
 
 // ── Delete Petty Cash ──
 const showDeleteModal = ref(false)
@@ -61,12 +62,14 @@ function fmtDateTime(d) {
 
 async function load() {
   loading.value = true
-  const [balRes, pettyRes] = await Promise.all([
+  const [balRes, pettyRes, catRes] = await Promise.all([
     fetch(`${API_BASE}/finance/petty-cash/balance`, { headers: authHeaders() }),
     fetch(`${API_BASE}/finance/petty-cash?date_from=${dateFrom.value}&date_to=${dateTo.value}&limit=300`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: authHeaders() }),
   ])
   if (balRes.ok) pettyBalance.value = (await balRes.json()).balance
   if (pettyRes.ok) pettyRecords.value = await pettyRes.json()
+  if (catRes.ok) editCategories.value = (await catRes.json()).filter(c => c.type === 'expense' && c.is_active)
   loading.value = false
 }
 onMounted(load)
@@ -114,6 +117,7 @@ function openEditPetty(r) {
     amount: parseFloat(r.amount) || 0,
     note: r.note || '',
     recorded_at: dt.toISOString().slice(0, 16),
+    category_id: r.category_id ? String(r.category_id) : '',
   }
   showEditModal.value = true
 }
@@ -122,15 +126,21 @@ async function saveEditPetty() {
   editSubmitting.value = true
   editError.value = ''
   try {
+    const body = {
+      type: editForm.value.type,
+      amount: parseFloat(editForm.value.amount),
+      note: editForm.value.note,
+      recorded_at: editForm.value.recorded_at,
+    }
+    if (editForm.value.category_id) {
+      body.category_id = parseInt(editForm.value.category_id)
+    } else {
+      body.category_id = null
+    }
     const res = await fetch(`${API_BASE}/finance/petty-cash/${editRecord.value.id}`, {
       method: 'PATCH',
       headers: authHeaders(),
-      body: JSON.stringify({
-        type: editForm.value.type,
-        amount: parseFloat(editForm.value.amount),
-        note: editForm.value.note,
-        recorded_at: editForm.value.recorded_at,
-      })
+      body: JSON.stringify(body)
     })
     if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '儲存失敗') }
     showEditModal.value = false
@@ -223,6 +233,7 @@ async function togglePayment(record) {
           <tr class="border-b border-[#2d3748] text-xs text-gray-500 uppercase">
             <th class="px-5 py-3 text-left">日期時間</th>
             <th class="px-5 py-3 text-center">類型</th>
+            <th class="px-5 py-3 text-left">廠商</th>
             <th class="px-5 py-3 text-left">說明</th>
             <th class="px-5 py-3 text-left">科目</th>
             <th class="px-5 py-3 text-right">金額</th>
@@ -243,9 +254,11 @@ async function togglePayment(record) {
                   {{ r.type === 'income' ? '收入' : r.type === 'withdrawal' ? '提領' : '支出' }}
                 </span>
               </td>
-              <td class="px-5 py-2.5 text-gray-400 text-xs">
-                {{ r.note || r.vendor_name || '—' }}
+              <td class="px-5 py-2.5 text-xs">
+                <span v-if="r.vendor_name" class="text-gray-300">{{ r.vendor_name }}</span>
+                <span v-else class="text-gray-600">—</span>
               </td>
+              <td class="px-5 py-2.5 text-gray-400 text-xs">{{ r.note || '—' }}</td>
               <td class="px-5 py-2.5 text-xs">
                 <span v-if="r.type === 'expense' && r.category_name"
                   class="px-2 py-0.5 rounded bg-[#2d3748] text-[#9ca3af]">
@@ -284,7 +297,7 @@ async function togglePayment(record) {
             </tr>
             <!-- 展開詳情 -->
             <tr v-if="expandedId === r.id" class="bg-[#0f1117] border-b border-[#2d3748]">
-              <td colspan="8" class="px-6 py-4">
+              <td colspan="9" class="px-6 py-4">
                 <div class="flex flex-wrap gap-6 text-xs">
                   <div v-if="r.vendor_name" class="space-y-0.5">
                     <p class="text-gray-500">廠商</p>
@@ -329,7 +342,7 @@ async function togglePayment(record) {
             </tr>
           </template>
           <tr v-if="pettyWithBalance.length === 0">
-            <td colspan="7" class="px-5 py-10 text-center text-gray-600">無零用金紀錄</td>
+            <td colspan="9" class="px-5 py-10 text-center text-gray-600">無零用金紀錄</td>
           </tr>
         </tbody>
       </table>
@@ -360,6 +373,14 @@ async function togglePayment(record) {
           <label class="block text-xs text-gray-500 mb-1">記錄時間</label>
           <input v-model="editForm.recorded_at" type="datetime-local"
             class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400" />
+        </div>
+        <div v-if="editForm.type === 'expense'">
+          <label class="block text-xs text-gray-500 mb-1">科目</label>
+          <select v-model="editForm.category_id"
+            class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
+            <option value="">— 不指定科目 —</option>
+            <option v-for="cat in editCategories" :key="cat.id" :value="String(cat.id)">{{ cat.name }}</option>
+          </select>
         </div>
         <div>
           <label class="block text-xs text-gray-500 mb-1">說明 / 備注</label>
