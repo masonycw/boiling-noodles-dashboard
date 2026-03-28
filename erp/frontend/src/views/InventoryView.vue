@@ -68,6 +68,7 @@ const items = ref([])
 const isLoading = ref(true)
 const submitting = ref(false)
 const submitToast = ref('')
+const noLineWarning = ref(false)   // 廠商未串接 LINE 時的跳出提醒
 const expectedDeliveryDate = ref('')
 const adHocItems = ref([])
 const showAdHocForm = ref(false)
@@ -611,7 +612,7 @@ async function submitPendingReceive() {
             body: JSON.stringify({
               vendor_id: parseInt(vid),
               status: 'confirmed',
-              expected_delivery_date: delivDate ? new Date(delivDate + 'T00:00:00').toISOString() : null,
+              expected_delivery_date: delivDate ? new Date(delivDate).toISOString() : null,
               items: vendorItems
             })
           })
@@ -670,10 +671,14 @@ async function submitPendingReceive() {
     if (modeOrder.value && allItems.length > 0) {
       const hasLineGroup = !selectedVendor.value?._isGroup && !!selectedVendor.value?.line_id
       if (hasLineGroup) {
-        // 廠商已配對 LINE 群組 → 後端自動推播，不需複製
+        // 廠商已配對 LINE 群組 → 後端自動推播
         submitToast.value = '✓ 已送出！LINE 訊息已自動推播'
+      } else if (!selectedVendor.value?._isGroup) {
+        // 單一廠商但未串接 LINE → 顯示跳出提醒
+        submitToast.value = '✓ 已送出！'
+        noLineWarning.value = true
       } else {
-        // 未配對 LINE 群組（群組模式或未設定）→ 複製訊息至剪貼簿備用
+        // 群組模式未配對 LINE → 複製訊息至剪貼簿備用
         try {
           const lineMsg = buildLineMessage(
             selectedVendor.value?.name || '',
@@ -682,9 +687,9 @@ async function submitPendingReceive() {
             expectedDeliveryDate.value
           )
           await navigator.clipboard.writeText(lineMsg)
-          submitToast.value = '✓ 已送出！已複製 LINE 訊息（廠商未配對群組）'
+          submitToast.value = '✓ 已送出！已複製 LINE 訊息'
         } catch {
-          submitToast.value = '✓ 已送出！訂單進入待收貨清單'
+          submitToast.value = '✓ 已送出！'
         }
       }
     } else {
@@ -862,7 +867,7 @@ async function openEditOrder(order) {
   editOrderTarget.value = order
   editOrderForm.value = {
     expected_delivery_date: order.expected_delivery_date
-      ? new Date(order.expected_delivery_date).toISOString().split('T')[0]
+      ? (() => { const d = new Date(order.expected_delivery_date); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
       : '',
     total_amount: order.total_amount || '',
     note: order.note || '',
@@ -1300,6 +1305,22 @@ const payBadge = (o) => {
         class="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-bold shadow-lg text-white"
         :style="submitToast.startsWith('⚠') ? 'background:#ef4444' : 'background:#10b981'">
         {{ submitToast }}
+      </div>
+
+      <!-- 無 LINE 廠商提醒 Modal -->
+      <div v-if="noLineWarning" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center px-6" @click.self="noLineWarning = false">
+        <div class="bg-white rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl">
+          <div class="text-4xl mb-3">📵</div>
+          <h3 class="text-lg font-bold text-red-600 mb-2">請記得聯繫廠商確認！</h3>
+          <p class="text-sm text-gray-500 mb-5">
+            此廠商尚未串接 LINE，訂單已送出，<br>
+            <span class="font-bold text-red-500">需手動聯繫廠商</span>確認叫貨內容。
+          </p>
+          <button @click="noLineWarning = false"
+            class="w-full bg-red-500 text-white font-bold py-3 rounded-xl active:scale-95">
+            我知道了
+          </button>
+        </div>
       </div>
 
       <!-- A2: Draft toast -->

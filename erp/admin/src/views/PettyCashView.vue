@@ -102,8 +102,11 @@ const pettyWithBalance = computed(() => {
   let running = parseFloat(pettyBalance.value) || 0
   return filteredPetty.value.map(r => {
     const row = { ...r, running_balance: running }
-    if (r.type === 'income') running -= parseFloat(r.amount || 0)
-    else running += parseFloat(r.amount || 0)
+    // 未付款（is_paid=false）的支出/提領不計入餘額計算
+    if (r.is_paid !== false) {
+      if (r.type === 'income') running -= parseFloat(r.amount || 0)
+      else running += parseFloat(r.amount || 0)
+    }
     return row
   })
 })
@@ -180,6 +183,9 @@ async function togglePayment(record) {
     const updated = await res.json()
     const idx = pettyRecords.value.findIndex(r => r.id === record.id)
     if (idx !== -1) pettyRecords.value[idx] = updated
+    // 付款狀態改變後重新抓餘額
+    const balRes = await fetch(`${API_BASE}/finance/petty-cash/balance`, { headers: authHeaders() })
+    if (balRes.ok) pettyBalance.value = (await balRes.json()).balance
   }
 }
 </script>
