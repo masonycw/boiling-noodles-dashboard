@@ -32,6 +32,9 @@ const showLightbox = ref(false)
 const lightboxImages = ref([])
 const lightboxIndex = ref(0)
 
+// Tabs
+const orderTab = ref('pending')  // 'pending' | 'received'
+
 // Filters
 const filterDateFrom = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10))
 const filterDateTo = ref(new Date().toISOString().slice(0, 10))
@@ -70,18 +73,27 @@ onMounted(load)
 
 const filtered = computed(() => {
   let list = orders.value
+  // tab 篩選
+  if (orderTab.value === 'pending') {
+    list = list.filter(o => o.status === 'confirmed')
+    // 待收貨：依叫貨日期倒序
+    list = [...list].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+  } else {
+    list = list.filter(o => o.status === 'received')
+    // 已收貨：依收貨日期（updated_at）倒序
+    list = [...list].sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
+  }
   if (filterDateFrom.value) {
-    list = list.filter(o => o.created_at >= filterDateFrom.value)
+    const dateField = orderTab.value === 'received' ? 'updated_at' : 'created_at'
+    list = list.filter(o => (o[dateField] || o.created_at) >= filterDateFrom.value)
   }
   if (filterDateTo.value) {
     const to = filterDateTo.value + 'T23:59:59'
-    list = list.filter(o => o.created_at <= to)
+    const dateField = orderTab.value === 'received' ? 'updated_at' : 'created_at'
+    list = list.filter(o => (o[dateField] || o.created_at) <= to)
   }
   if (filterVendor.value) {
     list = list.filter(o => String(o.vendor_id) === filterVendor.value)
-  }
-  if (filterStatus.value) {
-    list = list.filter(o => o.status === filterStatus.value)
   }
   return list
 })
@@ -95,6 +107,12 @@ function changePage(p) {
 
 function applyFilters() {
   page.value = 1
+}
+
+function switchOrderTab(tab) {
+  orderTab.value = tab
+  page.value = 1
+  expandedId.value = null
 }
 
 async function toggleExpand(order) {
@@ -243,6 +261,23 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
 
 <template>
   <div>
+    <!-- Tabs -->
+    <div class="flex gap-1 mb-5 bg-[#0f1117] rounded-xl p-1 w-fit">
+      <button @click="switchOrderTab('pending')"
+        class="px-5 py-2 rounded-lg text-sm font-bold transition-colors"
+        :class="orderTab === 'pending' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-gray-200'">
+        ⏳ 待收貨
+        <span v-if="orders.filter(o=>o.status==='confirmed').length" class="ml-1.5 bg-amber-900/60 text-amber-300 text-xs px-1.5 py-0.5 rounded-full">
+          {{ orders.filter(o=>o.status==='confirmed').length }}
+        </span>
+      </button>
+      <button @click="switchOrderTab('received')"
+        class="px-5 py-2 rounded-lg text-sm font-bold transition-colors"
+        :class="orderTab === 'received' ? 'bg-emerald-600 text-white' : 'text-gray-400 hover:text-gray-200'">
+        ✅ 已收貨
+      </button>
+    </div>
+
     <!-- Filters -->
     <div class="flex items-center gap-3 mb-5 flex-wrap">
       <input v-model="filterDateFrom" @change="applyFilters" type="date"
@@ -255,14 +290,6 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
         <option value="">全部供應商</option>
         <option v-for="v in vendors" :key="v.id" :value="String(v.id)">{{ v.name }}</option>
       </select>
-      <select v-model="filterStatus" @change="applyFilters"
-        class="bg-[#0f1117] border border-[#2d3748] text-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#63b3ed]">
-        <option value="">全部狀態</option>
-        <option value="pending">待送出</option>
-        <option value="shipped">已送出</option>
-        <option value="received">已收貨</option>
-        <option value="draft">草稿</option>
-      </select>
     </div>
 
     <!-- Table -->
@@ -273,7 +300,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
           <thead>
             <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase tracking-wider">
               <th class="px-4 py-3 text-left">單號</th>
-              <th class="px-4 py-3 text-left">日期</th>
+              <th class="px-4 py-3 text-left">{{ orderTab === 'received' ? '收貨日期' : '叫貨日期' }}</th>
               <th class="px-4 py-3 text-left">供應商</th>
               <th class="px-4 py-3 text-left">送出人</th>
               <th class="px-4 py-3 text-center">品項數</th>
@@ -290,7 +317,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               <tr class="border-b border-[#2d3748] hover:bg-[#1f2937] transition-colors cursor-pointer"
                 @click="toggleExpand(o)">
                 <td class="px-4 py-3 text-[#63b3ed] text-xs font-mono font-bold">#{{ o.id }}</td>
-                <td class="px-4 py-3 text-gray-400 text-xs">{{ fmtDate(o.created_at) }}</td>
+                <td class="px-4 py-3 text-gray-400 text-xs">{{ orderTab === 'received' ? fmtDate(o.updated_at || o.created_at) : fmtDate(o.created_at) }}</td>
                 <td class="px-4 py-3 font-semibold text-gray-200">{{ o.vendor_name }}</td>
                 <td class="px-4 py-3"><UserBadge :user="o.created_by" size="sm" /></td>
                 <td class="px-4 py-3 text-center text-gray-400">{{ o.total_items }}</td>
@@ -378,7 +405,9 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               </tr>
             </template>
             <tr v-if="filtered.length === 0">
-              <td colspan="10" class="px-5 py-10 text-center text-gray-600">無叫貨紀錄</td>
+              <td colspan="10" class="px-5 py-10 text-center text-gray-600">
+                {{ orderTab === 'pending' ? '目前沒有待收貨訂單' : '此期間沒有已收貨紀錄' }}
+              </td>
             </tr>
           </tbody>
         </table>

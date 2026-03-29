@@ -14,6 +14,7 @@ const todayExpense = ref(0)
 const todayRecords = ref([])
 const yesterdayRecords = ref([])
 const settlements = ref([])  // A3: 多次日結記錄
+const yesterdaySettlements = ref([])  // 昨日日結資料（餘額、日結人）
 const vendors = ref([])
 const cashflowCategories = ref([])
 
@@ -127,7 +128,7 @@ async function loadAll() {
     const today = _toLocalDate(_now)
     const yesterday = _toLocalDate(_yest)
 
-    const [balRes, todayRes, yestRes, vendRes, settleRes, canSettleRes, catRes] = await Promise.all([
+    const [balRes, todayRes, yestRes, vendRes, settleRes, canSettleRes, catRes, yestSettleRes] = await Promise.all([
       fetch(`${API_BASE}/finance/petty-cash/balance`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/petty-cash?date=${today}&limit=100`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/petty-cash?date=${yesterday}&limit=100`, { headers: { Authorization: `Bearer ${auth.token}` } }),
@@ -135,6 +136,7 @@ async function loadAll() {
       fetch(`${API_BASE}/finance/daily-settlement/today`, { headers: { Authorization: `Bearer ${auth.token}` } }),
       fetch(`${API_BASE}/finance/daily-settlement/can-settle`, { headers: { Authorization: `Bearer ${auth.token}` } }).catch(() => null),
       fetch(`${API_BASE}/finance/cash-flow/categories`, { headers: { Authorization: `Bearer ${auth.token}` } }).catch(() => null),
+      fetch(`${API_BASE}/finance/daily-settlement/yesterday`, { headers: { Authorization: `Bearer ${auth.token}` } }).catch(() => null),
     ])
 
     if (balRes.ok) pettyBalance.value = (await balRes.json()).balance
@@ -179,6 +181,11 @@ async function loadAll() {
           new Date(t.created_at) > lastSettlementTime
         )
       }
+    }
+    // 昨日日結資料
+    if (yestSettleRes?.ok) {
+      const ys = await yestSettleRes.json()
+      yesterdaySettlements.value = Array.isArray(ys) ? ys : (ys.settled ? [ys] : [])
     }
   } finally {
     isLoading.value = false
@@ -667,13 +674,31 @@ async function confirmAndPay() {
 
       <!-- 昨日流水 -->
       <div v-if="yesterdayRecords.length > 0" class="px-4 mt-5">
-        <!-- 分隔線 -->
-        <div class="flex items-center gap-2 my-3">
-          <div class="flex-1 h-px bg-slate-200"></div>
-          <span class="text-slate-400 bg-slate-50 px-3 rounded-full" style="font-size:10px;border:1px solid #e2e8f0">
-            🔒 昨日日結完成
-          </span>
-          <div class="flex-1 h-px bg-slate-200"></div>
+        <!-- 昨日日結分隔線 -->
+        <div class="my-3">
+          <template v-if="yesterdaySettlements.length">
+            <div v-for="(ys, idx) in yesterdaySettlements" :key="ys.id" class="flex items-center gap-2 mb-1">
+              <div class="flex-1 h-px bg-orange-200"></div>
+              <div class="flex items-center gap-1.5 text-[10px] font-bold text-orange-600 bg-orange-50 border border-orange-200 rounded-full px-3 py-1 whitespace-nowrap">
+                <span>🔒</span>
+                <span>昨日第 {{ ys.settlement_number }} 次日結</span>
+                <span class="text-orange-400">·</span>
+                <span>{{ ys.settled_by_name || '系統自動' }}</span>
+                <span v-if="ys.closing_balance != null" class="text-orange-400">·</span>
+                <span v-if="ys.closing_balance != null" class="text-emerald-600">餘額 ${{ fmtMoney(ys.closing_balance) }}</span>
+              </div>
+              <div class="flex-1 h-px bg-orange-200"></div>
+            </div>
+          </template>
+          <template v-else>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-px bg-slate-200"></div>
+              <span class="text-slate-400 bg-slate-50 px-3 rounded-full" style="font-size:10px;border:1px solid #e2e8f0">
+                🔒 昨日日結完成
+              </span>
+              <div class="flex-1 h-px bg-slate-200"></div>
+            </div>
+          </template>
         </div>
         <p class="font-bold text-slate-600 mb-2" style="font-size:12px">
           昨日流水 — {{ new Date(Date.now()-86400000).toLocaleDateString('zh-TW', { month:'numeric', day:'numeric' }) }}（最遠可查）

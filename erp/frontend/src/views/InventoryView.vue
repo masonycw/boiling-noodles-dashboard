@@ -927,6 +927,7 @@ async function submitReceive() {
     })
     if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '收貨失敗') }
     showReceiveModal.value = false
+    historyOrders.value = []  // 清空快取，下次進歷史 tab 時強制重載
     await loadPending()
   } catch (e) { receiveError.value = e.message }
   finally { receiveSubmitting.value = false }
@@ -1036,7 +1037,11 @@ async function loadHistory() {
   historyLoading.value = true
   try {
     const res = await fetch(`${API_BASE}/inventory/orders?status=received&limit=100`, { headers: authHeaders() })
-    if (res.ok) historyOrders.value = await res.json()
+    if (res.ok) {
+      const data = await res.json()
+      // 按收貨日期（updated_at）倒序排列
+      historyOrders.value = data.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
+    }
   } finally { historyLoading.value = false }
 }
 

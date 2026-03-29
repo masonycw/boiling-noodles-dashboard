@@ -517,6 +517,19 @@ def get_today_settlement(db: Session = Depends(get_db)):
     return [_fmt_settlement(s, db) for s in settlements]
 
 
+@router.get("/daily-settlement/yesterday")
+def get_yesterday_settlement(db: Session = Depends(get_db)):
+    """回傳昨日所有日結（陣列），供前台顯示餘額和日結人"""
+    from datetime import timedelta
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    settlements = db.query(DailySettlement).filter(
+        DailySettlement.settlement_date == yesterday
+    ).order_by(DailySettlement.created_at).all()
+    if not settlements:
+        return {"settled": False, "settlement_date": yesterday}
+    return [_fmt_settlement(s, db) for s in settlements]
+
+
 @router.post("/daily-settlement")
 def create_daily_settlement(
     data: DailySettlementCreate,
