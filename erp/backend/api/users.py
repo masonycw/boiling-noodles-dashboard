@@ -151,8 +151,8 @@ def change_password(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Admin 可以直接重設他人密碼，不需驗證舊密碼
-    is_admin_reset = current_user.role == "admin" and current_user.id != user_id
+    # Admin 可以直接重設密碼，不需驗證舊密碼
+    is_admin_reset = current_user.role == "admin"
     if not is_admin_reset:
         if not pwd_context.verify(data.current_password, user.hashed_password):
             raise HTTPException(status_code=400, detail="Current password is incorrect")
