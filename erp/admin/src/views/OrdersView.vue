@@ -33,7 +33,7 @@ const lightboxImages = ref([])
 const lightboxIndex = ref(0)
 
 // Tabs
-const orderTab = ref('pending')  // 'pending' | 'received'
+const orderTab = ref('received')  // 'pending' | 'received'
 
 // Filters
 const filterDateFrom = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10))
@@ -263,6 +263,11 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
   <div>
     <!-- Tabs -->
     <div class="flex gap-1 mb-5 bg-[#0f1117] rounded-xl p-1 w-fit">
+      <button @click="switchOrderTab('received')"
+        class="px-5 py-2 rounded-lg text-sm font-bold transition-colors"
+        :class="orderTab === 'received' ? 'bg-emerald-600 text-white' : 'text-gray-400 hover:text-gray-200'">
+        ✅ 已收貨
+      </button>
       <button @click="switchOrderTab('pending')"
         class="px-5 py-2 rounded-lg text-sm font-bold transition-colors"
         :class="orderTab === 'pending' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-gray-200'">
@@ -270,11 +275,6 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
         <span v-if="orders.filter(o=>o.status==='confirmed').length" class="ml-1.5 bg-amber-900/60 text-amber-300 text-xs px-1.5 py-0.5 rounded-full">
           {{ orders.filter(o=>o.status==='confirmed').length }}
         </span>
-      </button>
-      <button @click="switchOrderTab('received')"
-        class="px-5 py-2 rounded-lg text-sm font-bold transition-colors"
-        :class="orderTab === 'received' ? 'bg-emerald-600 text-white' : 'text-gray-400 hover:text-gray-200'">
-        ✅ 已收貨
       </button>
     </div>
 
