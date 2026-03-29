@@ -137,6 +137,12 @@ def create_petty_cash_record(db: Session, user_id: int, data: dict) -> dict:
         if not user or not user.petty_cash_permission:
             raise PermissionError("此帳號無提領授權")
 
+    # 驗證已匯款權限
+    if data.get("type") == "remittance":
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user or (not getattr(user, 'remittance_permission', False) and user.role != 'admin'):
+            raise PermissionError("此帳號無已匯款記錄授權")
+
     record_time = datetime.utcnow()
     record = PettyCashRecord(
         user_id=user_id,

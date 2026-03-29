@@ -202,8 +202,8 @@ async function submitSheet() {
   sheetError.value = ''
   const amount = parseFloat(sheetForm.value.amount)
   if (!amount || amount <= 0) { sheetError.value = '請輸入金額'; return }
-  if (sheetType.value === 'expense' && attachmentFiles.value.length === 0) {
-    sheetError.value = '支出類型需附上照片（單據存證）'; return
+  if ((sheetType.value === 'expense' || sheetType.value === 'remittance') && attachmentFiles.value.length === 0) {
+    sheetError.value = '此類型需附上照片（單據存證）'; return
   }
 
   sheetSubmitting.value = true
@@ -309,9 +309,20 @@ async function openDetail(r) {
   finally { detailLoading.value = false }
 }
 
+const sheetTypeOptions = computed(() => {
+  const base = [
+    { key: 'expense', label: '📤 支出' },
+    { key: 'income', label: '📥 收入' },
+  ]
+  if (auth.user?.petty_cash_permission) base.push({ key: 'withdrawal', label: '🏧 提領' })
+  if (auth.user?.remittance_permission || auth.user?.role === 'admin') base.push({ key: 'remittance', label: '💸 已匯款' })
+  return base
+})
+
 function typeLabel(type) {
   if (type === 'income') return '收入'
   if (type === 'withdrawal') return '提領'
+  if (type === 'remittance') return '已匯款'
   return '支出'
 }
 
@@ -640,9 +651,12 @@ async function confirmAndPay() {
                 </div>
                 <div class="flex flex-col items-end gap-1 shrink-0">
                   <p class="font-black" style="font-size:14px"
-                    :class="entry.type === 'income' ? 'text-emerald-500' : 'text-red-500'">
+                    :class="entry.type === 'income' ? 'text-emerald-500' : entry.type === 'remittance' ? 'text-violet-600' : 'text-red-500'">
                     {{ entry.type === 'income' ? '+' : '−' }}${{ fmtMoney(entry.amount) }}
                   </p>
+                  <span v-if="entry.type === 'remittance'" class="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style="background:#f5f3ff;color:#7c3aed">
+                    💸 已匯款
+                  </span>
                   <span v-if="entry.type === 'expense'"
                     class="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
                     :style="entry.settled_at ? 'background:#f0fdf4;color:#16a34a' : entry.is_paid === false ? 'background:#fef9c3;color:#92400e' : 'background:#f0fdf4;color:#16a34a'">
@@ -719,9 +733,12 @@ async function confirmAndPay() {
               </div>
               <div class="flex flex-col items-end gap-1 shrink-0">
                 <p class="font-black" style="font-size:14px"
-                  :class="r.type === 'income' ? 'text-emerald-500' : r.type === 'withdrawal' ? 'text-orange-500' : 'text-red-500'">
+                  :class="r.type === 'income' ? 'text-emerald-500' : r.type === 'withdrawal' ? 'text-orange-500' : r.type === 'remittance' ? 'text-violet-600' : 'text-red-500'">
                   {{ r.type === 'income' ? '+' : '−' }}${{ fmtMoney(r.amount) }}
                 </p>
+                <span v-if="r.type === 'remittance'" class="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style="background:#f5f3ff;color:#7c3aed">
+                  💸 已匯款
+                </span>
                 <span v-if="r.type === 'expense'"
                   class="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
                   :style="r.settled_at ? 'background:#f0fdf4;color:#16a34a' : r.is_paid === false ? 'background:#fef9c3;color:#92400e' : 'background:#f0fdf4;color:#16a34a'">
@@ -905,14 +922,12 @@ async function confirmAndPay() {
         <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
           <!-- 類型選擇 -->
           <div class="flex gap-2">
-            <button v-for="t in auth.user?.petty_cash_permission
-              ? [{key:'expense',label:'📤 支出'},{key:'income',label:'📥 收入'},{key:'withdrawal',label:'🏧 提領'}]
-              : [{key:'expense',label:'📤 支出'},{key:'income',label:'📥 收入'}]"
+            <button v-for="t in sheetTypeOptions"
               :key="t.key"
               @click="sheetType = t.key"
               class="flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all"
               :class="sheetType === t.key ? 'text-white border-orange-500' : 'bg-white border-slate-200 text-slate-500'"
-              :style="sheetType === t.key ? 'background:#e85d04' : ''">
+              :style="sheetType === t.key ? (t.key === 'remittance' ? 'background:#7c3aed' : 'background:#e85d04') : ''">
               {{ t.label }}
             </button>
           </div>
@@ -926,8 +941,17 @@ async function confirmAndPay() {
             <p class="text-xs text-slate-500 mt-1">僅後台授權帳號可執行此操作・需拍照存證</p>
           </div>
 
+          <!-- 已匯款提示 -->
+          <div v-if="sheetType === 'remittance'"
+            class="rounded-xl p-3" style="background:#f5f3ff;border:1.5px solid #7c3aed">
+            <p class="font-bold text-sm" style="color:#7c3aed">
+              💸 已匯款 — 銀行轉帳付款記錄
+            </p>
+            <p class="text-xs text-slate-500 mt-1">此類型不影響零用金餘額・記錄銀行匯款出帳</p>
+          </div>
+
           <!-- 支出對象 -->
-          <div v-if="sheetType === 'expense'" class="relative">
+          <div v-if="sheetType === 'expense' || sheetType === 'remittance'" class="relative">
             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">支出對象</label>
             <div class="relative">
               <input
@@ -1001,7 +1025,7 @@ async function confirmAndPay() {
               class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
           </div>
 
-          <div v-if="sheetType === 'expense'" class="flex items-center justify-center gap-1.5 text-slate-400" style="font-size:11px">
+          <div v-if="sheetType === 'expense' || sheetType === 'remittance'" class="flex items-center justify-center gap-1.5 text-slate-400" style="font-size:11px">
             <span>科目：</span>
             <span class="font-semibold text-orange-500">
               {{
@@ -1018,7 +1042,7 @@ async function confirmAndPay() {
           <!-- A3: 附件上傳 -->
           <div>
             <label class="block text-xs font-bold text-slate-500 uppercase mb-2">
-              單據附件（最多 3 張）<span v-if="sheetType === 'expense'" class="text-red-500 ml-1">必填</span>
+              單據附件（最多 3 張）<span v-if="sheetType === 'expense' || sheetType === 'remittance'" class="text-red-500 ml-1">必填</span>
             </label>
             <div class="flex gap-2 flex-wrap">
               <div v-for="(att, idx) in attachmentFiles" :key="idx"

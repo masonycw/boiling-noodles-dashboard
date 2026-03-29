@@ -414,8 +414,6 @@ async function updateCategory(record, catId) {
           <select v-model="addForm.type" class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
             <option value="expense">支出</option>
             <option value="income">收入</option>
-            <option value="withdrawal">提領</option>
-            <option v-if="auth.user?.role === 'admin'" value="remittance">已匯款</option>
           </select>
         </div>
         <div v-if="addForm.type === 'expense'">

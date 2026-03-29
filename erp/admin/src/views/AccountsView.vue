@@ -293,7 +293,7 @@ async function confirmImport() {
 
 function openCreate() {
   editTarget.value = null
-  form.value = { username: '', password: '', full_name: '', role: 'staff', petty_cash_permission: false, petty_cash_access: false, is_active: true, new_password: '', confirm_password: '' }
+  form.value = { username: '', password: '', full_name: '', role: 'staff', petty_cash_permission: false, petty_cash_access: false, remittance_permission: false, is_active: true, new_password: '', confirm_password: '' }
   saveError.value = ''
   showModal.value = true
 }
@@ -317,6 +317,7 @@ async function save() {
         is_active: form.value.is_active,
         petty_cash_permission: form.value.petty_cash_permission,
         petty_cash_access: form.value.petty_cash_access,
+        remittance_permission: form.value.remittance_permission,
       }
       if (form.value.new_password) {
         if (form.value.new_password !== form.value.confirm_password) {
@@ -342,6 +343,7 @@ async function save() {
           role: form.value.role,
           petty_cash_permission: form.value.petty_cash_permission,
           petty_cash_access: form.value.petty_cash_access,
+          remittance_permission: form.value.remittance_permission,
         })
       })
       if (!res.ok) { const d = await res.json(); throw new Error(d.detail || '建立失敗') }
@@ -489,6 +491,7 @@ async function savePw() {
               <th class="px-5 py-3 text-center">角色</th>
               <th class="px-5 py-3 text-center">零用金存取</th>
               <th class="px-5 py-3 text-center">提領授權</th>
+              <th class="px-5 py-3 text-center">已匯款</th>
               <th class="px-5 py-3 text-center">狀態</th>
               <th class="px-5 py-3 text-left">最後登入</th>
               <th class="px-5 py-3 text-center">操作</th>
@@ -513,6 +516,12 @@ async function savePw() {
                   {{ u.petty_cash_permission ? '✓ 提領' : '—' }}
                 </span>
               </td>
+              <!-- 已匯款授權 -->
+              <td class="px-5 py-3 text-center">
+                <span class="text-xs font-bold" :class="(u.remittance_permission || u.role === 'admin') ? 'text-violet-400' : 'text-gray-600'">
+                  {{ (u.remittance_permission || u.role === 'admin') ? '✓' : '—' }}
+                </span>
+              </td>
               <td class="px-5 py-3 text-center">
                 <span class="text-xs font-bold px-2 py-0.5 rounded-full"
                   :class="u.is_active ? 'bg-emerald-900/50 text-emerald-400' : 'bg-red-900/50 text-red-400'">
@@ -530,7 +539,7 @@ async function savePw() {
               </td>
             </tr>
             <tr v-if="users.length === 0">
-              <td colspan="8" class="px-5 py-10 text-center text-gray-600">無人員資料</td>
+              <td colspan="9" class="px-5 py-10 text-center text-gray-600">無人員資料</td>
             </tr>
           </tbody>
         </table>
@@ -663,6 +672,13 @@ async function savePw() {
               <div>
                 <label for="pcp" class="text-gray-300 cursor-pointer">提領授權</label>
                 <p class="text-[10px] text-gray-500 mt-0.5">可從零用金提領現金（含自動開啟存取權限）</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <input v-model="form.remittance_permission" type="checkbox" id="rmp" class="w-4 h-4 mt-0.5" style="accent-color:#7c3aed" />
+              <div>
+                <label for="rmp" class="text-gray-300 cursor-pointer">已匯款授權</label>
+                <p class="text-[10px] text-gray-500 mt-0.5">可在前台記錄「已匯款」類型（銀行轉帳付款）；admin 預設擁有</p>
               </div>
             </div>
           </div>

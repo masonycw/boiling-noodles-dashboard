@@ -20,6 +20,7 @@ class PettyCashTypeEnum(str, enum.Enum):
     income = "income"                # 現金撥入
     expense = "expense"              # 現場費用支出
     withdrawal = "withdrawal"        # 提領（取出存銀行）
+    remittance = "remittance"        # 已匯款（銀行轉帳付款，不影響零用金餘額）
 
 class PaymentTermsEnum(str, enum.Enum):
     cash = "cash"                    # 現付
@@ -45,6 +46,7 @@ class User(Base):
     # Phase 3 新增
     petty_cash_permission = Column(Boolean, default=False)  # 零用金提領授權
     petty_cash_access = Column(Boolean, default=False)      # 可使用零用金分頁（不含提領）
+    remittance_permission = Column(Boolean, default=False)  # 已匯款記錄權限
     # E5: Soft delete
     deleted_at = Column(DateTime(timezone=True), nullable=True, default=None)
 

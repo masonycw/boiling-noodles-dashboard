@@ -21,6 +21,7 @@ class UserCreate(BaseModel):
     role: str = "staff"
     petty_cash_permission: bool = False
     petty_cash_access: bool = False
+    remittance_permission: bool = False
 
 
 class UserUpdate(BaseModel):
@@ -30,6 +31,7 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     petty_cash_permission: Optional[bool] = None
     petty_cash_access: Optional[bool] = None
+    remittance_permission: Optional[bool] = None
     password: Optional[str] = None
 
 
@@ -88,6 +90,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db)):
         role=data.role,
         petty_cash_permission=data.petty_cash_permission,
         petty_cash_access=data.petty_cash_access,
+        remittance_permission=data.remittance_permission,
     )
     db.add(user)
     db.commit()
@@ -172,6 +175,7 @@ def _format_user(user: User) -> dict:
         "is_active": user.is_active,
         "petty_cash_permission": user.petty_cash_permission,
         "petty_cash_access": getattr(user, 'petty_cash_access', False) or False,
+        "remittance_permission": getattr(user, 'remittance_permission', False) or False,
         "created_at": user.created_at,
         "last_login": user.last_login
     }
