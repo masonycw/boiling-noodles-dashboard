@@ -62,6 +62,14 @@ function cfSourceInfo(r) {
   return { label: src || '—', bg: 'bg-[#1f2937]', txt: 'text-gray-400' }
 }
 
+function cfTypeLabel(r) {
+  if (r.type === 'expense') return '支出'
+  if (r.type === 'income') return '收入'
+  if (r.type === 'withdrawal') return '提領'
+  if (r.type === 'remittance') return '💸 已匯款'
+  return r.type || '—'
+}
+
 // 展開應付帳款明細
 const expandedCfId = ref(null)
 function toggleCfExpand(r) {
@@ -316,8 +324,9 @@ async function updateCategory(record, catId) {
               @click="toggleCfExpand(r)">
               <td class="px-5 py-2.5 text-gray-500 text-xs">{{ fmtDate(r.transaction_date || r.created_at) }}</td>
               <td class="px-5 py-2.5 text-center">
-                <span class="text-xs font-bold" :class="r.type === 'income' ? 'text-emerald-400' : 'text-blue-400'">
-                  {{ r.type === 'income' ? '收入' : '支出' }}
+                <span class="text-xs font-bold"
+                  :class="r.type === 'income' ? 'text-emerald-400' : r.type === 'remittance' ? 'text-violet-400' : 'text-blue-400'">
+                  {{ cfTypeLabel(r) }}
                 </span>
               </td>
               <td class="px-5 py-2.5 text-xs">
@@ -342,7 +351,7 @@ async function updateCategory(record, catId) {
                   class="ml-1 text-[10px] text-emerald-600">▼ 展開明細</span>
               </td>
               <td class="px-5 py-2.5 text-right font-mono"
-                :class="r.type === 'income' ? 'text-emerald-400' : 'text-red-400'">
+                :class="r.type === 'income' ? 'text-emerald-400' : r.type === 'remittance' ? 'text-violet-400' : 'text-red-400'">
                 {{ r.type === 'income' ? '+' : '-' }}NT$ {{ fmtMoney(r.amount) }}
               </td>
               <td class="px-5 py-2.5 text-center">
@@ -406,6 +415,7 @@ async function updateCategory(record, catId) {
             <option value="expense">支出</option>
             <option value="income">收入</option>
             <option value="withdrawal">提領</option>
+            <option v-if="auth.user?.role === 'admin'" value="remittance">已匯款</option>
           </select>
         </div>
         <div v-if="addForm.type === 'expense'">

@@ -272,6 +272,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase tracking-wider">
+              <th class="px-4 py-3 text-left">單號</th>
               <th class="px-4 py-3 text-left">日期</th>
               <th class="px-4 py-3 text-left">供應商</th>
               <th class="px-4 py-3 text-left">送出人</th>
@@ -288,6 +289,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
             <template v-for="o in paginated" :key="o.id">
               <tr class="border-b border-[#2d3748] hover:bg-[#1f2937] transition-colors cursor-pointer"
                 @click="toggleExpand(o)">
+                <td class="px-4 py-3 text-[#63b3ed] text-xs font-mono font-bold">#{{ o.id }}</td>
                 <td class="px-4 py-3 text-gray-400 text-xs">{{ fmtDate(o.created_at) }}</td>
                 <td class="px-4 py-3 font-semibold text-gray-200">{{ o.vendor_name }}</td>
                 <td class="px-4 py-3"><UserBadge :user="o.created_by" size="sm" /></td>
@@ -325,7 +327,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               </tr>
               <!-- Expanded detail -->
               <tr v-if="expandedId === o.id" class="border-b border-[#2d3748] bg-[#0f1117]">
-                <td colspan="9" class="px-6 py-4">
+                <td colspan="10" class="px-6 py-4">
                   <div class="flex flex-wrap items-center gap-6 mb-3 text-xs">
                     <div class="flex items-center gap-2">
                       <span class="text-gray-500">叫貨人：</span>
@@ -376,7 +378,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               </tr>
             </template>
             <tr v-if="filtered.length === 0">
-              <td colspan="9" class="px-5 py-10 text-center text-gray-600">無叫貨紀錄</td>
+              <td colspan="10" class="px-5 py-10 text-center text-gray-600">無叫貨紀錄</td>
             </tr>
           </tbody>
         </table>

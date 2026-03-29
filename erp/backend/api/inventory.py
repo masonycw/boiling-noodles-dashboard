@@ -298,6 +298,20 @@ def get_upload_file(filename: str):
         return FileResponse(file_path)
     raise HTTPException(status_code=404, detail="File not found")
 
+class ReceiptPhotoUpdate(BaseModel):
+    receipt_url: str
+
+@router.patch("/orders/{order_id}/receipt-photo")
+def update_receipt_photo(order_id: int, data: ReceiptPhotoUpdate, db: Session = Depends(get_db)):
+    """補拍單據 — 更新已收貨訂單的收據照片 URL"""
+    from erp.backend.db.models import PurchaseOrder as PO
+    order = db.query(PO).filter(PO.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    order.receipt_url = data.receipt_url
+    db.commit()
+    return {"id": order_id, "receipt_url": order.receipt_url}
+
 class OrderPatch(BaseModel):
     status: Optional[str] = None
     note: Optional[str] = None

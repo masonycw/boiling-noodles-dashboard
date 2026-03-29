@@ -36,10 +36,29 @@ const vendorAndGroupList = computed(() => [
 const selectedVendorKey = ref('')
 const vendorSearch = ref('')
 const showVendorDropdown = ref(false)
+// 所有品項（供搜尋廠商用）
+const allItemsForSearch = ref([])  // { id, name, vendor_id }
 const filteredVendorList = computed(() => {
   const q = vendorSearch.value.trim().toLowerCase()
   if (!q) return vendorAndGroupList.value
-  return vendorAndGroupList.value.filter(v => v.name.toLowerCase().includes(q))
+
+  // 廠商名稱匹配
+  const byVendor = vendorAndGroupList.value.filter(v => v.name.toLowerCase().includes(q))
+  const byVendorIds = new Set(byVendor.map(v => v.id))
+
+  // 品項名稱匹配 → 找出對應廠商（去重，排除已出現的廠商）
+  const matchedItemsByVendor = {}
+  for (const i of allItemsForSearch.value) {
+    if (i.name.toLowerCase().includes(q) && i.vendor_id && !byVendorIds.has(i.vendor_id)) {
+      if (!matchedItemsByVendor[i.vendor_id]) matchedItemsByVendor[i.vendor_id] = []
+      matchedItemsByVendor[i.vendor_id].push(i.name)
+    }
+  }
+  const byItem = vendorAndGroupList.value
+    .filter(v => !v._isGroup && matchedItemsByVendor[v.id])
+    .map(v => ({ ...v, _matchedItems: matchedItemsByVendor[v.id] }))
+
+  return [...byVendor, ...byItem]
 })
 function vendorKey(v) { return (v._isGroup ? 'g' : 'v') + v.id }
 watch(selectedVendorKey, async (key) => {
@@ -276,6 +295,52 @@ const receivePhoto = ref(null)
 const receivePhotoPreview = ref('')
 const photoInput = ref(null)
 
+// ── 補拍單據 ──────────────────────────────────
+const rephotaOrderId = ref(null)
+const rephotaUploading = ref(false)
+const rephotaInput = ref(null)
+
+async function handleRephotaSelect(e, order) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  e.target.value = ''
+  rephotaOrderId.value = order.id
+  rephotaUploading.value = true
+  try {
+    const { compressImage } = await import('@/composables/useImageCompress')
+    const compressed = await compressImage(file)
+    const fd = new FormData()
+    fd.append('file', compressed)
+    const upRes = await fetch(`${API_BASE}/uploads/image`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${auth.token}` },
+      body: fd
+    })
+    if (!upRes.ok) throw new Error('上傳失敗')
+    const upData = await upRes.json()
+    const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '')
+    const photoUrl = base + upData.url
+    const patchRes = await fetch(`${API_BASE}/inventory/orders/${order.id}/receipt-photo`, {
+      method: 'PATCH',
+      headers: authHeaders(),
+      body: JSON.stringify({ receipt_url: photoUrl })
+    })
+    if (!patchRes.ok) throw new Error('儲存失敗')
+    // 更新本地紀錄
+    const idx = historyOrders.value.findIndex(o => o.id === order.id)
+    if (idx >= 0) historyOrders.value[idx] = { ...historyOrders.value[idx], receipt_url: photoUrl }
+    order.receipt_url = photoUrl
+    submitToast.value = '✅ 單據已更新'
+    setTimeout(() => { submitToast.value = '' }, 2500)
+  } catch (err) {
+    submitToast.value = '⚠ ' + err.message
+    setTimeout(() => { submitToast.value = '' }, 2500)
+  } finally {
+    rephotaUploading.value = false
+    rephotaOrderId.value = null
+  }
+}
+
 // F-07: 依到貨日排序 + 今日/未來分切線
 const pendingSortedWithDivider = computed(() => {
   const today = new Date(); today.setHours(0,0,0,0)
@@ -371,6 +436,12 @@ onMounted(async () => {
       })
     }
     if (gRes.ok) stocktakeGroups.value = await gRes.json()
+    // 背景載入所有品項，供廠商搜尋使用
+    fetch(`${API_BASE}/inventory/items`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : [])
+      .then(all => { allItemsForSearch.value = all.map(i => ({ id: i.id, name: i.name, vendor_id: i.vendor_id })) })
+      .catch(() => {})
+
     // 再載入所有廠商（不過濾 show_in_ordering），補充群組內廠商的 meta
     fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() })
       .then(r => r.ok ? r.json() : [])
@@ -822,6 +893,10 @@ async function submitReceive() {
     receiveError.value = '未填金額時，請在備註欄填寫說明（例：金額待確認）'
     return
   }
+  if (!receivePhoto.value) {
+    receiveError.value = '請拍攝單據照片（必填）'
+    return
+  }
   receiveSubmitting.value = true
   try {
     // 先上傳照片，取得 URL 後一起帶入簽收請求（才能同步到零用金紀錄）
@@ -1092,8 +1167,13 @@ const payBadge = (o) => {
               class="w-full text-left px-3 py-2.5 text-sm font-bold hover:bg-orange-50 flex items-center gap-2"
               :class="vendorKey(v) === selectedVendorKey ? 'text-orange-600 bg-orange-50' : 'text-slate-700'">
               <span>{{ v._isGroup ? '📦' : '🏪' }}</span>
-              <span>{{ v.name }}</span>
-              <span v-if="v._isGroup" class="ml-auto text-[10px] text-slate-400">盤點群組</span>
+              <div class="flex-1 min-w-0">
+                <div>{{ v.name }}</div>
+                <div v-if="v._matchedItems?.length" class="text-[10px] text-orange-400 font-normal truncate">
+                  含：{{ v._matchedItems.slice(0, 3).join('、') }}{{ v._matchedItems.length > 3 ? '…' : '' }}
+                </div>
+              </div>
+              <span v-if="v._isGroup" class="ml-auto text-[10px] text-slate-400 shrink-0">盤點群組</span>
             </button>
           </div>
         </div>
@@ -1488,6 +1568,7 @@ const payBadge = (o) => {
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <p class="font-extrabold text-slate-800 text-sm">{{ item.vendor_name }}</p>
+                  <span class="text-[10px] font-mono text-slate-400">#{{ item.id }}</span>
                   <span v-if="orderDateBadge(item)"
                     class="text-[10px] font-bold px-2 py-0.5 rounded-full"
                     :class="orderDateBadge(item).cls">
@@ -1731,13 +1812,14 @@ const payBadge = (o) => {
 
             <!-- 拍照上傳 -->
             <div>
-              <p class="text-xs font-bold text-slate-500 mb-2">收據拍照（選填）</p>
+              <p class="text-xs font-bold text-slate-500 mb-2">拍攝單據 <span class="text-red-500">必填</span></p>
               <input ref="photoInput" type="file" accept="image/*" capture="environment"
                 class="hidden" @change="handlePhotoSelect" />
               <button @click="photoInput.click()"
-                class="w-full py-3 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 text-sm font-bold active:bg-slate-50 flex items-center justify-center gap-2">
+                class="w-full py-3 rounded-xl border-2 border-dashed text-sm font-bold active:bg-slate-50 flex items-center justify-center gap-2"
+                :class="receivePhoto ? 'border-green-400 text-green-600' : 'border-red-300 text-red-400'">
                 <span class="text-xl">📷</span>
-                <span>{{ receivePhoto ? '重新拍照' : '拍照存證' }}</span>
+                <span>{{ receivePhoto ? '重新拍攝單據' : '拍攝單據（必填）' }}</span>
               </button>
               <div v-if="receivePhotoPreview" class="mt-2 relative">
                 <img :src="receivePhotoPreview" class="w-full max-h-40 object-cover rounded-xl border border-slate-200" />
@@ -1797,7 +1879,10 @@ const payBadge = (o) => {
           <div v-for="order in filteredHistory" :key="order.id" class="bg-white rounded-2xl shadow-sm overflow-hidden">
             <div @click="toggleExpand(order.id)" class="px-4 py-3 cursor-pointer active:bg-slate-50">
               <div class="flex items-center justify-between mb-1">
-                <p class="font-extrabold text-slate-800">{{ order.vendor_name }}</p>
+                <div class="flex items-center gap-2">
+                  <p class="font-extrabold text-slate-800">{{ order.vendor_name }}</p>
+                  <span class="text-[10px] font-mono text-slate-400">#{{ order.id }}</span>
+                </div>
                 <p class="text-xs text-slate-400">{{ fmtDate(order.updated_at || order.created_at) }}</p>
               </div>
               <div class="flex items-center justify-between text-xs text-slate-500">
@@ -1823,12 +1908,23 @@ const payBadge = (o) => {
                 <span class="text-slate-500 text-xs">{{ item.qty }} {{ item.unit || item.adhoc_unit }}</span>
               </div>
               <div v-if="order.note" class="text-xs text-slate-500 pt-1">📝 {{ order.note }}</div>
-              <div v-if="order.receipt_url" class="pt-1">
-                <a :href="order.receipt_url" target="_blank" rel="noopener">
-                  <img :src="order.receipt_url" alt="收據照片"
-                    class="w-full max-h-40 object-cover rounded-xl border border-slate-200" />
-                </a>
-                <p class="text-center text-[10px] text-slate-400 mt-1">點擊查看原圖</p>
+              <div class="pt-1">
+                <div v-if="order.receipt_url" class="mb-2">
+                  <a :href="order.receipt_url" target="_blank" rel="noopener">
+                    <img :src="order.receipt_url" alt="收據照片"
+                      class="w-full max-h-40 object-cover rounded-xl border border-slate-200" />
+                  </a>
+                  <p class="text-center text-[10px] text-slate-400 mt-1">點擊查看原圖</p>
+                </div>
+                <label class="block w-full cursor-pointer">
+                  <input type="file" accept="image/*" capture="environment" class="hidden"
+                    @change="handleRephotaSelect($event, order)" />
+                  <div class="py-2 rounded-xl border border-dashed text-xs font-bold text-center flex items-center justify-center gap-1"
+                    :class="rephotaUploading && rephotaOrderId === order.id ? 'border-orange-300 text-orange-400' : order.receipt_url ? 'border-slate-200 text-slate-400' : 'border-red-300 text-red-400'">
+                    <span>📷</span>
+                    <span>{{ rephotaUploading && rephotaOrderId === order.id ? '上傳中…' : order.receipt_url ? '補拍單據' : '上傳單據（尚未拍照）' }}</span>
+                  </div>
+                </label>
               </div>
             </div>
           </div>

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { compressImage } from '@/composables/useImageCompress'
 
@@ -85,6 +85,33 @@ function removeAttachment(idx) {
   attachmentFiles.value.splice(idx, 1)
 }
 
+// ---- 支出對象搜尋 ----
+const vendorSearchText = ref('')
+const showVendorDropdown = ref(false)
+const filteredExpenseVendors = computed(() => {
+  const q = vendorSearchText.value.trim().toLowerCase()
+  if (!q) return vendors.value
+  return vendors.value.filter(v => v.name.toLowerCase().includes(q))
+})
+function selectExpenseVendor(v) {
+  sheetForm.value.vendor_id = v ? v.id : ''
+  vendorSearchText.value = v ? v.name : ''
+  showVendorDropdown.value = false
+}
+function clearExpenseVendor() {
+  sheetForm.value.vendor_id = ''
+  vendorSearchText.value = ''
+  showVendorDropdown.value = true
+}
+watch(() => sheetForm.value.vendor_id, (id) => {
+  if (!id) { vendorSearchText.value = ''; return }
+  const found = vendors.value.find(v => v.id == id)
+  if (found) vendorSearchText.value = found.name
+})
+watch(showVendorDropdown, (v) => {
+  if (!v && !sheetForm.value.vendor_id) vendorSearchText.value = ''
+})
+
 function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
 }
@@ -168,6 +195,9 @@ async function submitSheet() {
   sheetError.value = ''
   const amount = parseFloat(sheetForm.value.amount)
   if (!amount || amount <= 0) { sheetError.value = '請輸入金額'; return }
+  if (sheetType.value === 'expense' && attachmentFiles.value.length === 0) {
+    sheetError.value = '支出類型需附上照片（單據存證）'; return
+  }
 
   sheetSubmitting.value = true
   try {
@@ -213,6 +243,8 @@ async function submitSheet() {
     showSheet.value = false
     const localDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
     sheetForm.value = { amount: '', description: '', date: localDate(new Date()), vendor_id: '', is_paid: true, income_source: '', withdrawal_purpose: 'bank' }
+    vendorSearchText.value = ''
+    showVendorDropdown.value = false
     attachmentFiles.value.forEach(a => URL.revokeObjectURL(a.preview))
     attachmentFiles.value = []
     await loadAll()
@@ -870,18 +902,34 @@ async function confirmAndPay() {
           </div>
 
           <!-- 支出對象 -->
-          <div v-if="sheetType === 'expense'">
+          <div v-if="sheetType === 'expense'" class="relative">
             <label class="block text-xs font-bold text-slate-500 uppercase mb-1">支出對象</label>
-            <select v-model="sheetForm.vendor_id"
-              class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-orange-400">
-              <option value="">零用金雜費</option>
-              <optgroup v-if="vendors.filter(v => v.vendor_type === 'payee').length" label="費用對象">
-                <option v-for="v in vendors.filter(v => v.vendor_type === 'payee')" :key="v.id" :value="v.id">{{ v.name }}</option>
-              </optgroup>
-              <optgroup label="叫貨廠商">
-                <option v-for="v in vendors.filter(v => !v.vendor_type || v.vendor_type === 'supplier')" :key="v.id" :value="v.id">{{ v.name }}</option>
-              </optgroup>
-            </select>
+            <div class="relative">
+              <input
+                v-model="vendorSearchText"
+                @focus="showVendorDropdown = true"
+                @blur="setTimeout(() => { showVendorDropdown = false }, 150)"
+                type="text"
+                placeholder="搜尋廠商… 或留空為零用金雜費"
+                class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-orange-400 pr-8"
+              />
+              <button v-if="sheetForm.vendor_id" @click="clearExpenseVendor"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">✕</button>
+            </div>
+            <div v-if="showVendorDropdown"
+              class="absolute z-50 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto mt-1">
+              <div @mousedown.prevent="selectExpenseVendor(null)"
+                class="px-4 py-2.5 text-sm text-slate-500 cursor-pointer active:bg-slate-50 border-b border-slate-100">
+                零用金雜費
+              </div>
+              <div v-for="v in filteredExpenseVendors" :key="v.id"
+                @mousedown.prevent="selectExpenseVendor(v)"
+                class="px-4 py-2.5 text-sm font-semibold text-slate-800 cursor-pointer active:bg-orange-50"
+                :class="sheetForm.vendor_id == v.id ? 'bg-orange-50 text-orange-600' : 'hover:bg-slate-50'">
+                {{ v.name }}
+              </div>
+              <div v-if="filteredExpenseVendors.length === 0" class="px-4 py-3 text-sm text-slate-400 text-center">查無廠商</div>
+            </div>
           </div>
 
           <!-- 是否付款 -->
@@ -944,7 +992,9 @@ async function confirmAndPay() {
 
           <!-- A3: 附件上傳 -->
           <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-2">單據附件（最多 3 張）</label>
+            <label class="block text-xs font-bold text-slate-500 uppercase mb-2">
+              單據附件（最多 3 張）<span v-if="sheetType === 'expense'" class="text-red-500 ml-1">必填</span>
+            </label>
             <div class="flex gap-2 flex-wrap">
               <div v-for="(att, idx) in attachmentFiles" :key="idx"
                 class="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200">
