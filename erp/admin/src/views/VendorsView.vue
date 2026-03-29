@@ -141,6 +141,11 @@ function openImport() {
 function parseBool(val) {
   return ['y', '是', '1', 'true', 'yes'].includes(String(val ?? '').toLowerCase().trim())
 }
+function parseIntArray(val) {
+  const s = String(val ?? '').trim()
+  if (!s) return []
+  return s.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v) && v >= 1 && v <= 7)
+}
 
 function onImportFile(e) {
   const file = e.target.files[0]
@@ -155,7 +160,8 @@ function onImportFile(e) {
       if (data.length < 2) { importError.value = '需至少有標題列和一筆資料'; return }
       // 欄位順序（對應 Excel 範本）：
       // 0:名稱 1:聯絡人 2:電話 3:LINE ID 4:付款方式 5:付款條件 6:金流科目
-      // 7:到期提醒天數 8:匯款帳號 9:戶名 10:到貨天數 11:免運門檻 12:出現叫貨系統 13:固定排程 14:備注
+      // 7:到期提醒天數 8:匯款帳號 9:戶名 10:到貨天數 11:免運門檻 12:出現叫貨系統 13:固定排程
+      // 14:叫貨星期 15:截單時間 16:休息日星期 17:國定假日休息 18:備注
       const rows = data.slice(1)
         .filter(row => String(row[0] ?? '').trim())
         .map(row => {
@@ -176,7 +182,11 @@ function onImportFile(e) {
             free_shipping_threshold: row[11] !== '' ? parseFloat(row[11]) : null,
             show_in_ordering: parseBool(row[12]),
             is_fixed_order: parseBool(row[13]),
-            note: String(row[14] ?? '').trim(),
+            order_days: parseIntArray(row[14]),
+            order_time: String(row[15] ?? '').trim(),
+            closed_days: parseIntArray(row[16]),
+            closed_on_holidays: parseBool(row[17]),
+            note: String(row[18] ?? '').trim(),
           }
         })
       if (rows.length === 0) { importError.value = '找不到有效資料（名稱欄位不可空白）'; return }
@@ -471,7 +481,7 @@ async function deleteVendor() {
                 </div>
                 <div class="bg-[#0f1117] rounded-lg p-3">
                   <p class="text-xs text-gray-500 font-semibold mb-1">Excel 欄位說明</p>
-                  <p class="text-xs text-gray-600 leading-relaxed">名稱* / 聯絡人 / 電話 / LINE ID / 付款方式（下拉）/ 付款條件（下拉）/ 金流科目（下拉）/ 到期提醒天數（下拉）/ 匯款帳號 / 戶名 / 到貨天數 / 免運門檻 / 出現叫貨系統（是/否）/ 固定排程（是/否）/ 備注</p>
+                  <p class="text-xs text-gray-600 leading-relaxed">名稱* / 聯絡人 / 電話 / LINE ID / 付款方式（下拉）/ 付款條件（下拉）/ 金流科目（下拉）/ 到期提醒天數（下拉）/ 匯款帳號 / 戶名 / 到貨天數 / 免運門檻 / 出現叫貨系統（是/否）/ 固定排程（是/否）/ 叫貨星期（逗號分隔，如 1,3,5 代表一三五）/ 截單時間（HH:MM）/ 休息日星期（逗號分隔，如 6,7）/ 國定假日休息（是/否）/ 備注</p>
                   <p class="text-xs text-gray-600 mt-1">※ 下載範本後，下拉選單會顯示目前系統設定的選項</p>
                 </div>
               </div>

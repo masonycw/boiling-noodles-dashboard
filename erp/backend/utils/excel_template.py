@@ -110,7 +110,8 @@ def build_vendors_template(payment_methods: list, categories: list) -> bytes:
     payment_methods: [{'name': str}, ...]
     categories:      [{'name': str}, ...]
     欄位：名稱*, 聯絡人, 電話, LINE ID, 付款方式, 付款條件, 金流科目,
-          到期提醒天數, 匯款帳號, 戶名, 到貨天數, 免運門檻, 出現叫貨系統, 固定排程, 備注
+          到期提醒天數, 匯款帳號, 戶名, 到貨天數, 免運門檻, 出現叫貨系統, 固定排程,
+          叫貨星期, 截單時間, 休息日星期, 國定假日休息, 備注
     """
     wb = Workbook()
     ws = wb.active
@@ -118,21 +119,25 @@ def build_vendors_template(payment_methods: list, categories: list) -> bytes:
     ws.freeze_panes = "A2"
 
     _header(ws, [
-        ("名稱 *",     True,  16),
-        ("聯絡人",     False, 12),
-        ("電話",       False, 14),
-        ("LINE ID",    False, 14),
-        ("付款方式",   False, 14),
-        ("付款條件",   False, 14),
-        ("金流科目",   False, 16),
+        ("名稱 *",       True,  16),
+        ("聯絡人",       False, 12),
+        ("電話",         False, 14),
+        ("LINE ID",      False, 14),
+        ("付款方式",     False, 14),
+        ("付款條件",     False, 14),
+        ("金流科目",     False, 16),
         ("到期提醒(天)", False, 14),
-        ("匯款帳號",   False, 20),
-        ("戶名",       False, 14),
-        ("到貨天數",   False, 12),
-        ("免運門檻",   False, 12),
+        ("匯款帳號",     False, 20),
+        ("戶名",         False, 14),
+        ("到貨天數",     False, 12),
+        ("免運門檻",     False, 12),
         ("出現叫貨系統", False, 14),
-        ("固定排程",   False, 12),
-        ("備注",       False, 20),
+        ("固定排程",     False, 12),
+        ("叫貨星期",     False, 16),   # O: 逗號分隔 1-7，1=一…7=日
+        ("截單時間",     False, 12),   # P: HH:MM
+        ("休息日星期",   False, 16),   # Q: 逗號分隔 1-7
+        ("國定假日休息", False, 14),   # R: 是/否
+        ("備注",         False, 20),   # S
     ])
 
     pm_name = payment_methods[0]["name"] if payment_methods else "現金"
@@ -140,7 +145,8 @@ def build_vendors_template(payment_methods: list, categories: list) -> bytes:
     _example(ws, [
         "點線麵", "王小明", "0912345678", "",
         pm_name, "月結", cat_name,
-        5, "", "", 1, "", "是", "否", "",
+        5, "", "", 1, "", "是", "是",
+        "1,3,5", "14:00", "6,7", "是", "",
     ])
 
     lists = wb.create_sheet("_Lists")
@@ -173,6 +179,7 @@ def build_vendors_template(payment_methods: list, categories: list) -> bytes:
         lists.cell(row=i, column=5, value=v)
     _dropdown(ws, "_Lists!$E$1:$E$2", "M")  # 出現叫貨系統
     _dropdown(ws, "_Lists!$E$1:$E$2", "N")  # 固定排程
+    _dropdown(ws, "_Lists!$E$1:$E$2", "R")  # 國定假日休息
 
     return _to_bytes(wb)
 
