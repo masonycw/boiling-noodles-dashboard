@@ -157,8 +157,8 @@ def create_petty_cash_record(db: Session, user_id: int, data: dict) -> dict:
     )
     db.add(record)
 
-    # B-13: 零用金支出（已付）自動寫入金流紀錄
-    if data["type"] == "expense" and data.get("is_paid", True):
+    # B-13: 零用金支出（已付）/ 已匯款 自動寫入金流紀錄
+    if data["type"] in ("expense", "remittance") and data.get("is_paid", True):
         from erp.backend.db.models import Vendor as VendorModel
         # 嘗試從廠商取預設科目
         category_id = data.get("category_id")
@@ -170,7 +170,7 @@ def create_petty_cash_record(db: Session, user_id: int, data: dict) -> dict:
             user_id=user_id,
             category_id=category_id,
             amount=data["amount"],
-            type="expense",
+            type="remittance" if data["type"] == "remittance" else "expense",
             source="petty_cash",
             description=data.get("note"),
             vendor_id=data.get("vendor_id"),

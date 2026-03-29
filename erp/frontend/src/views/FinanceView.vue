@@ -146,7 +146,7 @@ async function loadAll() {
       todayIncome.value = todayRecords.value
         .filter(r => r.type === 'income').reduce((s, r) => s + parseFloat(r.amount || 0), 0)
       todayExpense.value = todayRecords.value
-        .filter(r => r.type !== 'income' && r.is_paid !== false).reduce((s, r) => s + parseFloat(r.amount || 0), 0)
+        .filter(r => r.type === 'expense' && r.is_paid !== false).reduce((s, r) => s + parseFloat(r.amount || 0), 0)
     }
     if (yestRes.ok) {
       const records = await yestRes.json()
@@ -355,6 +355,7 @@ function txSubtitle(r) {
   if (r.created_at) parts.push(fmtDate(r.created_at))
   if (r.type === 'income') parts.push('收入')
   else if (r.type === 'withdrawal') parts.push('提領')
+  else if (r.type === 'remittance') parts.push('已匯款')
   else parts.push('支出')
   return parts.join(' · ')
 }

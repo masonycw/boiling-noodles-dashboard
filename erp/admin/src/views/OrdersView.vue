@@ -76,21 +76,26 @@ const filtered = computed(() => {
   // tab 篩選
   if (orderTab.value === 'pending') {
     list = list.filter(o => o.status === 'confirmed')
-    // 待收貨：依叫貨日期倒序
-    list = [...list].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    // 待收貨：依到貨日期升序（最快到貨排最上；無到貨日期排後面）
+    list = [...list].sort((a, b) => {
+      const da = a.expected_delivery_date ? new Date(a.expected_delivery_date) : Infinity
+      const db_ = b.expected_delivery_date ? new Date(b.expected_delivery_date) : Infinity
+      return da - db_
+    })
   } else {
     list = list.filter(o => o.status === 'received')
     // 已收貨：依收貨日期（updated_at）倒序
     list = [...list].sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))
   }
-  if (filterDateFrom.value) {
-    const dateField = orderTab.value === 'received' ? 'updated_at' : 'created_at'
-    list = list.filter(o => (o[dateField] || o.created_at) >= filterDateFrom.value)
-  }
-  if (filterDateTo.value) {
-    const to = filterDateTo.value + 'T23:59:59'
-    const dateField = orderTab.value === 'received' ? 'updated_at' : 'created_at'
-    list = list.filter(o => (o[dateField] || o.created_at) <= to)
+  // 日期篩選只作用於已收貨 tab
+  if (orderTab.value === 'received') {
+    if (filterDateFrom.value) {
+      list = list.filter(o => (o.updated_at || o.created_at) >= filterDateFrom.value)
+    }
+    if (filterDateTo.value) {
+      const to = filterDateTo.value + 'T23:59:59'
+      list = list.filter(o => (o.updated_at || o.created_at) <= to)
+    }
   }
   if (filterVendor.value) {
     list = list.filter(o => String(o.vendor_id) === filterVendor.value)
@@ -300,7 +305,8 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
           <thead>
             <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase tracking-wider">
               <th class="px-4 py-3 text-left">單號</th>
-              <th class="px-4 py-3 text-left">{{ orderTab === 'received' ? '收貨日期' : '叫貨日期' }}</th>
+              <th class="px-4 py-3 text-left">{{ orderTab === 'received' ? '收貨日期' : '到貨日期' }}</th>
+              <th class="px-4 py-3 text-left">叫貨日期</th>
               <th class="px-4 py-3 text-left">供應商</th>
               <th class="px-4 py-3 text-left">送出人</th>
               <th class="px-4 py-3 text-center">品項數</th>
@@ -317,7 +323,14 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               <tr class="border-b border-[#2d3748] hover:bg-[#1f2937] transition-colors cursor-pointer"
                 @click="toggleExpand(o)">
                 <td class="px-4 py-3 text-[#63b3ed] text-xs font-mono font-bold">#{{ o.id }}</td>
-                <td class="px-4 py-3 text-gray-400 text-xs">{{ orderTab === 'received' ? fmtDate(o.updated_at || o.created_at) : fmtDate(o.created_at) }}</td>
+                <td class="px-4 py-3 text-gray-400 text-xs">
+                  <template v-if="orderTab === 'received'">{{ fmtDate(o.updated_at || o.created_at) }}</template>
+                  <template v-else>
+                    <span v-if="o.expected_delivery_date" class="text-amber-400 font-semibold">{{ fmtDate(o.expected_delivery_date) }}</span>
+                    <span v-else class="text-gray-600">未設定</span>
+                  </template>
+                </td>
+                <td class="px-4 py-3 text-gray-500 text-xs">{{ fmtDate(o.created_at) }}</td>
                 <td class="px-4 py-3 font-semibold text-gray-200">{{ o.vendor_name }}</td>
                 <td class="px-4 py-3"><UserBadge :user="o.created_by" size="sm" /></td>
                 <td class="px-4 py-3 text-center text-gray-400">{{ o.total_items }}</td>
@@ -354,7 +367,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               </tr>
               <!-- Expanded detail -->
               <tr v-if="expandedId === o.id" class="border-b border-[#2d3748] bg-[#0f1117]">
-                <td colspan="10" class="px-6 py-4">
+                <td colspan="11" class="px-6 py-4">
                   <div class="flex flex-wrap items-center gap-6 mb-3 text-xs">
                     <div class="flex items-center gap-2">
                       <span class="text-gray-500">叫貨人：</span>
@@ -405,7 +418,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               </tr>
             </template>
             <tr v-if="filtered.length === 0">
-              <td colspan="10" class="px-5 py-10 text-center text-gray-600">
+              <td colspan="11" class="px-5 py-10 text-center text-gray-600">
                 {{ orderTab === 'pending' ? '目前沒有待收貨訂單' : '此期間沒有已收貨紀錄' }}
               </td>
             </tr>
