@@ -103,7 +103,7 @@ const pettyWithBalance = computed(() => {
   return filteredPetty.value.map(r => {
     const row = { ...r, running_balance: running }
     // 未付款（is_paid=false）的支出/提領不計入餘額計算
-    if (r.is_paid !== false) {
+    if (r.is_paid !== false && r.type !== 'remittance') {
       if (r.type === 'income') running -= parseFloat(r.amount || 0)
       else running += parseFloat(r.amount || 0)
     }
@@ -256,8 +256,9 @@ async function togglePayment(record) {
                 <span class="text-xs font-bold px-2 py-0.5 rounded"
                   :class="r.type === 'income' ? 'bg-blue-900/50 text-blue-400'
                     : r.type === 'withdrawal' ? 'bg-amber-900/30 text-amber-400'
+                    : r.type === 'remittance' ? 'bg-violet-900/40 text-violet-400'
                     : 'bg-emerald-900/30 text-emerald-400'">
-                  {{ r.type === 'income' ? '收入' : r.type === 'withdrawal' ? '提領' : '支出' }}
+                  {{ r.type === 'income' ? '收入' : r.type === 'withdrawal' ? '提領' : r.type === 'remittance' ? '💸 已匯款' : '支出' }}
                 </span>
               </td>
               <td class="px-5 py-2.5 text-xs">
@@ -273,7 +274,7 @@ async function togglePayment(record) {
                 <span v-else class="text-gray-600">—</span>
               </td>
               <td class="px-5 py-2.5 text-right font-mono"
-                :class="r.type === 'income' ? 'text-blue-400' : 'text-red-400'">
+                :class="r.type === 'income' ? 'text-blue-400' : r.type === 'remittance' ? 'text-violet-400' : 'text-red-400'">
                 {{ r.type === 'income' ? '+' : '-' }}NT$ {{ fmtMoney(r.amount) }}
               </td>
               <td class="px-5 py-2.5 text-right font-mono text-gray-200">NT$ {{ fmtMoney(r.running_balance) }}</td>

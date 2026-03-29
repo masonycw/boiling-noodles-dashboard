@@ -213,7 +213,7 @@ function downloadCSV() {
 }
 
 const totalIncome = computed(() => filtered.value.filter(r => r.type === 'income').reduce((s, r) => s + parseFloat(r.amount || 0), 0))
-const totalExpense = computed(() => filtered.value.filter(r => r.type === 'expense').reduce((s, r) => s + parseFloat(r.amount || 0), 0))
+const totalExpense = computed(() => filtered.value.filter(r => r.type === 'expense' || r.type === 'remittance').reduce((s, r) => s + parseFloat(r.amount || 0), 0))
 
 async function updateCategory(record, catId) {
   await fetch(`${API_BASE}/finance/cash-flow/${record.id}/category`, {
