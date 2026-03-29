@@ -155,8 +155,12 @@ function onImportFile(e) {
   reader.onload = (ev) => {
     try {
       const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' })
-      const ws = wb.Sheets[wb.SheetNames[0]]
+      const sheetName = wb.SheetNames.find(n => n === '供應商匯入')
+        || wb.SheetNames.find(n => !n.startsWith('_'))
+        || wb.SheetNames[0]
+      const ws = wb.Sheets[sheetName]
       const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+        .filter(row => row.some(cell => String(cell ?? '').trim()))  // 跳過完全空白列
       if (data.length < 2) { importError.value = '需至少有標題列和一筆資料'; return }
       // 欄位順序（對應 Excel 範本）：
       // 0:名稱 1:聯絡人 2:電話 3:LINE ID 4:付款方式 5:付款條件 6:金流科目
