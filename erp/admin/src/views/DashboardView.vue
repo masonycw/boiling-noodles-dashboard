@@ -104,7 +104,7 @@ const statusColor = (s) => ({
     <div class="grid grid-cols-3 gap-4">
 
       <!-- Recent orders -->
-      <div class="col-span-2 bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="col-span-2 bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
         <div class="px-5 py-4 border-b border-[#2d3748]">
           <h3 class="font-semibold text-gray-200">最近叫貨紀錄</h3>
         </div>
@@ -137,7 +137,7 @@ const statusColor = (s) => ({
       </div>
 
       <!-- Waste by reason -->
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
         <div class="px-5 py-4 border-b border-[#2d3748]">
           <h3 class="font-semibold text-gray-200">本月損耗分類</h3>
         </div>

@@ -146,7 +146,7 @@ function pctClass(p) { if (!p) return 'text-gray-500'; return p >= 0 ? 'text-eme
 
       <!-- P&L Tables -->
       <!-- Revenue -->
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
         <div class="px-4 py-3 border-b border-[#2d3748] bg-emerald-900/20">
           <p class="text-xs font-bold text-emerald-400 uppercase">收入明細</p>
         </div>
@@ -189,7 +189,7 @@ function pctClass(p) { if (!p) return 'text-gray-500'; return p >= 0 ? 'text-eme
       </div>
 
       <!-- Expenses -->
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
         <div class="px-4 py-3 border-b border-[#2d3748] bg-red-900/20">
           <p class="text-xs font-bold text-red-400 uppercase">支出明細</p>
         </div>

@@ -103,7 +103,7 @@ function periodLabel(p) { return periodOptions.find(o => o.value === p)?.label |
       <p class="text-xs text-gray-400">費率設定說明：費用基於 POS 銷售資料自動計算，每月自動計入成本科目。</p>
     </div>
 
-    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
       <div v-if="loading" class="p-8 text-center text-gray-500">載入中…</div>
       <table v-else class="w-full text-sm">
         <thead>

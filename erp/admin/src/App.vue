@@ -1,16 +1,21 @@
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const sidebarOpen = ref(false)
 
 onMounted(async () => {
   if (auth.isLoggedIn && !auth.user) {
     await auth.fetchMe()
   }
+})
+
+router.afterEach(() => {
+  sidebarOpen.value = false
 })
 
 const navGroups = [
@@ -77,8 +82,14 @@ function logout() {
   <!-- Admin layout -->
   <div v-else class="flex h-screen overflow-hidden bg-[#0f1117]">
 
+    <!-- Mobile Sidebar Overlay -->
+    <div v-show="sidebarOpen" class="fixed inset-0 bg-black/70 z-40 md:hidden" @click="sidebarOpen = false"></div>
+
     <!-- Sidebar -->
-    <aside class="w-60 shrink-0 bg-[#111827] border-r border-[#2d3748] flex flex-col overflow-y-auto">
+    <aside 
+      class="fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 w-60 bg-[#111827] border-r border-[#2d3748] flex flex-col overflow-y-auto md:relative md:translate-x-0"
+      :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+    >
       <!-- Logo -->
       <div class="px-5 py-5 border-b border-[#2d3748]">
         <h1 class="text-lg font-extrabold text-white">🍜 滾麵 ERP</h1>
@@ -119,19 +130,26 @@ function logout() {
     </aside>
 
     <!-- Main content -->
-    <div class="flex-1 flex flex-col overflow-hidden">
+    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
       <!-- Topbar -->
-      <header class="h-14 bg-[#0f1117] border-b border-[#2d3748] flex items-center justify-between px-6 shrink-0">
-        <h2 class="text-base font-semibold text-gray-200">
-          {{ allItems.find(i => i.name === route.name)?.label || '滾麵後台' }}
-        </h2>
+      <header class="h-14 bg-[#0f1117] border-b border-[#2d3748] flex items-center justify-between px-4 md:px-6 shrink-0">
+        <div class="flex items-center gap-3">
+          <button @click="sidebarOpen = true" class="md:hidden text-gray-400 hover:text-gray-200">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+            </svg>
+          </button>
+          <h2 class="text-base font-semibold text-gray-200">
+            {{ allItems.find(i => i.name === route.name)?.label || '滾麵後台' }}
+          </h2>
+        </div>
         <div class="flex items-center gap-3">
           <span class="text-sm text-gray-500">{{ new Date().toLocaleDateString('zh-TW') }}</span>
         </div>
       </header>
 
       <!-- Page -->
-      <main class="flex-1 overflow-y-auto p-6">
+      <main class="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-6">
         <router-view />
       </main>
     </div>

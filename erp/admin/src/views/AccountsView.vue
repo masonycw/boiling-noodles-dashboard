@@ -485,7 +485,7 @@ async function savePw() {
         </div>
       </div>
 
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
         <div v-if="loading" class="p-8 text-center text-gray-500">載入中…</div>
         <table v-else class="w-full text-sm">
           <thead>
@@ -576,7 +576,7 @@ async function savePw() {
         <div v-if="matrixLoading" class="text-center py-8 text-gray-500">載入中…</div>
         <div v-else class="space-y-3">
           <div v-for="section in PERMISSION_SECTIONS" :key="section.key"
-            class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+            class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
             <!-- Section header (collapsible) -->
             <button @click="section.collapsed.value = !section.collapsed.value"
               class="w-full px-5 py-3 bg-[#111827] border-b border-[#2d3748] flex items-center justify-between hover:bg-[#1a2436] transition-colors">

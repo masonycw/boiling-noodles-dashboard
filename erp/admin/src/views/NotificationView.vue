@@ -74,7 +74,7 @@ function fmtDate(d) {
       </div>
 
       <!-- Right: History -->
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
         <div class="px-4 py-3 border-b border-[#2d3748]">
           <p class="text-xs font-bold text-gray-500 uppercase tracking-wider">通知歷史</p>
         </div>

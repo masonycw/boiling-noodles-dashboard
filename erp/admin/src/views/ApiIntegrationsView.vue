@@ -163,7 +163,7 @@ function copyWebhookUrl() {
     <div v-if="toast" class="fixed top-5 right-5 z-50 bg-emerald-700 text-white text-sm font-bold px-4 py-2.5 rounded-xl shadow-lg">{{ toast }}</div>
 
     <!-- LINE Messaging API（O9：叫貨自動推播） -->
-    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
       <div class="px-5 py-4 border-b border-[#2d3748] flex items-center justify-between">
         <div class="flex items-center gap-2">
           <h3 class="font-bold text-gray-100 text-sm">LINE Messaging API</h3>
@@ -203,7 +203,7 @@ function copyWebhookUrl() {
     </div>
 
     <!-- LINE 通知設定 -->
-    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
       <div class="px-5 py-4 border-b border-[#2d3748] flex items-center justify-between">
         <div>
           <h3 class="text-sm font-bold text-gray-200">💬 LINE 通知</h3>
@@ -254,7 +254,7 @@ function copyWebhookUrl() {
     </div>
 
     <!-- 外送平台收入串接 -->
-    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
       <div class="px-5 py-4 border-b border-[#2d3748]">
         <h3 class="text-sm font-bold text-gray-200">🚀 外送平台收入串接</h3>
         <p class="text-xs text-gray-500 mt-0.5">自動同步外送平台訂單收入至金流紀錄</p>
@@ -302,7 +302,7 @@ function copyWebhookUrl() {
     </div>
 
     <!-- POS Webhook -->
-    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
       <div class="px-5 py-4 border-b border-[#2d3748] flex items-center justify-between">
         <div>
           <h3 class="text-sm font-bold text-gray-200">🔌 POS Webhook</h3>
@@ -345,7 +345,7 @@ function copyWebhookUrl() {
     </div>
 
     <!-- 同步紀錄 -->
-    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
       <div class="px-5 py-4 border-b border-[#2d3748]">
         <h3 class="text-sm font-bold text-gray-200">📋 近期同步紀錄</h3>
       </div>

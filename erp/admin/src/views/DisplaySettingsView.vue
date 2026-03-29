@@ -59,7 +59,7 @@ const settingItems = [
   <div>
     <div v-if="toast" class="fixed top-5 right-5 z-50 bg-emerald-700 text-white text-sm font-bold px-4 py-2.5 rounded-xl shadow-lg">{{ toast }}</div>
 
-    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
       <div class="px-5 py-4 border-b border-[#2d3748] flex items-center justify-between">
         <div>
           <h3 class="text-sm font-bold text-gray-200">App 歷史紀錄顯示設定</h3>

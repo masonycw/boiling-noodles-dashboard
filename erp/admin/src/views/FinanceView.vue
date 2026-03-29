@@ -257,7 +257,7 @@ const expenseCategoryOptions = ['食材費用', '人事費用', '營業費用', 
       </div>
 
       <!-- Scheduled expenses table -->
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
         <div class="px-5 py-3 border-b border-[#2d3748]">
           <h3 class="text-sm font-bold text-gray-200">預計支出明細</h3>
         </div>
@@ -351,7 +351,7 @@ const expenseCategoryOptions = ['食材費用', '人事費用', '營業費用', 
       </div>
 
       <!-- Table -->
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase">
@@ -454,7 +454,7 @@ const expenseCategoryOptions = ['食材費用', '人事費用', '營業費用', 
       </div>
 
       <!-- Transaction table -->
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase">
@@ -539,7 +539,7 @@ const expenseCategoryOptions = ['食材費用', '人事費用', '營業費用', 
       </div>
 
       <!-- Payables table -->
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase">
@@ -694,7 +694,7 @@ const expenseCategoryOptions = ['食材費用', '人事費用', '營業費用', 
       </div>
 
       <!-- P&L detail table -->
-      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+      <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-[#2d3748] text-xs text-[#9ca3af] uppercase">

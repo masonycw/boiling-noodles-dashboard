@@ -129,7 +129,7 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
     </div>
 
     <!-- Table -->
-    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
       <div v-if="loading" class="p-8 text-center text-gray-500">載入中…</div>
       <template v-else>
         <table class="w-full text-sm">

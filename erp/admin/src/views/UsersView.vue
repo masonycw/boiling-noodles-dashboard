@@ -156,7 +156,7 @@ function fmtDate(d) { return d ? new Date(d).toLocaleString('zh-TW', { month: '2
     </div>
 
     <!-- Table -->
-    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
       <div v-if="loading" class="p-8 text-center text-gray-500">載入中…</div>
       <table v-else class="w-full text-sm">
         <thead>
@@ -204,7 +204,7 @@ function fmtDate(d) { return d ? new Date(d).toLocaleString('zh-TW', { month: '2
     </div>
 
     <!-- Permission Matrix -->
-    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-hidden">
+    <div class="bg-[#1a202c] border border-[#2d3748] rounded-xl overflow-x-auto">
       <div class="px-5 py-3 border-b border-[#2d3748]">
         <h3 class="text-sm font-bold text-gray-200">權限矩陣</h3>
       </div>
