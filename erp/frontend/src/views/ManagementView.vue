@@ -14,7 +14,7 @@ const vendorForm = ref({ name: '', contact_person: '', phone: '', order_deadline
 
 const showItemModal = ref(false)
 const editingItem = ref(null)
-const itemForm = ref({ name: '', unit: '', vendor_id: null, min_stock: 0, secondary_unit: '', secondary_unit_ratio: null, order_unit_mode: 'both', stocktake_unit_mode: 'both' })
+const itemForm = ref({ name: '', unit: '', vendor_id: null, min_stock: 0, secondary_unit: '', secondary_unit_ratio: null, order_unit_mode: 'both', stocktake_unit_mode: 'both', is_active: true })
 
 const fetchData = async () => {
   isLoading.value = true
@@ -23,7 +23,8 @@ const fetchData = async () => {
     vendors.value = await vRes.json()
     
     if (activeTab.value === 'items') {
-      const iRes = await fetch(`${API_BASE}/inventory/items`)
+      // 後台管理：帶 include_inactive=true，顯示所有品項（包含停用）
+      const iRes = await fetch(`${API_BASE}/inventory/items?include_inactive=true`)
       items.value = await iRes.json()
     }
   } catch (err) {
@@ -83,6 +84,21 @@ const saveItem = async () => {
   }
 }
 
+// 真正刪除品項（永久刪除，需二次確認）
+const deleteItem = async (item) => {
+  if (!confirm(`確定要永久刪除「${item.name}」嗎？\n此操作無法還原！\n\n如只想讓品項暫時不出現在前台，請改用「編輯 > 取消啟用」。`)) return
+  try {
+    const res = await fetch(`${API_BASE}/inventory/items/${item.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      fetchData()
+    } else {
+      alert('刪除失敗')
+    }
+  } catch (err) {
+    alert('刪除失敗')
+  }
+}
+
 const openVendorEdit = (v) => {
   editingVendor.value = v
   vendorForm.value = { ...v }
@@ -91,8 +107,17 @@ const openVendorEdit = (v) => {
 
 const openItemEdit = (item) => {
   editingItem.value = item
-  itemForm.value = { ...item }
+  itemForm.value = { 
+    ...item,
+    is_active: item.is_active !== false  // 確保有 is_active 欄位
+  }
   showItemModal.value = true
+}
+
+// 廠商名稱快查
+const vendorName = (vendor_id) => {
+  const v = vendors.value.find(v => v.id === vendor_id)
+  return v ? v.name : `ID:${vendor_id}`
 }
 
 // Password Change
@@ -205,18 +230,38 @@ const changePassword = async () => {
 
       <!-- Items List -->
       <div v-else-if="activeTab === 'items'" class="space-y-3">
-        <div v-for="item in items" :key="item.id" class="bg-white p-4 rounded-2xl border border-slate-200 flex justify-between items-center">
-          <div>
-            <p class="font-bold text-slate-900">{{ item.name }}</p>
-            <p class="text-xs text-slate-400">單位: {{ item.unit }} | 供應商ID: {{ item.vendor_id }}</p>
-          </div>
-          <button @click="openItemEdit(item)" class="p-2 text-slate-400 hover:text-orange-500">
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-          </button>
+        <!-- 說明提示 -->
+        <div class="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-xs text-blue-700 font-bold">
+          💡 灰色品項為「已停用」，不會出現在前台，但仍保留在後台供查看。刪除為永久操作，無法還原。
         </div>
-        <button @click="editingItem = null; itemForm = { name: '', unit: '', vendor_id: 1, min_stock: 0, secondary_unit: '', secondary_unit_ratio: null, order_unit_mode: 'both', stocktake_unit_mode: 'both' }; showItemModal = true" class="w-full py-4 border-2 border-dashed border-slate-300 rounded-2xl text-slate-400 font-bold hover:border-orange-300 hover:text-orange-500 transition-all">
+
+        <div v-for="item in items" :key="item.id"
+          class="bg-white p-4 rounded-2xl border flex justify-between items-center transition-all"
+          :class="item.is_active === false ? 'border-slate-100 opacity-50' : 'border-slate-200'">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <p class="font-bold text-slate-900 truncate">{{ item.name }}</p>
+              <span v-if="item.is_active === false"
+                class="text-[9px] font-extrabold bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded-full shrink-0">停用</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">{{ vendorName(item.vendor_id) }} · {{ item.unit }}</p>
+          </div>
+          <div class="flex items-center gap-1 shrink-0 ml-2">
+            <!-- 編輯按鈕 -->
+            <button @click="openItemEdit(item)" class="p-2 text-slate-400 hover:text-orange-500">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </button>
+            <!-- 刪除按鈕（永久刪除） -->
+            <button @click="deleteItem(item)" class="p-2 text-slate-400 hover:text-rose-500">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m4-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <button @click="editingItem = null; itemForm = { name: '', unit: '', vendor_id: vendors[0]?.id || 1, min_stock: 0, secondary_unit: '', secondary_unit_ratio: null, order_unit_mode: 'both', stocktake_unit_mode: 'both', is_active: true }; showItemModal = true" class="w-full py-4 border-2 border-dashed border-slate-300 rounded-2xl text-slate-400 font-bold hover:border-orange-300 hover:text-orange-500 transition-all">
           + 新增品項
         </button>
       </div>
@@ -288,7 +333,6 @@ const changePassword = async () => {
           </div>
         </div>
         <!-- Scrollable content -->
-        <!-- Scrollable content -->
         <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
           <div>
             <label class="block text-xs font-bold text-slate-500 mb-1 pl-1">品項名稱</label>
@@ -329,6 +373,22 @@ const changePassword = async () => {
                 <option value="secondary">僅第二單位 (箱)</option>
               </select>
             </div>
+          </div>
+
+          <!-- 啟用狀態：品項停用後仍保留在後台，只是不顯示在前台 -->
+          <div class="border-t border-slate-100 pt-4">
+            <label class="flex items-center justify-between cursor-pointer">
+              <div>
+                <p class="text-sm font-bold text-slate-700">啟用此品項</p>
+                <p class="text-xs text-slate-400 mt-0.5">停用後，品項仍保留於後台，但不會出現在叫貨/盤點前台</p>
+              </div>
+              <div @click="itemForm.is_active = !itemForm.is_active"
+                class="relative w-12 h-6 rounded-full transition-colors cursor-pointer shrink-0 ml-3"
+                :class="itemForm.is_active ? 'bg-orange-500' : 'bg-slate-200'">
+                <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform"
+                  :class="itemForm.is_active ? 'translate-x-6' : 'translate-x-0'"></div>
+              </div>
+            </label>
           </div>
         </div>
         <!-- Fixed bottom buttons -->

@@ -46,8 +46,8 @@ def delete_vendor(vendor_id: int, db: Session = Depends(get_db)):
     return inventory_service.delete_vendor(db, vendor_id)
 
 @router.get("/items")
-def list_items(vendor_id: int = None, stocktake_group_id: int = None, db: Session = Depends(get_db)):
-    return inventory_service.get_items(db, vendor_id=vendor_id, stocktake_group_id=stocktake_group_id)
+def list_items(vendor_id: int = None, stocktake_group_id: int = None, include_inactive: bool = False, db: Session = Depends(get_db)):
+    return inventory_service.get_items(db, vendor_id=vendor_id, stocktake_group_id=stocktake_group_id, include_inactive=include_inactive)
 
 @router.post("/items")
 def create_item(item: dict, db: Session = Depends(get_db)):

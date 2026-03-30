@@ -5,8 +5,10 @@ from datetime import datetime, timedelta
 def get_vendors(db: Session, skip: int = 0, limit: int = 100):
     return db.query(Vendor).filter(Vendor.is_active == True).offset(skip).limit(limit).all()
 
-def get_items(db: Session, vendor_id: int = None, stocktake_group_id: int = None, skip: int = 0, limit: int = 200):
-    query = db.query(Item).filter(Item.is_active == True)
+def get_items(db: Session, vendor_id: int = None, stocktake_group_id: int = None, skip: int = 0, limit: int = 200, include_inactive: bool = False):
+    query = db.query(Item)
+    if not include_inactive:
+        query = query.filter(Item.is_active == True)
     if vendor_id:
         query = query.filter(Item.vendor_id == vendor_id)
     if stocktake_group_id:
