@@ -170,7 +170,7 @@ function goToStocktake(groupId) {
         <div class="space-y-2">
           <button
             v-for="v in fixedOrderVendors" :key="v.id"
-            @click="router.push({ name: 'order' })"
+            @click="router.push({ name: 'order', query: { vendorId: v.id } })"
             class="w-full bg-white rounded-xl p-4 flex items-center gap-3 shadow-sm active:bg-slate-50 transition-colors text-left"
             style="border-radius:12px">
             <span style="font-size:22px">🏪</span>

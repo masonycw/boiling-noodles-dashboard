@@ -747,9 +747,12 @@ async function confirmAndPay() {
                 </span>
               </div>
             </div>
-            <div v-if="r.photo_url && !r.attachments?.length" class="mt-2" @click.stop>
-              <a :href="r.photo_url" target="_blank" rel="noopener">
-                <img :src="r.photo_url" class="h-14 w-auto rounded-lg border border-slate-200 object-cover hover:opacity-80 cursor-pointer" />
+            <div v-if="r.photo_url && !r.attachments?.length" class="mt-1.5" @click.stop>
+              <button @click="togglePhoto(r.id)" class="flex items-center gap-1 text-[10px] text-blue-500 font-bold">
+                📷 {{ expandedPhotos.has(r.id) ? '收起' : '收據照片' }}
+              </button>
+              <a v-if="expandedPhotos.has(r.id)" :href="r.photo_url" target="_blank" rel="noopener">
+                <img :src="r.photo_url" class="mt-1 h-28 w-auto rounded-lg border border-slate-200 object-cover cursor-pointer" />
               </a>
             </div>
           </div>
