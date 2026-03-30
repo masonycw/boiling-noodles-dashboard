@@ -3,6 +3,7 @@ import { ref, onMounted, computed, onUnmounted, toRaw, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import UserBadge from '@/components/UserBadge.vue'
+import { formatDualUnit } from '@/utils/formatters'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -1246,6 +1247,13 @@ function setOrder(item, val, type) {
               class="bg-transparent border-none text-xs font-bold text-slate-700 focus:outline-none" />
           </div>
         </div>
+
+        <!-- 廠商備注 -->
+        <div v-if="selectedVendor?.note"
+          class="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+          <span class="text-amber-500 text-sm shrink-0">📌</span>
+          <p class="text-xs font-bold text-amber-800 leading-relaxed">{{ selectedVendor.note }}</p>
+        </div>
       </div>
 
       <!-- Item list -->
@@ -1352,6 +1360,11 @@ function setOrder(item, val, type) {
                   :class="getActual(item, u.type) !== null && getActual(item, u.type) !== '' ? 'border-blue-500 text-blue-700' : 'border-slate-200 text-slate-400'" />
                   <button @click="setActual(item, (getActual(item, u.type)||0)+1, u.type)"
                   class="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center font-bold text-blue-600 active:bg-blue-100 text-lg leading-none">+</button>
+                </div>
+                <!-- 雙單位合計顯示（有 secondary_unit 時才顯示） -->
+                <div v-if="item.secondary_unit && item.actual_qty != null"
+                  class="text-[10px] font-bold text-blue-500 text-right mt-0.5">
+                  = {{ formatDualUnit(item.actual_qty, item) }}
                 </div>
               </div>
             </div>
