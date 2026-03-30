@@ -657,7 +657,7 @@ function getRenderUnits(item, op) {
             <div v-else class="flex gap-2 items-start">
               <!-- 實盤 column -->
               <div v-if="modeStocktake" class="flex-1 rounded-xl p-2" style="background:#f8fafc">
-                <p class="text-[9px] font-bold text-slate-400 text-center mb-1.5">實盤</p>
+                <p class="text-[9px] font-bold text-slate-400 text-center mb-1.5">實盤 ({{ getRenderUnits(item, 'stocktake').length }})</p>
                 <div class="flex flex-col gap-1.5 items-center">
                   <div v-for="u in getRenderUnits(item, 'stocktake')" :key="'dact'+u.type" class="flex items-center justify-center gap-1 w-full">
                     <button @click="decrementActual(item, u.type)"
