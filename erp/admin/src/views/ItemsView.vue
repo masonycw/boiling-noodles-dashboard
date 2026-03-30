@@ -134,6 +134,12 @@ function openEdit(item) {
 async function save() {
   if (!form.value.name.trim()) { saveError.value = '請填入品項名稱'; return }
   if (!form.value.unit.trim()) { saveError.value = '請填入單位'; return }
+  if (!form.value.vendor_id) { saveError.value = '請選擇供應商'; return }
+  // 若沒有填第二單位，清掉相關欄位
+  if (!form.value.secondary_unit) {
+    form.value.secondary_unit = null
+    form.value.secondary_unit_ratio = null
+  }
   saving.value = true
   saveError.value = ''
   try {
@@ -147,6 +153,7 @@ async function save() {
     showToast('✓ 品項已儲存')
     await load()
   } catch (e) {
+
     saveError.value = e.message
   } finally {
     saving.value = false
@@ -473,68 +480,47 @@ async function confirmImport() {
         </div>
 
         <div class="space-y-3 text-sm">
+
+          <!-- 品項名稱 -->
+          <div>
+            <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
+              品項名稱 <span class="text-red-400">*</span>
+            </label>
+            <input v-model="form.name" type="text" maxlength="50"
+              class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+          </div>
+
+          <!-- 單位 | 第二單位 -->
           <div class="grid grid-cols-2 gap-3">
-            <div class="col-span-2">
-              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                品項名稱 <span class="text-red-400">*</span>
-              </label>
-              <input v-model="form.name" type="text" maxlength="50"
-                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
-            </div>
             <div>
               <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
                 單位 <span class="text-red-400">*</span>
               </label>
-              <input v-model="form.unit" type="text" placeholder="包 / 把 / 瓶 / 箱"
-                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
-            </div>
-            <div>
-              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">主要供應商 <span class="text-red-400">*</span></label>
-              <select v-model.number="form.vendor_id"
-                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
-                <option :value="null">—</option>
-                <option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">盤點群組 <span class="text-red-400">*</span></label>
-              <select v-model.number="form.stocktake_group_id"
-                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
-                <option :value="null">—</option>
-                <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                安全庫存量 <span class="text-red-400">*</span>
-              </label>
-              <input v-model.number="form.min_stock" type="number" min="0"
-                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
-            </div>
-            <div>
-              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">參考價格</label>
-              <input v-model.number="form.price" type="number" min="0" step="0.01"
-                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
-            </div>
-            <div>
-              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">陳列順序</label>
-              <input v-model.number="form.display_order" type="number"
+              <input v-model="form.unit" type="text" placeholder="罐 / 包 / 瓶"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
             <div>
               <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                第二單位 (例如: 箱)
+                第二單位
+                <span class="text-gray-600 font-normal text-[11px]">（例如: 箱）</span>
               </label>
-              <input v-model="form.secondary_unit" type="text" placeholder="留白表示不啟用第二單位"
+              <input v-model="form.secondary_unit" type="text" placeholder="選填，留空不啟用"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
-            <div>
-              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                換算比例 (1 個第二單位 = ? 基準單位)
-              </label>
-              <input v-model.number="form.secondary_unit_ratio" type="number" min="0" step="0.01"
-                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
-            </div>
+          </div>
+
+          <!-- 換算比例（只有填了第二單位才顯示） -->
+          <div v-if="form.secondary_unit">
+            <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
+              換算比例
+              <span class="text-gray-600 font-normal text-[11px]">（1 {{ form.secondary_unit }} = ? {{ form.unit || '基準單位' }}）</span>
+            </label>
+            <input v-model.number="form.secondary_unit_ratio" type="number" min="0" step="1" placeholder="例如: 24"
+              class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+          </div>
+
+          <!-- 叫貨 | 盤點單位模式（只有填了第二單位才顯示） -->
+          <div v-if="form.secondary_unit" class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">叫貨單位模式</label>
               <select v-model="form.order_unit_mode"
@@ -553,20 +539,66 @@ async function confirmImport() {
                 <option value="secondary">僅第二單位</option>
               </select>
             </div>
+          </div>
 
-            <div class="col-span-2 flex items-center gap-3 pt-1 border-t border-[#2d3748] mt-2">
-              <input v-model="form.is_active" type="checkbox" id="is_active" class="w-4 h-4 accent-blue-500" />
-              <label for="is_active" class="text-gray-300 text-sm">啟用此品項</label>
+          <!-- 分隔線 -->
+          <div class="border-t border-[#2d3748] pt-1"></div>
+
+          <!-- 供應商 | 盤點群組 -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
+                主要供應商 <span class="text-red-400">*</span>
+              </label>
+              <select v-model.number="form.vendor_id"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
+                <option :value="null">—</option>
+                <option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">盤點群組</label>
+              <select v-model.number="form.stocktake_group_id"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
+                <option :value="null">—</option>
+                <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
+              </select>
             </div>
           </div>
 
-          <div v-if="saveError" class="text-red-400 text-xs text-center">{{ saveError }}</div>
+          <!-- 參考價格 | 安全庫存量 -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">參考價格</label>
+              <input v-model.number="form.price" type="number" min="0" step="0.01" placeholder="—"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+            </div>
+            <div>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">安全庫存量</label>
+              <input v-model.number="form.min_stock" type="number" min="0" placeholder="0"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+            </div>
+          </div>
 
-          <button @click="save" :disabled="saving"
-            class="w-full bg-[#63b3ed] hover:bg-blue-400 text-black font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50">
-            {{ saving ? '儲存中…' : '保存' }}
-          </button>
+          <!-- 陳列順序 -->
+          <div>
+            <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">陳列順序</label>
+            <input v-model.number="form.display_order" type="number" placeholder="999"
+              class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+          </div>
+
+          <div class="flex items-center gap-3 pt-1 border-t border-[#2d3748] mt-2">
+            <input v-model="form.is_active" type="checkbox" id="is_active" class="w-4 h-4 accent-blue-500" />
+            <label for="is_active" class="text-gray-300 text-sm">啟用此品項</label>
+          </div>
         </div>
+
+        <div v-if="saveError" class="text-red-400 text-xs text-center mt-3">{{ saveError }}</div>
+
+        <button @click="save" :disabled="saving"
+          class="w-full mt-4 bg-[#63b3ed] hover:bg-blue-400 text-black font-bold py-2.5 rounded-lg transition-colors disabled:opacity-50">
+          {{ saving ? '儲存中…' : '保存' }}
+        </button>
       </div>
     </div>
   </div>
