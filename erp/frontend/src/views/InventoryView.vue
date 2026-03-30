@@ -797,7 +797,7 @@ async function submitPendingReceive() {
 function buildLineMessage(vendorName, orderItems, adHocList, date) {
   const today = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: 'numeric', day: 'numeric' })
   let text = `【叫貨單】${vendorName}\n日期：${today}\n──────────\n`
-  orderItems.forEach(i => { text += `${i.name} × ${i.qty} ${i.unit || ''}\n` })
+  orderItems.forEach(i => { text += `${i.name} × ${formatDualUnit(i.qty, i)}\n` })
   adHocList.forEach(i => { text += `${i.name} × ${i.qty} ${i.unit || ''}\n` })
   text += `──────────`
   if (date) {
@@ -1094,6 +1094,41 @@ const payBadge = (o) => {
   if (o.payment_terms === 'monthly') return { label: '月結', cls: 'bg-orange-100 text-orange-600' }
   return { label: '待付', cls: 'bg-red-100 text-red-500' }
 }
+
+function getRenderUnits(item, op) {
+  const mode = item[`${op}_unit_mode`] || 'both'
+  const units = []
+  if (['both', 'secondary'].includes(mode) && item.secondary_unit) {
+    units.push({ type: 'sec', label: item.secondary_unit, isSec: true })
+  }
+  if (['both', 'base'].includes(mode)) {
+    units.push({ type: 'base', label: item.unit || '個', isSec: false })
+  }
+  return units
+}
+
+function initCount(item, op) {
+  // InventoryView directly mutates item.qty and item.actual_qty
+  // To support dual units without rewriting state, we keep base in item.qty and sec in item[`${op}Sec`]
+  // But wait, it's easier to just use `item.qtyBase` and `item.qtySec`
+}
+
+function getActual(item, type) { return item[type==='sec'?'actualSec':'actualBase'] ?? item.actual_qty ?? null }
+function setActual(item, val, type) { 
+  const n = val==='' ? null : parseFloat(val);
+  item[type==='sec'?'actualSec':'actualBase'] = isNaN(n) ? null : n;
+  const b = item.actualBase ?? 0, s = item.actualSec ?? 0;
+  item.actual_qty = (item.actualBase===null && item.actualSec===null) ? null : b + s * (parseFloat(item.secondary_unit_ratio)||1);
+}
+
+function getOrder(item, type) { return item[type==='sec'?'orderSec':'orderBase'] ?? item.qty ?? (type==='base'?0:null) }
+function setOrder(item, val, type) {
+  const n = val==='' ? 0 : parseFloat(val);
+  item[type==='sec'?'orderSec':'orderBase'] = isNaN(n) ? 0 : n;
+  const b = item.orderBase ?? 0, s = item.orderSec ?? 0;
+  item.qty = b + s * (parseFloat(item.secondary_unit_ratio)||1);
+}
+
 </script>
 
 <template>
@@ -1286,29 +1321,38 @@ const payBadge = (o) => {
                   <span v-if="isLowStock(item)" class="text-[9px] font-extrabold bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">低庫存</span>
                 </div>
                 <p class="text-[10px] text-slate-400 mt-0.5">
-                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.current_stock || 0 }}</span>
-                  {{ item.unit }}<span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>
-                </p>
+                  <span v-if="item.secondary_unit" class="text-orange-500 font-bold mr-1">[{{ item.secondary_unit_ratio || 1 }}{{ item.unit }}/{{ item.secondary_unit }}]</span>                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.current_stock || 0 }}</span>                  {{ item.unit }}<span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>                </p>
               </div>
               <!-- 叫貨控制 -->
-              <div v-if="modeOrder" class="flex items-center gap-1 shrink-0">
-                <button @click="item.qty=Math.max(0,item.qty-1)"
+              <div v-if="modeOrder" class="flex flex-col gap-1 shrink-0">
+                <div v-for="u in getRenderUnits(item, 'order')" :key="'o'+u.type" class="flex items-center gap-1">
+                  <button @click="setOrder(item, Math.max(0, getOrder(item, u.type)-1), u.type)"
                   class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-600 active:bg-slate-200 text-lg leading-none">−</button>
-                <input v-model.number="item.qty" type="number" min="0"
+                  <input
+                    :value="getOrder(item, u.type) || ''"
+                    @input="setOrder(item, $event.target.value, u.type)"
+                    type="number" min="0" :placeholder="u.label"
+  
                   class="w-12 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none"
                   :class="item.qty>0?'border-orange-500 text-orange-600':'border-slate-200 text-slate-800'" />
-                <button @click="item.qty+=1"
+                  <button @click="setOrder(item, getOrder(item, u.type)+1, u.type)"
                   class="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 active:bg-orange-200 text-lg leading-none">+</button>
+                </div>
               </div>
               <!-- 實盤控制 -->
-              <div v-if="modeStocktake" class="flex items-center gap-1 shrink-0">
-                <button @click="item.actual_qty = Math.max(0, (parseFloat(item.actual_qty) || 0) - 1)"
+              <div v-if="modeStocktake" class="flex flex-col gap-1 shrink-0">
+                <div v-for="u in getRenderUnits(item, 'stocktake')" :key="'s'+u.type" class="flex items-center gap-1">
+                  <button @click="setActual(item, Math.max(0, (getActual(item, u.type)||0)-1), u.type)"
                   class="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center font-bold text-blue-600 active:bg-blue-100 text-lg leading-none">−</button>
-                <input v-model.number="item.actual_qty" type="number" min="0" :placeholder="`${item.current_stock || 0}`"
+                  <input
+                    :value="getActual(item, u.type) ?? ''"
+                    @input="setActual(item, $event.target.value, u.type)"
+                    type="number" min="0" :placeholder="u.isSec ? item.secondary_unit : `${item.current_stock || 0}`"
                   class="w-14 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none"
-                  :class="item.actual_qty != null && item.actual_qty !== '' ? 'border-blue-500 text-blue-700' : 'border-slate-200 text-slate-400'" />
-                <button @click="item.actual_qty = (parseFloat(item.actual_qty) || 0) + 1"
+                  :class="getActual(item, u.type) !== null && getActual(item, u.type) !== '' ? 'border-blue-500 text-blue-700' : 'border-slate-200 text-slate-400'" />
+                  <button @click="setActual(item, (getActual(item, u.type)||0)+1, u.type)"
                   class="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center font-bold text-blue-600 active:bg-blue-100 text-lg leading-none">+</button>
+                </div>
               </div>
             </div>
           </template>
@@ -1322,9 +1366,7 @@ const payBadge = (o) => {
                   <span v-if="isLowStock(item)" class="text-[9px] font-extrabold bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">低庫存</span>
                 </div>
                 <p class="text-[10px] text-slate-400 mt-0.5">
-                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.current_stock || 0 }}</span>
-                  {{ item.unit }}<span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>
-                </p>
+                  <span v-if="item.secondary_unit" class="text-orange-500 font-bold mr-1">[{{ item.secondary_unit_ratio || 1 }}{{ item.unit }}/{{ item.secondary_unit }}]</span>                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.current_stock || 0 }}</span>                  {{ item.unit }}<span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>                </p>
               </div>
             </div>
             <div class="flex gap-2">
@@ -1491,7 +1533,7 @@ const payBadge = (o) => {
                     <div v-if="vendorItemIds.has(it.item_id)" class="flex items-center justify-between text-xs">
                       <span class="text-slate-700">{{ it.item_name }}</span>
                       <span class="font-bold text-slate-700">
-                        實盤 {{ it.counted_qty ?? it.actual_qty ?? '–' }} {{ it.unit || '' }}
+                        實盤 {{ formatDualUnit(it.counted_qty ?? it.actual_qty, it) || '–' }}
                       </span>
                     </div>
                   </template>
@@ -1754,7 +1796,7 @@ const payBadge = (o) => {
               <div class="bg-slate-50 rounded-xl p-3 space-y-1.5">
                 <div v-for="(item,idx) in receiveOrderItems" :key="idx" class="flex justify-between text-sm">
                   <span class="text-slate-700">{{ item.name || item.adhoc_name }}</span>
-                  <span class="text-slate-500 font-bold">叫貨：{{ item.qty }} {{ item.unit || item.adhoc_unit }}</span>
+                  <span class="text-slate-500 font-bold">叫貨：{{ formatDualUnit(item.qty, item) }}</span>
                 </div>
               </div>
             </div>
@@ -1910,7 +1952,7 @@ const payBadge = (o) => {
             <div v-if="expandedOrderId===order.id" class="border-t border-slate-100 px-4 py-3 space-y-2">
               <div v-for="(item,idx) in expandedItems" :key="idx" class="flex justify-between text-sm py-0.5">
                 <span class="text-slate-700">{{ item.name || item.adhoc_name }}</span>
-                <span class="text-slate-500 text-xs">{{ item.qty }} {{ item.unit || item.adhoc_unit }}</span>
+                <span class="text-slate-500 text-xs">{{ formatDualUnit(item.qty, item) }}</span>
               </div>
               <div v-if="order.note" class="text-xs text-slate-500 pt-1">📝 {{ order.note }}</div>
               <div class="pt-1">

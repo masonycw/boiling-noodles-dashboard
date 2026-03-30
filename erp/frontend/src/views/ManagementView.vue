@@ -14,7 +14,7 @@ const vendorForm = ref({ name: '', contact_person: '', phone: '', order_deadline
 
 const showItemModal = ref(false)
 const editingItem = ref(null)
-const itemForm = ref({ name: '', unit: '', vendor_id: null, min_stock: 0 })
+const itemForm = ref({ name: '', unit: '', vendor_id: null, min_stock: 0, secondary_unit: '', secondary_unit_ratio: null, order_unit_mode: 'both', stocktake_unit_mode: 'both' })
 
 const fetchData = async () => {
   isLoading.value = true
@@ -216,7 +216,7 @@ const changePassword = async () => {
               </svg>
           </button>
         </div>
-        <button @click="editingItem = null; itemForm = { name: '', unit: '', vendor_id: 1 }; showItemModal = true" class="w-full py-4 border-2 border-dashed border-slate-300 rounded-2xl text-slate-400 font-bold hover:border-orange-300 hover:text-orange-500 transition-all">
+        <button @click="editingItem = null; itemForm = { name: '', unit: '', vendor_id: 1, min_stock: 0, secondary_unit: '', secondary_unit_ratio: null, order_unit_mode: 'both', stocktake_unit_mode: 'both' }; showItemModal = true" class="w-full py-4 border-2 border-dashed border-slate-300 rounded-2xl text-slate-400 font-bold hover:border-orange-300 hover:text-orange-500 transition-all">
           + 新增品項
         </button>
       </div>
@@ -288,12 +288,48 @@ const changePassword = async () => {
           </div>
         </div>
         <!-- Scrollable content -->
+        <!-- Scrollable content -->
         <div class="flex-1 overflow-y-auto px-5 pb-2 space-y-4">
-          <input v-model="itemForm.name" type="text" placeholder="名稱" class="w-full p-3 bg-slate-50 rounded-xl" />
-          <input v-model="itemForm.unit" type="text" placeholder="單位" class="w-full p-3 bg-slate-50 rounded-xl" />
-          <select v-model="itemForm.vendor_id" class="w-full p-3 bg-slate-50 rounded-xl">
-            <option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option>
-          </select>
+          <div>
+            <label class="block text-xs font-bold text-slate-500 mb-1 pl-1">品項名稱</label>
+            <input v-model="itemForm.name" type="text" placeholder="名稱" class="w-full p-3 bg-slate-50 rounded-xl" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-500 mb-1 pl-1">主單位 (預設叫貨盤點單位)</label>
+            <input v-model="itemForm.unit" type="text" placeholder="例如: 罐、包" class="w-full p-3 bg-slate-50 rounded-xl" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-500 mb-1 pl-1">供應商</label>
+            <select v-model="itemForm.vendor_id" class="w-full p-3 bg-slate-50 rounded-xl">
+              <option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option>
+            </select>
+          </div>
+          <div class="border-t border-slate-100 pt-3">
+            <label class="block text-xs font-bold text-orange-500 mb-1 pl-1">第二單位 (選填)</label>
+            <input v-model="itemForm.secondary_unit" type="text" placeholder="例如: 箱" class="w-full p-3 bg-orange-50/50 border border-orange-100 rounded-xl" />
+          </div>
+          <div v-if="itemForm.secondary_unit">
+            <label class="block text-xs font-bold text-orange-500 mb-1 pl-1">換算比例 (1 第二單位 = ? 主單位)</label>
+            <input v-model.number="itemForm.secondary_unit_ratio" type="number" min="0" placeholder="例如: 12" class="w-full p-3 bg-orange-50/50 border border-orange-100 rounded-xl" />
+          </div>
+          <div v-if="itemForm.secondary_unit" class="space-y-4 pt-2">
+            <div>
+              <label class="block text-xs font-bold text-slate-500 mb-1 pl-1">叫貨單位模式</label>
+              <select v-model="itemForm.order_unit_mode" class="w-full p-3 bg-slate-50 rounded-xl">
+                <option value="both">雙單位並存 (箱 + 罐)</option>
+                <option value="base">僅主單位 (罐)</option>
+                <option value="secondary">僅第二單位 (箱)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-500 mb-1 pl-1">盤點單位模式</label>
+              <select v-model="itemForm.stocktake_unit_mode" class="w-full p-3 bg-slate-50 rounded-xl">
+                <option value="both">雙單位並存 (箱 + 罐)</option>
+                <option value="base">僅主單位 (罐)</option>
+                <option value="secondary">僅第二單位 (箱)</option>
+              </select>
+            </div>
+          </div>
         </div>
         <!-- Fixed bottom buttons -->
         <div class="flex-shrink-0 px-5 py-4 border-t border-slate-100 flex space-x-2">

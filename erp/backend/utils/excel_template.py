@@ -76,12 +76,17 @@ def build_items_template(vendors: list, groups: list) -> bytes:
         ("盤點群組", False, 16),
         ("安全庫存", False, 12),
         ("參考價格", False, 12),
+        ("第二單位 (例:箱)", False, 14),
+        ("換算比例 (1箱=N個)", False, 18),
+        ("叫貨單位模式", False, 14),
+        ("盤點單位模式", False, 14),
     ])
     _example(ws, [
         "白蘿蔔", "條",
         vendors[0]["name"] if vendors else "",
         groups[0]["name"]  if groups  else "",
         5, 30,
+        "箱", 10, "雙單位並存", "雙單位並存"
     ])
 
     lists = wb.create_sheet("_Lists")
@@ -96,6 +101,13 @@ def build_items_template(vendors: list, groups: list) -> bytes:
         for i, g in enumerate(groups, 1):
             lists.cell(row=i, column=2, value=g["name"])
         _dropdown(ws, f"_Lists!$B$1:$B${len(groups)}", "D")
+
+    # Mode Dropdowns
+    MODES = ["僅基準單位", "僅第二單位", "雙單位並存"]
+    for i, m in enumerate(MODES, 1):
+        lists.cell(row=i, column=3, value=m)
+    _dropdown(ws, f"_Lists!$C$1:$C${len(MODES)}", "I") # 叫貨單位模式
+    _dropdown(ws, f"_Lists!$C$1:$C${len(MODES)}", "J") # 盤點單位模式
 
     return _to_bytes(wb)
 

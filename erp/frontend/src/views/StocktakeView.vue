@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, toRaw } from 'vue'
+import { formatDualUnit } from '@/utils/formatters'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -114,39 +115,57 @@ async function loadItems(group) {
 }
 
 // ── Count helpers ──────────────────────────────────
-function getActual(id) { return counts.value[id]?.actual ?? null }
-function getOrder(id) { return counts.value[id]?.order ?? null }
-function setActual(id, val) {
-  if (!counts.value[id]) counts.value[id] = { actual: null, order: null }
-  const n = val === '' ? null : parseFloat(val)
-  counts.value[id].actual = isNaN(n) ? null : n
-  // auto-suggest order qty
-  if (!counts.value[id].orderManual) autoSuggestOrder(id)
+function initCount(id) {
+  if (!counts.value[id]) counts.value[id] = { actual: null, order: null, actualBase: null, actualSec: null, orderBase: null, orderSec: null, orderManual: false }
 }
-function setOrder(id, val) {
-  if (!counts.value[id]) counts.value[id] = { actual: null, order: null, orderManual: true }
-  counts.value[id].orderManual = true
-  const n = val === '' ? null : parseFloat(val)
-  counts.value[id].order = isNaN(n) ? null : n
+function calcTotalActual(item) {
+  const c = counts.value[item.id]
+  if (c.actualBase === null && c.actualSec === null) c.actual = null
+  else c.actual = ((c.actualSec ?? 0) * (parseFloat(item.secondary_unit_ratio) || 1)) + (c.actualBase ?? 0)
 }
-function incrementActual(id) { setActual(id, (getActual(id) ?? 0) + 1) }
-function decrementActual(id) { setActual(id, Math.max(0, (getActual(id) ?? 0) - 1)) }
-function incrementOrder(id) { setOrder(id, (getOrder(id) ?? 0) + 1) }
-function decrementOrder(id) { setOrder(id, Math.max(0, (getOrder(id) ?? 0) - 1)) }
+function calcTotalOrder(item) {
+  const c = counts.value[item.id]
+  if (c.orderBase === null && c.orderSec === null) c.order = null
+  else c.order = ((c.orderSec ?? 0) * (parseFloat(item.secondary_unit_ratio) || 1)) + (c.orderBase ?? 0)
+}
+function getActual(id, type = 'base') { return counts.value[id]?.[type === 'sec' ? 'actualSec' : 'actualBase'] ?? counts.value[id]?.actual ?? null }
+function getActualTotal(id) { return counts.value[id]?.actual ?? null }
+function getOrder(id, type = 'base') { return counts.value[id]?.[type === 'sec' ? 'orderSec' : 'orderBase'] ?? counts.value[id]?.order ?? null }
+function getOrderTotal(id) { return counts.value[id]?.order ?? null }
 
-function autoSuggestOrder(id) {
-  const item = items.value.find(i => i.id === id)
-  if (!item) return
+function setActual(item, val, type = 'base') {
+  initCount(item.id)
+  const n = val === '' ? null : parseFloat(val)
+  counts.value[item.id][type === 'sec' ? 'actualSec' : 'actualBase'] = isNaN(n) ? null : n
+  calcTotalActual(item)
+  if (!counts.value[item.id].orderManual) autoSuggestOrder(item)
+}
+function setOrder(item, val, type = 'base') {
+  initCount(item.id)
+  counts.value[item.id].orderManual = true
+  const n = val === '' ? null : parseFloat(val)
+  counts.value[item.id][type === 'sec' ? 'orderSec' : 'orderBase'] = isNaN(n) ? null : n
+  calcTotalOrder(item)
+}
+function incrementActual(item, type = 'base') { setActual(item, (getActual(item.id, type) ?? 0) + 1, type) }
+function decrementActual(item, type = 'base') { setActual(item, Math.max(0, (getActual(item.id, type) ?? 0) - 1), type) }
+function incrementOrder(item, type = 'base') { setOrder(item, (getOrder(item.id, type) ?? 0) + 1, type) }
+function decrementOrder(item, type = 'base') { setOrder(item, Math.max(0, (getOrder(item.id, type) ?? 0) - 1), type) }
+
+function autoSuggestOrder(item) {
   const min = parseFloat(item.min_stock) || 0
   if (min <= 0) return
-  const actual = counts.value[id]?.actual ?? parseFloat(item.current_stock) ?? 0
+  const actual = counts.value[item.id]?.actual ?? parseFloat(item.current_stock) ?? 0
   const suggested = Math.max(0, Math.ceil(min - actual))
-  counts.value[id].order = suggested
+  initCount(item.id)
+  counts.value[item.id].orderBase = suggested
+  counts.value[item.id].orderSec = null
+  calcTotalOrder(item)
 }
 
 // ── Diff indicators ──────────────────────────────────
 function actualDiff(item) {
-  const actual = getActual(item.id)
+  const actual = getActualTotal(item.id)
   if (actual === null) return null
   const sys = parseFloat(item.current_stock) || 0
   return actual - sys
@@ -158,7 +177,7 @@ function actualStatus(item) {
   return { text: `差 ${diff > 0 ? '+' : ''}${diff} ⚠️`, cls: 'text-red-500' }
 }
 function orderStatus(item) {
-  const qty = getOrder(item.id)
+  const qty = getOrderTotal(item.id)
   if (qty === null) return null
   if (qty === 0) return { text: '不需叫貨', cls: 'text-slate-400' }
   const min = parseFloat(item.min_stock) || 0
@@ -167,13 +186,13 @@ function orderStatus(item) {
 
 // ── Progress ──────────────────────────────────
 const filledCount = computed(() =>
-  items.value.filter(i => getActual(i.id) !== null).length
+  items.value.filter(i => getActualTotal(i.id) !== null).length
 )
 const diffCount = computed(() =>
   items.value.filter(i => { const d = actualDiff(i); return d !== null && d !== 0 }).length
 )
 const pendingOrderCount = computed(() =>
-  items.value.filter(i => (getOrder(i.id) ?? 0) > 0).length
+  items.value.filter(i => (getOrderTotal(i.id) ?? 0) > 0).length
 )
 const singleMode = computed(() => modeStocktake.value !== modeOrder.value)
 const progressPct = computed(() =>
@@ -184,9 +203,9 @@ const progressPct = computed(() =>
 function buildSheetText(v) {
   const delivDate = vendorDeliveryDates.value[v.vendor_id]
   const today = new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: 'numeric', day: 'numeric' })
-  let text = `【叫貨單】${v.vendor_name}\n日期：${today}\n──────────\n`
-  v.items.forEach(i => { text += `${i.name} × ${i.orderQty} ${i.unit || ''}\n` })
-  text += `──────────`
+    let text = `【叫貨單】${v.vendor_name}\n日期：${today}\n──────────\n`
+    v.items.forEach(i => { text += `${i.name} × ${formatDualUnit(i.orderQty, i)}\n` })
+    text += `──────────`
   if (v.total > 0) text += `\n合計金額 $${v.total.toLocaleString('zh-TW')}`
   if (delivDate) {
     const d = new Date(delivDate + 'T00:00:00')
@@ -198,7 +217,7 @@ function buildSheetText(v) {
 function buildVendorSheets() {
   const map = {}
   items.value.forEach(item => {
-    const qty = getOrder(item.id) ?? 0
+    const qty = getOrderTotal(item.id) ?? 0
     if (qty <= 0) return
     const vid = item.vendor_id || 0
     const vname = item.vendor_name || '未分類廠商'
@@ -239,8 +258,8 @@ async function submit() {
     const session = await createRes.json()
 
     const itemPayloads = items.value
-      .filter(i => getActual(i.id) !== null)
-      .map(i => ({ item_id: i.id, counted_qty: getActual(i.id) }))
+      .filter(i => getActualTotal(i.id) !== null)
+      .map(i => ({ item_id: i.id, counted_qty: getActualTotal(i.id) }))
 
     if (itemPayloads.length > 0) {
       await fetch(`${API_BASE}/stocktake/${session.id}`, {
@@ -403,6 +422,19 @@ async function openDiscrepancy(item) {
   } catch {}
   finally { discrepancyLoading.value = false }
 }
+
+function getRenderUnits(item, op) {
+  const mode = item[`${op}_unit_mode`] || 'both'
+  const units = []
+  if (['both', 'secondary'].includes(mode) && item.secondary_unit) {
+    units.push({ type: 'sec', label: item.secondary_unit, isSec: true })
+  }
+  if (['both', 'base'].includes(mode)) {
+    units.push({ type: 'base', label: item.unit || '個', isSec: false })
+  }
+  return units
+}
+
 </script>
 
 <template>
@@ -574,8 +606,7 @@ async function openDiscrepancy(item) {
                   </span>
                 </div>
                 <p class="text-[10px] text-slate-400 mt-0.5">
-                  系統 {{ item.current_stock || 0 }} {{ item.unit }} · 安全庫存 {{ item.min_stock || 0 }} {{ item.unit }}
-                </p>
+                  <span v-if="item.secondary_unit" class="text-orange-500 font-bold mr-1">[{{ item.secondary_unit_ratio || 1 }}{{ item.unit }}/{{ item.secondary_unit }}]</span>                  系統 {{ item.current_stock || 0 }} {{ item.unit }} · 安全庫存 {{ item.min_stock || 0 }} {{ item.unit }}                </p>
               </div>
               <!-- 🔍 差異分析按鈕 (P3-3) -->
               <button @click="openDiscrepancy(item)"
@@ -587,34 +618,38 @@ async function openDiscrepancy(item) {
             <!-- Single mode: compact 1-row layout -->
             <template v-if="singleMode">
               <!-- 實盤 compact -->
-              <div v-if="modeStocktake" class="flex items-center gap-2 mt-1">
-                <button @click="decrementActual(item.id)"
+              <div v-if="modeStocktake" class="flex flex-col gap-1 mt-1">
+                <div v-for="u in getRenderUnits(item, 'stocktake')" :key="'act'+u.type" class="flex items-center gap-2">
+                  <button @click="decrementActual(item, u.type)"
                   class="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center font-bold text-slate-600 text-lg active:bg-slate-300 shrink-0">−</button>
-                <input
-                  :value="getActual(item.id) ?? ''"
-                  @input="setActual(item.id, $event.target.value)"
-                  type="number" min="0" inputmode="decimal"
-                  :placeholder="item.unit"
+                  <input
+                    :value="getActual(item.id, u.type) ?? ''"
+                    @input="setActual(item, $event.target.value, u.type)"
+                    type="number" min="0" inputmode="decimal"
+                    :placeholder="u.label"
                   class="flex-1 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none py-1"
-                  :class="getActual(item.id) !== null ? 'border-orange-400 text-orange-600' : 'border-slate-300 text-slate-700'" />
-                <span class="text-xs text-slate-400 shrink-0">{{ item.unit }}</span>
-                <button @click="incrementActual(item.id)"
+                  :class="getActualTotal(item.id) !== null ? 'border-orange-400 text-orange-600' : 'border-slate-300 text-slate-700'" />
+                  <span class="text-xs text-slate-400 shrink-0">{{ u.label }}</span>
+                  <button @click="incrementActual(item, u.type)"
                   class="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 text-lg active:bg-orange-200 shrink-0">+</button>
+                </div>
               </div>
               <!-- 叫貨 compact -->
-              <div v-if="modeOrder" class="flex items-center gap-2 mt-1">
-                <button @click="decrementOrder(item.id)"
+              <div v-if="modeOrder" class="flex flex-col gap-1 mt-1">
+                <div v-for="u in getRenderUnits(item, 'order')" :key="'ord'+u.type" class="flex items-center gap-2">
+                  <button @click="decrementOrder(item, u.type)"
                   class="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center font-bold text-emerald-600 text-lg active:bg-emerald-200 shrink-0">−</button>
-                <input
-                  :value="getOrder(item.id) ?? ''"
-                  @input="setOrder(item.id, $event.target.value)"
-                  type="number" min="0" inputmode="decimal"
-                  :placeholder="item.unit"
+                  <input
+                    :value="getOrder(item.id, u.type) ?? ''"
+                    @input="setOrder(item, $event.target.value, u.type)"
+                    type="number" min="0" inputmode="decimal"
+                    :placeholder="u.label"
                   class="flex-1 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none py-1"
-                  :class="getOrder(item.id) !== null && getOrder(item.id) > 0 ? 'border-emerald-400 text-emerald-700' : 'border-emerald-200 text-slate-700'" />
-                <span class="text-xs text-slate-400 shrink-0">{{ item.unit }}</span>
-                <button @click="incrementOrder(item.id)"
+                  :class="getOrderTotal(item.id) !== null && getOrderTotal(item.id) > 0 ? 'border-emerald-400 text-emerald-700' : 'border-emerald-200 text-slate-700'" />
+                  <span class="text-xs text-slate-400 shrink-0">{{ u.label }}</span>
+                  <button @click="incrementOrder(item, u.type)"
                   class="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center font-bold text-emerald-600 text-lg active:bg-emerald-200 shrink-0">+</button>
+                </div>
               </div>
             </template>
 
@@ -623,18 +658,20 @@ async function openDiscrepancy(item) {
               <!-- 實盤 column -->
               <div v-if="modeStocktake" class="flex-1 rounded-xl p-2" style="background:#f8fafc">
                 <p class="text-[9px] font-bold text-slate-400 text-center mb-1.5">實盤</p>
-                <div class="flex items-center justify-center gap-1">
-                  <button @click="decrementActual(item.id)"
+                <div class="flex flex-col gap-1.5 items-center justify-center">
+                  <div v-for="u in getRenderUnits(item, 'stocktake')" :key="'dact'+u.type" class="flex items-center justify-center gap-1 w-full">
+                    <button @click="decrementActual(item, u.type)"
                     class="w-7 h-7 bg-slate-200 rounded-full flex items-center justify-center font-bold text-slate-600 text-base leading-none active:bg-slate-300">−</button>
-                  <input
-                    :value="getActual(item.id) ?? ''"
-                    @input="setActual(item.id, $event.target.value)"
-                    type="number" min="0" inputmode="decimal"
-                    :placeholder="item.unit"
-                    class="w-12 text-center border-b-2 font-extrabold text-sm bg-transparent focus:outline-none"
-                    :class="getActual(item.id) !== null ? 'border-orange-400 text-orange-600' : 'border-slate-300 text-slate-700'" />
-                  <button @click="incrementActual(item.id)"
+                    <input
+                      :value="getActual(item.id, u.type) ?? ''"
+                      @input="setActual(item, $event.target.value, u.type)"
+                      type="number" min="0" inputmode="decimal"
+                      :placeholder="u.label"
+                      class="w-12 text-center border-b-2 font-extrabold text-sm bg-transparent focus:outline-none"
+                    :class="getActualTotal(item.id) !== null ? 'border-orange-400 text-orange-600' : 'border-slate-300 text-slate-700'" />
+                    <button @click="incrementActual(item, u.type)"
                     class="w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 text-base leading-none active:bg-orange-200">+</button>
+                  </div>
                 </div>
                 <p v-if="actualStatus(item)" class="text-center mt-1" style="font-size:10px"
                   :class="actualStatus(item).cls">
@@ -646,18 +683,20 @@ async function openDiscrepancy(item) {
               <div v-if="modeOrder" class="flex-1 rounded-xl p-2"
                 style="background:#f0fdf4;border:1px solid #bbf7d0">
                 <p class="text-[9px] font-bold text-center mb-1.5" style="color:#16a34a">叫貨</p>
-                <div class="flex items-center justify-center gap-1">
-                  <button @click="decrementOrder(item.id)"
+                <div class="flex flex-col gap-1.5 items-center justify-center">
+                  <div v-for="u in getRenderUnits(item, 'order')" :key="'dord'+u.type" class="flex items-center justify-center gap-1 w-full">
+                    <button @click="decrementOrder(item, u.type)"
                     class="w-7 h-7 bg-emerald-100 rounded-full flex items-center justify-center font-bold text-emerald-600 text-base leading-none active:bg-emerald-200">−</button>
-                  <input
-                    :value="getOrder(item.id) ?? ''"
-                    @input="setOrder(item.id, $event.target.value)"
-                    type="number" min="0" inputmode="decimal"
-                    :placeholder="item.unit"
-                    class="w-12 text-center border-b-2 font-extrabold text-sm bg-transparent focus:outline-none"
-                    :class="getOrder(item.id) !== null && getOrder(item.id) > 0 ? 'border-emerald-400 text-emerald-700' : 'border-emerald-200 text-slate-700'" />
-                  <button @click="incrementOrder(item.id)"
+                    <input
+                      :value="getOrder(item.id, u.type) ?? ''"
+                      @input="setOrder(item, $event.target.value, u.type)"
+                      type="number" min="0" inputmode="decimal"
+                      :placeholder="u.label"
+                      class="w-12 text-center border-b-2 font-extrabold text-sm bg-transparent focus:outline-none"
+                    :class="getOrderTotal(item.id) !== null && getOrderTotal(item.id) > 0 ? 'border-emerald-400 text-emerald-700' : 'border-emerald-200 text-slate-700'" />
+                    <button @click="incrementOrder(item, u.type)"
                     class="w-7 h-7 bg-emerald-100 rounded-full flex items-center justify-center font-bold text-emerald-600 text-base leading-none active:bg-emerald-200">+</button>
+                  </div>
                 </div>
                 <p v-if="orderStatus(item)" class="text-center mt-1" style="font-size:10px"
                   :class="orderStatus(item).cls">

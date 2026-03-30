@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { formatDualUnit } from '@/utils/formatters'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -56,7 +57,7 @@ async function toggleOrder(order) {
       const res = await fetch(`${API_BASE}/inventory/orders/${order.id}`, { headers: authHeaders() })
       if (res.ok) {
         const data = await res.json()
-        orderItems.value[order.id] = data.items || []
+        orderItems.value[order.id] = Array.isArray(data) ? data : (data.items || [])
       }
     }
   }
@@ -137,7 +138,7 @@ onMounted(loadOrders)
                 class="flex items-center justify-between text-sm py-0.5">
                 <span class="text-slate-700">{{ item.name }}</span>
                 <span class="text-slate-500 text-xs">
-                  叫 {{ item.ordered_qty }} / 到 {{ item.received_qty ?? item.ordered_qty }} {{ item.unit }}
+                  叫 {{ formatDualUnit(item.qty || item.ordered_qty, item) }} / 到 {{ formatDualUnit(item.actual_qty ?? item.received_qty ?? item.qty ?? item.ordered_qty, item) }}
                 </span>
               </div>
             </div>

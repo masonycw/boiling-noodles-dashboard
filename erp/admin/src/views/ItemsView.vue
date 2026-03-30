@@ -30,10 +30,19 @@ const importError = ref('')
 const importing = ref(false)
 const importResult = ref(null)
 
+const parseMode = (val) => {
+  const v = String(val ?? '').trim()
+  if (v === '僅基準單位') return 'base'
+  if (v === '僅第二單位') return 'secondary'
+  return 'both'
+}
+
 const emptyForm = () => ({
   name: '', unit: '', vendor_id: null,
   stocktake_group_id: null, min_stock: 10, current_stock: 0,
-  price: null, display_order: 999, is_active: true
+  price: null, display_order: 999, is_active: true,
+  secondary_unit: '', secondary_unit_ratio: null,
+  order_unit_mode: 'both', stocktake_unit_mode: 'both'
 })
 
 const form = ref(emptyForm())
@@ -113,6 +122,10 @@ function openEdit(item) {
     price: item.price ?? null,
     display_order: item.display_order ?? 999,
     is_active: item.is_active !== false,
+    secondary_unit: item.secondary_unit || '',
+    secondary_unit_ratio: item.secondary_unit_ratio ?? null,
+    order_unit_mode: item.order_unit_mode || 'both',
+    stocktake_unit_mode: item.stocktake_unit_mode || 'both'
   }
   saveError.value = ''
   showModal.value = true
@@ -255,6 +268,10 @@ function onImportFile(e) {
             stocktake_group_id: groupId,
             min_stock: parseFloat(row[4]) || 0,
             price: row[5] !== '' ? parseFloat(row[5]) : null,
+            secondary_unit: String(row[6] ?? '').trim() || null,
+            secondary_unit_ratio: row[7] !== '' && !isNaN(parseFloat(row[7])) ? parseFloat(row[7]) : null,
+            order_unit_mode: parseMode(row[8]),
+            stocktake_unit_mode: parseMode(row[9]),
             current_stock: 0, display_order: 999, is_active: true,
           }
         })
@@ -504,7 +521,40 @@ async function confirmImport() {
               <input v-model.number="form.display_order" type="number"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
-            <div class="col-span-2 flex items-center gap-3 pt-1">
+            <div>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
+                第二單位 (例如: 箱)
+              </label>
+              <input v-model="form.secondary_unit" type="text" placeholder="留白表示不啟用第二單位"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+            </div>
+            <div>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
+                換算比例 (1 個第二單位 = ? 基準單位)
+              </label>
+              <input v-model.number="form.secondary_unit_ratio" type="number" min="0" step="0.01"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
+            </div>
+            <div>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">叫貨單位模式</label>
+              <select v-model="form.order_unit_mode"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
+                <option value="both">雙單位並存</option>
+                <option value="base">僅基準單位</option>
+                <option value="secondary">僅第二單位</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">盤點單位模式</label>
+              <select v-model="form.stocktake_unit_mode"
+                class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
+                <option value="both">雙單位並存</option>
+                <option value="base">僅基準單位</option>
+                <option value="secondary">僅第二單位</option>
+              </select>
+            </div>
+
+            <div class="col-span-2 flex items-center gap-3 pt-1 border-t border-[#2d3748] mt-2">
               <input v-model="form.is_active" type="checkbox" id="is_active" class="w-4 h-4 accent-blue-500" />
               <label for="is_active" class="text-gray-300 text-sm">啟用此品項</label>
             </div>

@@ -160,9 +160,11 @@ class Item(Base):
     display_order = Column(Integer, default=0)               # 叫貨/盤點顯示順序
     secondary_unit = Column(String)                          # 第二單位（例：箱）
     secondary_unit_ratio = Column(Numeric(10, 4))            # 換算比例（1箱=N個）
-    # P1-1 新增
     category = Column(String)                                # 品項分類（文字）
     price = Column(Numeric(10, 2))                           # 參考單價
+    # P15 新增
+    order_unit_mode = Column(String, default="both")         # 叫貨單位模式 (base, secondary, both)
+    stocktake_unit_mode = Column(String, default="both")     # 盤點單位模式 (base, secondary, both)
 
 
 class PurchaseOrder(Base):
