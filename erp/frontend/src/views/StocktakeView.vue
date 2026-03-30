@@ -654,11 +654,11 @@ function getRenderUnits(item, op) {
             </template>
 
             <!-- Dual mode: two columns -->
-            <div v-else class="flex gap-2">
+            <div v-else class="flex gap-2 items-start">
               <!-- 實盤 column -->
               <div v-if="modeStocktake" class="flex-1 rounded-xl p-2" style="background:#f8fafc">
                 <p class="text-[9px] font-bold text-slate-400 text-center mb-1.5">實盤</p>
-                <div class="flex flex-col gap-1.5 items-center justify-center">
+                <div class="flex flex-col gap-1.5 items-center">
                   <div v-for="u in getRenderUnits(item, 'stocktake')" :key="'dact'+u.type" class="flex items-center justify-center gap-1 w-full">
                     <button @click="decrementActual(item, u.type)"
                     class="w-7 h-7 bg-slate-200 rounded-full flex items-center justify-center font-bold text-slate-600 text-base leading-none active:bg-slate-300">−</button>
@@ -669,6 +669,7 @@ function getRenderUnits(item, op) {
                       :placeholder="u.label"
                       class="w-12 text-center border-b-2 font-extrabold text-sm bg-transparent focus:outline-none"
                     :class="getActualTotal(item.id) !== null ? 'border-orange-400 text-orange-600' : 'border-slate-300 text-slate-700'" />
+                    <span class="text-[9px] text-slate-400 shrink-0">{{ u.label }}</span>
                     <button @click="incrementActual(item, u.type)"
                     class="w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 text-base leading-none active:bg-orange-200">+</button>
                   </div>
@@ -683,7 +684,7 @@ function getRenderUnits(item, op) {
               <div v-if="modeOrder" class="flex-1 rounded-xl p-2"
                 style="background:#f0fdf4;border:1px solid #bbf7d0">
                 <p class="text-[9px] font-bold text-center mb-1.5" style="color:#16a34a">叫貨</p>
-                <div class="flex flex-col gap-1.5 items-center justify-center">
+                <div class="flex flex-col gap-1.5 items-center">
                   <div v-for="u in getRenderUnits(item, 'order')" :key="'dord'+u.type" class="flex items-center justify-center gap-1 w-full">
                     <button @click="decrementOrder(item, u.type)"
                     class="w-7 h-7 bg-emerald-100 rounded-full flex items-center justify-center font-bold text-emerald-600 text-base leading-none active:bg-emerald-200">−</button>
@@ -694,6 +695,7 @@ function getRenderUnits(item, op) {
                       :placeholder="u.label"
                       class="w-12 text-center border-b-2 font-extrabold text-sm bg-transparent focus:outline-none"
                     :class="getOrderTotal(item.id) !== null && getOrderTotal(item.id) > 0 ? 'border-emerald-400 text-emerald-700' : 'border-emerald-200 text-slate-700'" />
+                    <span class="text-[9px] text-slate-400 shrink-0">{{ u.label }}</span>
                     <button @click="incrementOrder(item, u.type)"
                     class="w-7 h-7 bg-emerald-100 rounded-full flex items-center justify-center font-bold text-emerald-600 text-base leading-none active:bg-emerald-200">+</button>
                   </div>
