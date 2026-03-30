@@ -1329,7 +1329,7 @@ function setOrder(item, val, type) {
                   <span v-if="isLowStock(item)" class="text-[9px] font-extrabold bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">低庫存</span>
                 </div>
                 <p class="text-[10px] text-slate-400 mt-0.5">
-                  <span v-if="item.secondary_unit" class="text-orange-500 font-bold mr-1">[{{ item.secondary_unit_ratio || 1 }}{{ item.unit }}/{{ item.secondary_unit }}]</span>                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.current_stock || 0 }}</span>                  {{ item.unit }}<span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>                </p>
+                  <span v-if="item.secondary_unit" class="text-orange-500 font-bold mr-1">[{{ item.secondary_unit_ratio || 1 }}{{ item.unit }}/{{ item.secondary_unit }}]</span>                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.secondary_unit ? formatDualUnit(item.current_stock || 0, item) : (item.current_stock || 0) }}</span>                  <span v-if="!item.secondary_unit">{{ item.unit }}</span><span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>                </p>
               </div>
               <!-- 叫貨控制 -->
               <div v-if="modeOrder" class="flex flex-col gap-1 shrink-0">
@@ -1379,7 +1379,7 @@ function setOrder(item, val, type) {
                   <span v-if="isLowStock(item)" class="text-[9px] font-extrabold bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">低庫存</span>
                 </div>
                 <p class="text-[10px] text-slate-400 mt-0.5">
-                  <span v-if="item.secondary_unit" class="text-orange-500 font-bold mr-1">[{{ item.secondary_unit_ratio || 1 }}{{ item.unit }}/{{ item.secondary_unit }}]</span>                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.current_stock || 0 }}</span>                  {{ item.unit }}<span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>                </p>
+                  <span v-if="item.secondary_unit" class="text-orange-500 font-bold mr-1">[{{ item.secondary_unit_ratio || 1 }}{{ item.unit }}/{{ item.secondary_unit }}]</span>                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.secondary_unit ? formatDualUnit(item.current_stock || 0, item) : (item.current_stock || 0) }}</span>                  <span v-if="!item.secondary_unit">{{ item.unit }}</span><span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>                </p>
               </div>
             </div>
             <div class="flex gap-2">
