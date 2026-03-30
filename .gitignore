@@ -15,6 +15,9 @@ yarn-error.log
 # Build output
 dist/
 build/
+# ERP 前台/後台 build 納入版控（server git pull 即可更新）
+!erp/frontend/dist/
+!erp/admin/dist/
 
 # Data & Keys
 *.csv
