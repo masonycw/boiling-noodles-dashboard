@@ -1370,29 +1370,39 @@ function setOrder(item, val, type) {
               </div>
             </div>
             <div class="flex gap-2">
-              <!-- 叫貨欄 -->
+              <!-- 叫貨欄：使用 getRenderUnits 支援雙單位 -->
               <div class="flex-1 rounded-xl p-2" style="background:#fff7ed">
                 <p class="text-[9px] font-bold text-orange-400 text-center mb-1.5">叫貨</p>
-                <div class="flex items-center justify-center gap-1">
-                  <button @click="item.qty=Math.max(0,item.qty-1)"
+                <div v-for="u in getRenderUnits(item, 'order')" :key="'bo'+u.type"
+                  class="flex items-center justify-center gap-1 mb-1">
+                  <span class="text-[10px] font-bold text-orange-300 w-4 text-right shrink-0">{{ u.label }}</span>
+                  <button @click="setOrder(item, Math.max(0, getOrder(item, u.type)-1), u.type)"
                     class="w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 active:bg-orange-200 text-base leading-none">−</button>
-                  <input v-model.number="item.qty" type="number" min="0"
+                  <input
+                    :value="getOrder(item, u.type) || ''"
+                    @input="setOrder(item, $event.target.value, u.type)"
+                    type="number" min="0" :placeholder="u.label"
                     class="w-10 text-center border-b-2 font-extrabold text-sm bg-transparent focus:outline-none"
                     :class="item.qty>0?'border-orange-500 text-orange-600':'border-slate-200 text-slate-800'" />
-                  <button @click="item.qty+=1"
+                  <button @click="setOrder(item, getOrder(item, u.type)+1, u.type)"
                     class="w-7 h-7 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 active:bg-orange-200 text-base leading-none">+</button>
                 </div>
               </div>
-              <!-- 實盤欄 -->
+              <!-- 實盤欄：使用 getRenderUnits 支援雙單位 -->
               <div class="flex-1 rounded-xl p-2" style="background:#eff6ff">
                 <p class="text-[9px] font-bold text-blue-400 text-center mb-1.5">實盤</p>
-                <div class="flex items-center justify-center gap-1">
-                  <button @click="item.actual_qty = Math.max(0, (parseFloat(item.actual_qty) || 0) - 1)"
+                <div v-for="u in getRenderUnits(item, 'stocktake')" :key="'bs'+u.type"
+                  class="flex items-center justify-center gap-1 mb-1">
+                  <span class="text-[10px] font-bold text-blue-300 w-4 text-right shrink-0">{{ u.label }}</span>
+                  <button @click="setActual(item, Math.max(0, (getActual(item, u.type)||0)-1), u.type)"
                     class="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center font-bold text-blue-600 active:bg-blue-200 text-base leading-none">−</button>
-                  <input v-model.number="item.actual_qty" type="number" min="0" :placeholder="`${item.current_stock || 0}`"
+                  <input
+                    :value="getActual(item, u.type) ?? ''"
+                    @input="setActual(item, $event.target.value, u.type)"
+                    type="number" min="0" :placeholder="u.isSec ? u.label : `${item.current_stock || 0}`"
                     class="w-10 text-center border-b-2 font-extrabold text-sm bg-transparent focus:outline-none"
-                    :class="item.actual_qty != null && item.actual_qty !== '' ? 'border-blue-500 text-blue-700' : 'border-slate-200 text-slate-400'" />
-                  <button @click="item.actual_qty = (parseFloat(item.actual_qty) || 0) + 1"
+                    :class="getActual(item, u.type) !== null && getActual(item, u.type) !== '' ? 'border-blue-500 text-blue-700' : 'border-slate-200 text-slate-400'" />
+                  <button @click="setActual(item, (getActual(item, u.type)||0)+1, u.type)"
                     class="w-7 h-7 bg-blue-100 rounded-full flex items-center justify-center font-bold text-blue-600 active:bg-blue-200 text-base leading-none">+</button>
                 </div>
               </div>
