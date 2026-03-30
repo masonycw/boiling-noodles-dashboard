@@ -1,6 +1,6 @@
 // Service Worker for 滾麵 ERP PWA
-const STATIC_CACHE = 'erp-static-v2'
-const API_CACHE = 'erp-api-v2'
+const STATIC_CACHE = 'erp-static-v1'
+const API_CACHE = 'erp-api-v1'
 
 const STATIC_ASSETS = [
   '/',
@@ -52,17 +52,18 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Static assets: network-first, cache fallback（確保每次都拿最新，離線才用快取）
+  // Static assets: cache-first, network fallback
   event.respondWith(
-    fetch(event.request).then((response) => {
-      if (response.ok) {
-        const clone = response.clone()
-        caches.open(STATIC_CACHE).then(cache => cache.put(event.request, clone))
-      }
-      return response
-    }).catch(() =>
-      caches.match(event.request).then(cached => cached || caches.match('/index.html'))
-    )
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached
+      return fetch(event.request).then((response) => {
+        if (response.ok) {
+          const clone = response.clone()
+          caches.open(STATIC_CACHE).then(cache => cache.put(event.request, clone))
+        }
+        return response
+      }).catch(() => caches.match('/index.html'))
+    })
   )
 })
 
