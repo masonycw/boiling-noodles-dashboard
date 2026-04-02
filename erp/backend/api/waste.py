@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 from erp.backend.db.session import get_db
 from erp.backend.services import waste_service
+from erp.backend.api.auth import get_current_user
 
 router = APIRouter(prefix="/waste", tags=["waste"])
 
@@ -49,8 +50,8 @@ def list_waste_records(
 
 
 @router.post("/")
-def create_waste_record(data: WasteCreate, db: Session = Depends(get_db)):
-    user_id = 1  # TODO: 從 JWT 取得
+def create_waste_record(data: WasteCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    user_id = current_user.id
     if not data.item_id and not data.adhoc_name:
         raise HTTPException(status_code=400, detail="需要提供 item_id 或 adhoc_name")
     return waste_service.create_waste_record(db, user_id, data.dict())

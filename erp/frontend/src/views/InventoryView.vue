@@ -423,6 +423,13 @@ function authHeaders() {
   return { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }
 }
 
+function resolveUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http')) return url
+  const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '')
+  return base + url
+}
+
 onMounted(async () => {
   try {
     const [vRes, gRes] = await Promise.all([
@@ -1980,8 +1987,8 @@ function setOrder(item, val, type) {
               <div v-if="order.note" class="text-xs text-slate-500 pt-1">📝 {{ order.note }}</div>
               <div class="pt-1">
                 <div v-if="order.receipt_url" class="mb-2">
-                  <a :href="order.receipt_url" target="_blank" rel="noopener">
-                    <img :src="order.receipt_url" alt="收據照片"
+                  <a :href="resolveUrl(order.receipt_url)" target="_blank" rel="noopener">
+                    <img :src="resolveUrl(order.receipt_url)" alt="收據照片"
                       class="w-full max-h-40 object-cover rounded-xl border border-slate-200" />
                   </a>
                   <p class="text-center text-[10px] text-slate-400 mt-1">點擊查看原圖</p>

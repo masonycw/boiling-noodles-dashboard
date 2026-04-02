@@ -263,8 +263,13 @@ def update_item(db: Session, item_id: int, item_in: dict):
     return db_item
 
 def delete_item(db: Session, item_id: int):
+    from erp.backend.db.models import StocktakeItem, PurchaseOrderDetail, WasteRecord, InventoryTransaction
     db_item = db.query(Item).filter(Item.id == item_id).first()
     if db_item:
-        db_item.is_active = False # Soft delete
+        db.query(StocktakeItem).filter(StocktakeItem.item_id == item_id).update({"item_id": None})
+        db.query(PurchaseOrderDetail).filter(PurchaseOrderDetail.item_id == item_id).update({"item_id": None})
+        db.query(WasteRecord).filter(WasteRecord.item_id == item_id).update({"item_id": None})
+        db.query(InventoryTransaction).filter(InventoryTransaction.item_id == item_id).update({"item_id": None})
+        db.delete(db_item)
         db.commit()
-    return db_item
+    return {"deleted": True}

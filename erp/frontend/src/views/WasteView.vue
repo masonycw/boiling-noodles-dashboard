@@ -182,6 +182,13 @@ onUnmounted(() => {
   document.removeEventListener('mousedown', handleOutsideTouch)
 })
 
+function resolveUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http')) return url
+  const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '')
+  return base + url
+}
+
 function openSheet() {
   selectedItem.value = null
   isOtherItem.value = false
@@ -381,8 +388,8 @@ async function submit() {
                 <p v-if="r.note">📝 備注：{{ r.note }}</p>
                 <p v-if="r.recorded_by_name">👤 記錄人：{{ r.recorded_by_name }}</p>
                 <div v-if="r.photo_url" class="pt-1">
-                  <a :href="r.photo_url" target="_blank" rel="noopener">
-                    <img :src="r.photo_url" alt="損耗照片"
+                  <a :href="resolveUrl(r.photo_url)" target="_blank" rel="noopener">
+                    <img :src="resolveUrl(r.photo_url)" alt="損耗照片"
                       class="w-full max-h-40 object-cover rounded-lg border border-slate-200" />
                   </a>
                   <p class="text-center text-slate-400 mt-1">點擊查看原圖</p>

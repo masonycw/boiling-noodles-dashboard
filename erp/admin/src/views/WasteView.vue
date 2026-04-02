@@ -33,6 +33,13 @@ function authHeaders() {
   return { Authorization: `Bearer ${auth.token}` }
 }
 
+function resolveUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http')) return url
+  const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '')
+  return base + url
+}
+
 async function load() {
   loading.value = true
   const [recRes, itemsRes, kpiRes] = await Promise.all([
@@ -143,14 +150,18 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
               <th class="px-4 py-3 text-right">估值</th>
               <th class="px-4 py-3 text-left">記錄人</th>
               <th class="px-4 py-3 text-left">備註</th>
-              <th class="px-4 py-3 text-center">照片</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-[#2d3748]">
             <template v-for="r in paginated" :key="r.id">
-              <tr class="hover:bg-[#1f2937] transition-colors" :class="expandedPhotoId === r.id ? 'bg-[#1f2937]' : ''">
+              <tr class="hover:bg-[#1f2937] transition-colors cursor-pointer"
+                :class="expandedPhotoId === r.id ? 'bg-[#1f2937]' : ''"
+                @click="r.photo_url ? togglePhoto(r.id) : null">
                 <td class="px-4 py-3 text-gray-500 text-xs">{{ fmtDate(r.created_at) }}</td>
-                <td class="px-4 py-3 font-medium text-gray-200">{{ r.item_name || r.adhoc_name }}</td>
+                <td class="px-4 py-3 font-medium text-gray-200">
+                  {{ r.item_name || r.adhoc_name }}
+                  <span v-if="r.photo_url" class="ml-1 text-blue-400 text-xs">📷</span>
+                </td>
                 <td class="px-4 py-3 text-right font-mono text-gray-300">{{ r.qty }}</td>
                 <td class="px-4 py-3 text-center text-gray-400">{{ r.unit || '—' }}</td>
                 <td class="px-4 py-3 text-center">
@@ -162,22 +173,15 @@ function fmtMoney(n) { return Number(n || 0).toLocaleString('zh-TW') }
                 </td>
                 <td class="px-4 py-3 text-gray-400 text-xs">{{ r.recorded_by_name || '—' }}</td>
                 <td class="px-4 py-3 text-gray-500 text-xs">{{ r.note || '—' }}</td>
-                <td class="px-4 py-3 text-center">
-                  <button v-if="r.photo_url" @click="togglePhoto(r.id)"
-                    class="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">
-                    {{ expandedPhotoId === r.id ? '收起' : '📷 看圖' }}
-                  </button>
-                  <span v-else class="text-gray-700">—</span>
-                </td>
               </tr>
               <tr v-if="r.photo_url && expandedPhotoId === r.id">
-                <td colspan="9" class="px-4 py-3 bg-[#0f1117]">
-                  <img :src="r.photo_url" alt="耗損照片" class="max-h-64 rounded-lg object-contain" />
+                <td colspan="8" class="px-4 py-3 bg-[#0f1117]">
+                  <img :src="resolveUrl(r.photo_url)" alt="耗損照片" class="max-h-64 rounded-lg object-contain" />
                 </td>
               </tr>
             </template>
             <tr v-if="filtered.length === 0">
-              <td colspan="9" class="px-5 py-10 text-center text-gray-600">無損耗紀錄</td>
+              <td colspan="8" class="px-5 py-10 text-center text-gray-600">無損耗紀錄</td>
             </tr>
           </tbody>
         </table>

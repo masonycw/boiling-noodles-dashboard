@@ -59,7 +59,7 @@ function showToast(msg) {
 async function load() {
   loading.value = true
   const [itemsRes, vendorsRes, groupsRes] = await Promise.all([
-    fetch(`${API_BASE}/inventory/items?limit=500`, { headers: authHeaders() }),
+    fetch(`${API_BASE}/inventory/items?limit=500&include_inactive=true`, { headers: authHeaders() }),
     fetch(`${API_BASE}/inventory/vendors`, { headers: authHeaders() }),
     fetch(`${API_BASE}/stocktake/groups`, { headers: authHeaders() }),
   ])
@@ -381,7 +381,12 @@ async function confirmImport() {
               <span :class="isDragging ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 cursor-grab'"
                 title="拖曳排序（搜尋/篩選狀態下不可拖曳）">⠿</span>
             </td>
-            <td class="px-4 py-3 font-semibold text-gray-200">{{ item.name }}</td>
+            <td class="px-4 py-3 font-semibold">
+              <span :class="item.is_active === false ? 'text-gray-500' : 'text-gray-200'">{{ item.name }}</span>
+              <span v-if="item.is_active === false"
+                class="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                style="background:#374151;color:#9ca3af;border:1px solid #4b5563;">已停用</span>
+            </td>
             <td class="px-4 py-3 text-gray-400">{{ vendorName(item.vendor_id) }}</td>
             <td class="px-4 py-3">
               <span v-if="groupName(item.stocktake_group_id)"
@@ -490,21 +495,22 @@ async function confirmImport() {
               class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
           </div>
 
-          <!-- 單位 | 第二單位 -->
+          <!-- 叫貨大單位 | 計算小單位 -->
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                單位 <span class="text-red-400">*</span>
+                叫貨大單位
+                <span class="text-gray-600 font-normal text-[11px]">（如：箱，選填）</span>
               </label>
-              <input v-model="form.unit" type="text" placeholder="罐 / 包 / 瓶"
+              <input v-model="form.secondary_unit" type="text" placeholder="箱 / 盒 / 袋（留空不啟用）"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
             <div>
               <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                第二單位
-                <span class="text-gray-600 font-normal text-[11px]">（例如: 箱）</span>
+                計算小單位 <span class="text-red-400">*</span>
+                <span class="text-gray-600 font-normal text-[11px]">（如：罐）</span>
               </label>
-              <input v-model="form.secondary_unit" type="text" placeholder="選填，留空不啟用"
+              <input v-model="form.unit" type="text" placeholder="罐 / 包 / 瓶"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
           </div>
@@ -513,7 +519,7 @@ async function confirmImport() {
           <div v-if="form.secondary_unit">
             <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
               換算比例
-              <span class="text-gray-600 font-normal text-[11px]">（1 {{ form.secondary_unit }} = ? {{ form.unit || '基準單位' }}）</span>
+              <span class="text-gray-600 font-normal text-[11px]">（1 {{ form.secondary_unit }} = ? {{ form.unit || '小單位' }}）</span>
             </label>
             <input v-model.number="form.secondary_unit_ratio" type="number" min="0" step="1" placeholder="例如: 24"
               class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />

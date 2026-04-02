@@ -65,6 +65,13 @@ function openLightbox(imgs, idx = 0) {
   showLightbox.value = true
 }
 
+function resolveUrl(url) {
+  if (!url) return null
+  if (url.startsWith('http')) return url
+  const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace('/api/v1', '')
+  return base + url
+}
+
 async function handleAttachmentSelect(e) {
   const files = Array.from(e.target.files)
   if (attachmentFiles.value.length + files.length > 3) {
@@ -673,13 +680,10 @@ async function confirmAndPay() {
                   <img :src="att.file_url" class="w-full h-full object-cover" />
                 </button>
               </div>
-              <!-- 收據照片（點擊展開） -->
-              <div v-if="entry.photo_url && !entry.attachments?.length" class="mt-1.5" @click.stop>
-                <button @click="togglePhoto(entry.id)" class="flex items-center gap-1 text-[10px] text-blue-500 font-bold">
-                  📷 {{ expandedPhotos.has(entry.id) ? '收起' : '收據照片' }}
-                </button>
-                <a v-if="expandedPhotos.has(entry.id)" :href="entry.photo_url" target="_blank" rel="noopener">
-                  <img :src="entry.photo_url" class="mt-1 h-28 w-auto rounded-lg border border-slate-200 object-cover cursor-pointer" />
+              <!-- 收據照片（直接顯示縮圖） -->
+              <div v-if="entry.photo_url && !entry.attachments?.length" class="mt-2" @click.stop>
+                <a :href="resolveUrl(entry.photo_url)" target="_blank" rel="noopener">
+                  <img :src="resolveUrl(entry.photo_url)" class="h-24 w-auto rounded-lg border border-slate-200 object-cover cursor-pointer" />
                 </a>
               </div>
             </div>
@@ -747,12 +751,9 @@ async function confirmAndPay() {
                 </span>
               </div>
             </div>
-            <div v-if="r.photo_url && !r.attachments?.length" class="mt-1.5" @click.stop>
-              <button @click="togglePhoto(r.id)" class="flex items-center gap-1 text-[10px] text-blue-500 font-bold">
-                📷 {{ expandedPhotos.has(r.id) ? '收起' : '收據照片' }}
-              </button>
-              <a v-if="expandedPhotos.has(r.id)" :href="r.photo_url" target="_blank" rel="noopener">
-                <img :src="r.photo_url" class="mt-1 h-28 w-auto rounded-lg border border-slate-200 object-cover cursor-pointer" />
+            <div v-if="r.photo_url && !r.attachments?.length" class="mt-2" @click.stop>
+              <a :href="resolveUrl(r.photo_url)" target="_blank" rel="noopener">
+                <img :src="resolveUrl(r.photo_url)" class="h-24 w-auto rounded-lg border border-slate-200 object-cover cursor-pointer" />
               </a>
             </div>
           </div>
@@ -815,18 +816,25 @@ async function confirmAndPay() {
         <div v-if="settledPayments.length" class="mt-4">
           <p class="text-xs text-slate-400 font-bold mb-2">近期已付款</p>
           <div v-for="p in settledPayments" :key="'s-'+p.id"
-            class="rounded-xl shadow-sm p-4 flex items-center gap-3"
+            class="rounded-xl shadow-sm p-4"
             style="background:#f8fafc">
-            <div class="flex-1 min-w-0">
-              <p class="font-bold text-slate-400 text-sm truncate">{{ p.vendor_name || p.note || '未知' }}</p>
-              <p class="text-xs text-slate-300 mt-0.5">{{ fmtDate(p.created_at) }}</p>
+            <div class="flex items-center gap-3">
+              <div class="flex-1 min-w-0">
+                <p class="font-bold text-slate-400 text-sm truncate">{{ p.vendor_name || p.note || '未知' }}</p>
+                <p class="text-xs text-slate-300 mt-0.5">{{ fmtDate(p.created_at) }}</p>
+              </div>
+              <div class="flex flex-col items-end shrink-0">
+                <p class="font-bold text-slate-400 text-sm">${{ fmtMoney(p.amount) }}</p>
+                <span class="text-[9px] font-bold px-1.5 py-0.5 rounded-full mt-0.5"
+                  style="background:#f0fdf4;color:#16a34a">
+                  {{ fmtSettledDate(p.settled_at) }}已付款
+                </span>
+              </div>
             </div>
-            <div class="flex flex-col items-end shrink-0">
-              <p class="font-bold text-slate-400 text-sm">${{ fmtMoney(p.amount) }}</p>
-              <span class="text-[9px] font-bold px-1.5 py-0.5 rounded-full mt-0.5"
-                style="background:#f0fdf4;color:#16a34a">
-                {{ fmtSettledDate(p.settled_at) }}已付款
-              </span>
+            <div v-if="p.photo_url" class="mt-2">
+              <a :href="resolveUrl(p.photo_url)" target="_blank" rel="noopener">
+                <img :src="resolveUrl(p.photo_url)" class="h-24 w-auto rounded-lg border border-slate-200 object-cover cursor-pointer" />
+              </a>
             </div>
           </div>
         </div>

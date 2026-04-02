@@ -5,6 +5,7 @@ from erp.backend.db.session import get_db
 from erp.backend.services import inventory_service
 from erp.backend.services.line_service import send_line_message, get_setting
 from erp.backend.db.models import Vendor, Item
+from erp.backend.api.auth import get_current_user
 
 router = APIRouter()
 
@@ -73,12 +74,16 @@ def delete_item(item_id: int, db: Session = Depends(get_db)):
 
 @router.post("/items/bulk-delete")
 def bulk_delete_items(data: dict, db: Session = Depends(get_db)):
-    from erp.backend.db.models import Item as ItemModel
+    from erp.backend.db.models import Item as ItemModel, StocktakeItem, PurchaseOrderDetail, WasteRecord, InventoryTransaction
     ids = data.get("ids", [])
     deleted = 0
     for item_id in ids:
         item = db.query(ItemModel).filter(ItemModel.id == item_id).first()
         if item:
+            db.query(StocktakeItem).filter(StocktakeItem.item_id == item_id).update({"item_id": None})
+            db.query(PurchaseOrderDetail).filter(PurchaseOrderDetail.item_id == item_id).update({"item_id": None})
+            db.query(WasteRecord).filter(WasteRecord.item_id == item_id).update({"item_id": None})
+            db.query(InventoryTransaction).filter(InventoryTransaction.item_id == item_id).update({"item_id": None})
             db.delete(item)
             deleted += 1
     db.commit()
@@ -142,8 +147,8 @@ class OrderCreate(BaseModel):
     status: Optional[str] = "confirmed"
 
 @router.post("/orders")
-async def create_order(order_data: OrderCreate, db: Session = Depends(get_db)):
-    user_id = 1 # Temporary placeholder
+async def create_order(order_data: OrderCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    user_id = current_user.id
     items_dicts = [item.dict() for item in order_data.items]
     order = inventory_service.create_purchase_order(
         db, user_id, order_data.vendor_id, items_dicts, order_data.expected_delivery_date,
@@ -251,9 +256,9 @@ class OrderReceive(BaseModel):
     payment_mode: Optional[str] = None  # 'cash' | 'pre_paid' | 'unpaid'
 
 @router.post("/orders/{order_id}/receive")
-def receive_order(order_id: int, receive_data: OrderReceive, db: Session = Depends(get_db)):
+def receive_order(order_id: int, receive_data: OrderReceive, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     from erp.backend.db.models import PurchaseOrder as PO
-    user_id = 1
+    user_id = current_user.id
     # 若叫貨時已標記「已收款」，自動套用 pre_paid
     payment_mode = receive_data.payment_mode
     if not payment_mode:
