@@ -1245,6 +1245,11 @@ async function confirmAndPay() {
                   <img :src="att.file_url" class="w-full h-full object-cover" />
                 </button>
               </div>
+              <div v-else-if="detailRecord.photo_url" class="mt-1">
+                <a :href="resolveUrl(detailRecord.photo_url)" target="_blank" rel="noopener">
+                  <img :src="resolveUrl(detailRecord.photo_url)" class="w-full max-h-48 object-cover rounded-xl border border-slate-200 cursor-pointer" />
+                </a>
+              </div>
               <p v-else class="text-sm text-slate-400">無附件</p>
             </div>
           </template>

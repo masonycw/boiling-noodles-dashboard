@@ -575,12 +575,18 @@ async function confirmImport() {
           <!-- 參考價格 | 安全庫存量 -->
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">參考價格</label>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
+                大單位參考價格
+                <span class="text-gray-600 font-normal text-[11px]">（{{ form.secondary_unit || '箱' }}／單位）</span>
+              </label>
               <input v-model.number="form.price" type="number" min="0" step="0.01" placeholder="—"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
             <div>
-              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">安全庫存量</label>
+              <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
+                安全庫存量
+                <span class="text-gray-600 font-normal text-[11px]">（{{ form.secondary_unit || '大單位' }}）</span>
+              </label>
               <input v-model.number="form.min_stock" type="number" min="0" placeholder="0"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
