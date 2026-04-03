@@ -196,7 +196,7 @@ async function deleteSelected() {
 }
 
 // B1: Drag & Drop 排序
-const isDragging = computed(() => !!search.value.trim() || !!filterVendor.value)
+const isDragging = computed(() => !!search.value.trim())
 const dragFromIdx = ref(null)
 const dragOverIdx = ref(null)
 
