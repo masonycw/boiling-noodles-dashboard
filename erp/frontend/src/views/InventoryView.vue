@@ -1106,11 +1106,13 @@ const payBadge = (o) => {
 function getRenderUnits(item, op) {
   const mode = item[`${op}_unit_mode`] || 'both'
   const units = []
-  if (['both', 'secondary'].includes(mode) && item.secondary_unit) {
-    units.push({ type: 'sec', label: item.secondary_unit, isSec: true })
-  }
+  // 主單位（unit=箱）在上
   if (['both', 'base'].includes(mode)) {
     units.push({ type: 'base', label: item.unit || '個', isSec: false })
+  }
+  // 盤點小單位（secondary_unit=條）在下
+  if (['both', 'secondary'].includes(mode) && item.secondary_unit) {
+    units.push({ type: 'sec', label: item.secondary_unit, isSec: true })
   }
   return units
 }
@@ -1336,7 +1338,7 @@ function setOrder(item, val, type) {
                   <span v-if="isLowStock(item)" class="text-[9px] font-extrabold bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">低庫存</span>
                 </div>
                 <p class="text-[10px] text-slate-400 mt-0.5">
-                  <span v-if="item.secondary_unit" class="text-orange-500 font-bold mr-1">[{{ item.secondary_unit_ratio || 1 }}{{ item.unit }}/{{ item.secondary_unit }}]</span>                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.secondary_unit ? formatDualUnit(item.current_stock || 0, item) : (item.current_stock || 0) }}</span>                  <span v-if="!item.secondary_unit">{{ item.unit }}</span><span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>                </p>
+                  <span v-if="item.secondary_unit" class="text-orange-500 font-bold mr-1">[{{ item.secondary_unit_ratio || 1 }}{{ item.secondary_unit }}/{{ item.unit }}]</span>                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.secondary_unit ? formatDualUnit(item.current_stock || 0, item) : (item.current_stock || 0) }}</span>                  <span v-if="!item.secondary_unit">{{ item.unit }}</span><span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>                </p>
               </div>
               <!-- 叫貨控制 -->
               <div v-if="modeOrder" class="flex flex-col gap-1 shrink-0">
@@ -1347,11 +1349,11 @@ function setOrder(item, val, type) {
                     :value="getOrder(item, u.type) || ''"
                     @input="setOrder(item, $event.target.value, u.type)"
                     type="number" min="0" :placeholder="u.label"
-  
                   class="w-12 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none"
                   :class="item.qty>0?'border-orange-500 text-orange-600':'border-slate-200 text-slate-800'" />
                   <button @click="setOrder(item, getOrder(item, u.type)+1, u.type)"
                   class="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center font-bold text-orange-600 active:bg-orange-200 text-lg leading-none">+</button>
+                  <span class="text-[10px] text-slate-400 w-5 shrink-0">{{ u.label }}</span>
                 </div>
               </div>
               <!-- 實盤控制 -->
@@ -1362,11 +1364,12 @@ function setOrder(item, val, type) {
                   <input
                     :value="getActual(item, u.type) ?? ''"
                     @input="setActual(item, $event.target.value, u.type)"
-                    type="number" min="0" :placeholder="u.isSec ? item.secondary_unit : `${item.current_stock || 0}`"
+                    type="number" min="0" :placeholder="u.label"
                   class="w-14 text-center border-b-2 font-extrabold text-base bg-transparent focus:outline-none"
                   :class="getActual(item, u.type) !== null && getActual(item, u.type) !== '' ? 'border-blue-500 text-blue-700' : 'border-slate-200 text-slate-400'" />
                   <button @click="setActual(item, (getActual(item, u.type)||0)+1, u.type)"
                   class="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center font-bold text-blue-600 active:bg-blue-100 text-lg leading-none">+</button>
+                  <span class="text-[10px] text-slate-400 w-5 shrink-0">{{ u.label }}</span>
                 </div>
                 <!-- 雙單位合計顯示（有 secondary_unit 時才顯示） -->
                 <div v-if="item.secondary_unit && item.actual_qty != null"
@@ -1386,7 +1389,7 @@ function setOrder(item, val, type) {
                   <span v-if="isLowStock(item)" class="text-[9px] font-extrabold bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">低庫存</span>
                 </div>
                 <p class="text-[10px] text-slate-400 mt-0.5">
-                  <span v-if="item.secondary_unit" class="text-orange-500 font-bold mr-1">[{{ item.secondary_unit_ratio || 1 }}{{ item.unit }}/{{ item.secondary_unit }}]</span>                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.secondary_unit ? formatDualUnit(item.current_stock || 0, item) : (item.current_stock || 0) }}</span>                  <span v-if="!item.secondary_unit">{{ item.unit }}</span><span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>                </p>
+                  <span v-if="item.secondary_unit" class="text-orange-500 font-bold mr-1">[{{ item.secondary_unit_ratio || 1 }}{{ item.secondary_unit }}/{{ item.unit }}]</span>                  庫存 <span :class="isLowStock(item) ? 'text-red-500 font-bold' : 'text-slate-500'">{{ item.secondary_unit ? formatDualUnit(item.current_stock || 0, item) : (item.current_stock || 0) }}</span>                  <span v-if="!item.secondary_unit">{{ item.unit }}</span><span v-if="item.price" class="ml-1 text-orange-500"> ${{ fmtMoney(item.price) }}</span>                </p>
               </div>
             </div>
             <div class="flex gap-2">

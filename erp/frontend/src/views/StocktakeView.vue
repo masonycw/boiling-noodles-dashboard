@@ -426,11 +426,13 @@ async function openDiscrepancy(item) {
 function getRenderUnits(item, op) {
   const mode = item[`${op}_unit_mode`] || 'both'
   const units = []
-  if (['both', 'secondary'].includes(mode) && item.secondary_unit) {
-    units.push({ type: 'sec', label: item.secondary_unit, isSec: true })
-  }
+  // 主單位（unit=箱）在上
   if (['both', 'base'].includes(mode)) {
     units.push({ type: 'base', label: item.unit || '個', isSec: false })
+  }
+  // 盤點小單位（secondary_unit=條）在下
+  if (['both', 'secondary'].includes(mode) && item.secondary_unit) {
+    units.push({ type: 'sec', label: item.secondary_unit, isSec: true })
   }
   return units
 }
