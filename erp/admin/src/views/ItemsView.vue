@@ -214,10 +214,18 @@ function onDragEnd() {
   if (isDragging.value || dragFromIdx.value === null || dragOverIdx.value === null || dragFromIdx.value === dragOverIdx.value) {
     dragFromIdx.value = null; dragOverIdx.value = null; return
   }
-  const arr = [...items.value]
+  // 用 filtered（當前顯示的清單）做重排，再回寫到 items
+  const arr = [...filtered.value]
   const [moved] = arr.splice(dragFromIdx.value, 1)
   arr.splice(dragOverIdx.value, 0, moved)
-  items.value = arr.map((it, i) => ({ ...it, sort_order: i + 1 }))
+  // 把重排後的 id 順序對應回 items.value
+  const idOrder = arr.map(i => i.id)
+  const itemMap = Object.fromEntries(items.value.map(i => [i.id, i]))
+  const reordered = idOrder.map(id => itemMap[id])
+  // 其餘不在 filtered 的品項保留在原本位置後面
+  const filteredIds = new Set(idOrder)
+  const rest = items.value.filter(i => !filteredIds.has(i.id))
+  items.value = [...reordered, ...rest].map((it, i) => ({ ...it, sort_order: i + 1 }))
   dragFromIdx.value = null; dragOverIdx.value = null
   saveReorder()
 }
