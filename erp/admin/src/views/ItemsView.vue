@@ -532,8 +532,8 @@ async function confirmImport() {
               <select v-model="form.order_unit_mode"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
                 <option value="both">大小單位並存</option>
-                <option value="base">僅小單位（{{ form.unit || '罐' }}）</option>
-                <option value="secondary">僅大單位（{{ form.secondary_unit || '箱' }}）</option>
+                <option value="base">僅大單位（{{ form.unit || '箱' }}）</option>
+                <option value="secondary">僅小單位（{{ form.secondary_unit || '條' }}）</option>
               </select>
             </div>
             <div>
@@ -541,8 +541,8 @@ async function confirmImport() {
               <select v-model="form.stocktake_unit_mode"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]">
                 <option value="both">大小單位並存</option>
-                <option value="base">僅小單位（{{ form.unit || '罐' }}）</option>
-                <option value="secondary">僅大單位（{{ form.secondary_unit || '箱' }}）</option>
+                <option value="base">僅大單位（{{ form.unit || '箱' }}）</option>
+                <option value="secondary">僅小單位（{{ form.secondary_unit || '條' }}）</option>
               </select>
             </div>
           </div>

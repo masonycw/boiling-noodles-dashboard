@@ -128,9 +128,9 @@ function calcTotalOrder(item) {
   if (c.orderBase === null && c.orderSec === null) c.order = null
   else c.order = ((c.orderSec ?? 0) * (parseFloat(item.secondary_unit_ratio) || 1)) + (c.orderBase ?? 0)
 }
-function getActual(id, type = 'base') { return counts.value[id]?.[type === 'sec' ? 'actualSec' : 'actualBase'] ?? counts.value[id]?.actual ?? null }
+function getActual(id, type = 'base') { return counts.value[id]?.[type === 'sec' ? 'actualSec' : 'actualBase'] ?? null }
 function getActualTotal(id) { return counts.value[id]?.actual ?? null }
-function getOrder(id, type = 'base') { return counts.value[id]?.[type === 'sec' ? 'orderSec' : 'orderBase'] ?? counts.value[id]?.order ?? null }
+function getOrder(id, type = 'base') { return counts.value[id]?.[type === 'sec' ? 'orderSec' : 'orderBase'] ?? null }
 function getOrderTotal(id) { return counts.value[id]?.order ?? null }
 
 function setActual(item, val, type = 'base') {

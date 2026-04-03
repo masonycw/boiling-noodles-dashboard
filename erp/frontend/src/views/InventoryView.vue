@@ -163,10 +163,16 @@ function saveDraft() {
       vendorName: selectedVendor.value.name,
       modeOrder: modeOrder.value,
       modeStocktake: modeStocktake.value,
-      qtys: toRaw(items.value).filter(i => i.qty > 0).map(i => ({ id: i.id, qty: i.qty })),
+      qtys: toRaw(items.value).filter(i => i.qty > 0).map(i => ({
+        id: i.id, qty: i.qty,
+        orderBase: i.orderBase ?? null, orderSec: i.orderSec ?? null
+      })),
       stocktakeQtys: toRaw(items.value)
         .filter(i => i.actual_qty != null && i.actual_qty !== '')
-        .map(i => ({ id: i.id, actual_qty: i.actual_qty })),
+        .map(i => ({
+          id: i.id, actual_qty: i.actual_qty,
+          actualBase: i.actualBase ?? null, actualSec: i.actualSec ?? null
+        })),
       adHocItems: toRaw(adHocItems.value),
       expectedDeliveryDate: expectedDeliveryDate.value
     }
@@ -231,16 +237,24 @@ async function resumeDraft(draft) {
     await selectVendor(v)
     // 恢復叫貨數量
     if (draft.qtys) {
-      draft.qtys.forEach(({ id, qty }) => {
+      draft.qtys.forEach(({ id, qty, orderBase, orderSec }) => {
         const item = items.value.find(i => i.id === id)
-        if (item) item.qty = qty
+        if (item) {
+          item.qty = qty
+          item.orderBase = orderBase ?? null
+          item.orderSec = orderSec ?? null
+        }
       })
     }
     // 恢復盤點數量
     if (draft.stocktakeQtys) {
-      draft.stocktakeQtys.forEach(({ id, actual_qty }) => {
+      draft.stocktakeQtys.forEach(({ id, actual_qty, actualBase, actualSec }) => {
         const item = items.value.find(i => i.id === id)
-        if (item) item.actual_qty = actual_qty
+        if (item) {
+          item.actual_qty = actual_qty
+          item.actualBase = actualBase ?? null
+          item.actualSec = actualSec ?? null
+        }
       })
     }
     // 恢復模式
@@ -1123,20 +1137,26 @@ function initCount(item, op) {
   // But wait, it's easier to just use `item.qtyBase` and `item.qtySec`
 }
 
-function getActual(item, type) { return item[type==='sec'?'actualSec':'actualBase'] ?? item.actual_qty ?? null }
-function setActual(item, val, type) { 
-  const n = val==='' ? null : parseFloat(val);
-  item[type==='sec'?'actualSec':'actualBase'] = isNaN(n) ? null : n;
-  const b = item.actualBase ?? 0, s = item.actualSec ?? 0;
-  item.actual_qty = (item.actualBase===null && item.actualSec===null) ? null : b + s * (parseFloat(item.secondary_unit_ratio)||1);
+function getActual(item, type) {
+  if (type === 'sec') return item.actualSec ?? null
+  return item.actualBase ?? null
+}
+function setActual(item, val, type) {
+  const n = val === '' ? null : parseFloat(val)
+  item[type === 'sec' ? 'actualSec' : 'actualBase'] = isNaN(n) ? null : n
+  const b = item.actualBase ?? 0, s = item.actualSec ?? 0
+  item.actual_qty = (item.actualBase === null && item.actualSec === null) ? null : b + s * (parseFloat(item.secondary_unit_ratio) || 1)
 }
 
-function getOrder(item, type) { return item[type==='sec'?'orderSec':'orderBase'] ?? item.qty ?? (type==='base'?0:null) }
+function getOrder(item, type) {
+  if (type === 'sec') return item.orderSec ?? null
+  return item.orderBase ?? null
+}
 function setOrder(item, val, type) {
-  const n = val==='' ? 0 : parseFloat(val);
-  item[type==='sec'?'orderSec':'orderBase'] = isNaN(n) ? 0 : n;
-  const b = item.orderBase ?? 0, s = item.orderSec ?? 0;
-  item.qty = b + s * (parseFloat(item.secondary_unit_ratio)||1);
+  const n = val === '' ? null : parseFloat(val)
+  item[type === 'sec' ? 'orderSec' : 'orderBase'] = isNaN(n) ? null : n
+  const b = item.orderBase ?? 0, s = item.orderSec ?? 0
+  item.qty = ((item.orderBase === null && item.orderSec === null) ? 0 : b + s * (parseFloat(item.secondary_unit_ratio) || 1))
 }
 
 </script>
