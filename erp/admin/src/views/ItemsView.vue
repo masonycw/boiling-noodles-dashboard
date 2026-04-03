@@ -135,7 +135,7 @@ async function save() {
   if (!form.value.name.trim()) { saveError.value = '請填入品項名稱'; return }
   if (!form.value.unit.trim()) { saveError.value = '請填入單位'; return }
   if (!form.value.vendor_id) { saveError.value = '請選擇供應商'; return }
-  // 若沒有填第二單位，清掉相關欄位
+  // 若沒有填盤點小單位，清掉換算比例
   if (!form.value.secondary_unit) {
     form.value.secondary_unit = null
     form.value.secondary_unit_ratio = null
@@ -495,37 +495,37 @@ async function confirmImport() {
               class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
           </div>
 
-          <!-- 叫貨大單位 | 計算小單位 -->
+          <!-- 單位 | 盤點小單位 -->
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                叫貨大單位
-                <span class="text-gray-600 font-normal text-[11px]">（如：箱，選填）</span>
+                單位 <span class="text-red-400">*</span>
+                <span class="text-gray-600 font-normal text-[11px]">（如：箱）</span>
               </label>
-              <input v-model="form.secondary_unit" type="text" placeholder="箱 / 盒 / 袋（留空不啟用）"
+              <input v-model="form.unit" type="text" placeholder="箱 / 包 / 瓶"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
             <div>
               <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                計算小單位 <span class="text-red-400">*</span>
-                <span class="text-gray-600 font-normal text-[11px]">（如：罐）</span>
+                盤點小單位
+                <span class="text-gray-600 font-normal text-[11px]">（如：罐，選填）</span>
               </label>
-              <input v-model="form.unit" type="text" placeholder="罐 / 包 / 瓶"
+              <input v-model="form.secondary_unit" type="text" placeholder="罐 / 個 / 片（留空不啟用）"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
             </div>
           </div>
 
-          <!-- 換算比例（只有填了第二單位才顯示） -->
+          <!-- 換算比例（只有填了盤點小單位才顯示） -->
           <div v-if="form.secondary_unit">
             <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
               換算比例
-              <span class="text-gray-600 font-normal text-[11px]">（1 {{ form.secondary_unit }} = ? {{ form.unit || '小單位' }}）</span>
+              <span class="text-gray-600 font-normal text-[11px]">（1 {{ form.unit || '單位' }} = ? {{ form.secondary_unit || '小單位' }}）</span>
             </label>
             <input v-model.number="form.secondary_unit_ratio" type="number" min="0" step="1" placeholder="例如: 24"
               class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
           </div>
 
-          <!-- 叫貨 | 盤點單位模式（只有填了第二單位才顯示） -->
+          <!-- 叫貨 | 盤點單位模式（只有填了盤點小單位才顯示） -->
           <div v-if="form.secondary_unit" class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">叫貨模式</label>
@@ -576,8 +576,8 @@ async function confirmImport() {
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
-                大單位參考價格
-                <span class="text-gray-600 font-normal text-[11px]">（{{ form.secondary_unit || '箱' }}／單位）</span>
+                參考價格
+                <span class="text-gray-600 font-normal text-[11px]">（{{ form.unit || '主單位' }}／單位）</span>
               </label>
               <input v-model.number="form.price" type="number" min="0" step="0.01" placeholder="—"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
@@ -585,7 +585,7 @@ async function confirmImport() {
             <div>
               <label class="block text-[#9ca3af] text-[13px] font-semibold mb-1">
                 安全庫存量
-                <span class="text-gray-600 font-normal text-[11px]">（{{ form.secondary_unit || '大單位' }}）</span>
+                <span class="text-gray-600 font-normal text-[11px]">（{{ form.unit || '主單位' }}）</span>
               </label>
               <input v-model.number="form.min_stock" type="number" min="0" placeholder="0"
                 class="w-full bg-[#0f1117] border border-[#2d3748] text-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#63b3ed]" />
